@@ -38,7 +38,7 @@ def safe(fn, msg):
 # ===============================================================
 # 🔧 API METEOBAHIA (7 días) — OPCIONAL (no usada en esta versión)
 # ===============================================================
-API_URL = "https://meteobahia.com.ar/scripts/forecast/for-ta.xml"
+API_URL = "https://meteobahia.com.ar/scripts/forecast/for-bd.xml"
 
 def _to_float(x):
     try:
