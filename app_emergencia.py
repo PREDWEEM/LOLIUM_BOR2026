@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM v7.2 — LOLIUM BORDENAVE 2026
 # - ANN → EMERREL diaria
@@ -15,13 +16,23 @@ import matplotlib.pyplot as plt
 import pickle, requests, xml.etree.ElementTree as ET
 from pathlib import Path
 
-# ===============================================================
-# 🔧 CONFIG STREAMLIT
-# ===============================================================
+# ---------------------------------------------------------
+# CONFIG STREAMLIT + ESTILO
+# ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM v7.2 – LOLIUM BORDENAVE 2026",
+    page_title="PREDWEEM v7.2 – LOLIUM BALCARCE 2026",
     layout="wide",
 )
+
+st.markdown("""
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header [data-testid="stToolbar"] {visibility: hidden;}
+.viewerBadge_container__1QSob {visibility: hidden;}
+.stAppDeployButton {display: none;}
+</style>
+""", unsafe_allow_html=True)
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
@@ -238,7 +249,6 @@ def radar_multiseries(values_dict, labels, title):
 # ===============================================================
 st.title("🌾 PREDWEEM v7.2 — LOLIUM BORDENAVE 2026")
 
-# ---- Controles de post-proceso en el sidebar ----
 with st.sidebar:
     st.header("Ajustes de emergencia")
     use_smoothing = st.checkbox("Suavizar EMERREL", value=True)
@@ -260,9 +270,6 @@ df = pd.read_csv(path_daily, parse_dates=["Fecha"])
 df = df.dropna(subset=["Fecha"]).sort_values("Fecha").reset_index(drop=True)
 df["Julian_days"] = df["Fecha"].dt.dayofyear
 
-# ===============================================================
-# 🔧 ANN → EMERREL cruda + POST-PROCESO
-# ===============================================================
 X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
 emerrel_raw, emerac_raw = modelo_ann.predict(X)
 
@@ -280,417 +287,404 @@ dias   = df["Julian_days"].to_numpy()
 fechas = df["Fecha"].to_numpy()
 
 # ===============================================================
-# 🔧 GRÁFICOS MOSTRATIVOS EMERREL / EMERAC  (EJE X = FECHAS REALES)
+# 🔧 TABS PRINCIPALES
 # ===============================================================
-st.subheader("🔍 EMERGENCIA diaria y acumulada — Cruda vs Procesada")
+tab_diag, tab_patrones = st.tabs([
+    "🔎 Diagnóstico 2026 (ANN + centroides)",
+    "📚 Guía de patrones (Temprano vs Tardío)"
+])
 
-col_er, col_ac = st.columns(2)
+# ===============================================================
+# TAB 1 — DIAGNÓSTICO 2026
+# ===============================================================
+with tab_diag:
 
-# ---------------------------------------------------------------
-# EMERREL diaria (cruda vs procesada)
-# ---------------------------------------------------------------
-with col_er:
-    fig_er, ax_er = plt.subplots(figsize=(5,4))
+    # -----------------------------------------------------------
+    # GRÁFICOS MOSTRATIVOS EMERREL / EMERAC  (EJE X = FECHAS REALES)
+    # -----------------------------------------------------------
+    st.subheader("🔍 EMERGENCIA diaria y acumulada — Cruda vs Procesada")
 
-    ax_er.plot(
-        fechas, emerrel_raw,
-        label="EMERREL cruda (ANN)",
-        color="red",
-        alpha=0.6
-    )
+    col_er, col_ac = st.columns(2)
 
-    ax_er.plot(
-        fechas, emerrel,
-        label="EMERREL procesada",
-        color="blue",
-        linewidth=2
-    )
+    # EMERREL diaria (cruda vs procesada)
+    with col_er:
+        fig_er, ax_er = plt.subplots(figsize=(5,4))
 
-    ax_er.set_xlabel("Fecha calendario real")
-    ax_er.set_ylabel("EMERREL (fracción diaria)")
-    ax_er.set_title("EMERREL: ANN vs post-proceso")
-    ax_er.legend()
-    fig_er.autofmt_xdate()
-
-    st.pyplot(fig_er)
-
-# ---------------------------------------------------------------
-# EMERAC acumulada (cruda vs procesada)
-# ---------------------------------------------------------------
-with col_ac:
-    fig_ac, ax_ac = plt.subplots(figsize=(5,4))
-
-    # Curva cruda normalizada cuando corresponde
-    if emerac_raw[-1] > 0:
-        ax_ac.plot(
-            fechas, emerac_raw / emerac_raw[-1],
-            label="EMERAC cruda (normalizada)",
-            color="orange",
-            alpha=0.6
-        )
-    else:
-        ax_ac.plot(
-            fechas, emerac_raw,
-            label="EMERAC cruda",
-            color="orange",
+        ax_er.plot(
+            fechas, emerrel_raw,
+            label="EMERREL cruda (ANN)",
+            color="red",
             alpha=0.6
         )
 
-    # Curva procesada normalizada
-    if emerac[-1] > 0:
-        ax_ac.plot(
-            fechas, emerac / emerac[-1],
-            label="EMERAC procesada (normalizada)",
-            color="green",
-            linewidth=2
-        )
-    else:
-        ax_ac.plot(
-            fechas, emerac,
-            label="EMERAC procesada",
-            color="green",
+        ax_er.plot(
+            fechas, emerrel,
+            label="EMERREL procesada",
+            color="blue",
             linewidth=2
         )
 
-    ax_ac.set_xlabel("Fecha calendario real")
-    ax_ac.set_ylabel("EMERAC (0–1 relativo al período)")
-    ax_ac.set_title("EMERAC: ANN vs post-proceso")
-    ax_ac.legend()
-    fig_ac.autofmt_xdate()
+        ax_er.set_xlabel("Fecha calendario real")
+        ax_er.set_ylabel("EMERREL (fracción diaria)")
+        ax_er.set_title("EMERREL: ANN vs post-proceso")
+        ax_er.legend()
+        fig_er.autofmt_xdate()
 
-    st.pyplot(fig_ac)
+        st.pyplot(fig_er)
 
-# ===============================================================
-# 🔧 COBERTURA TEMPORAL Y CALIDAD DE INFORMACIÓN
-# ===============================================================
-st.subheader("🗓️ Cobertura temporal de los datos")
+    # EMERAC acumulada (cruda vs procesada)
+    with col_ac:
+        fig_ac, ax_ac = plt.subplots(figsize=(5,4))
 
-JD_START = int(dias.min())
-JD_END   = int(dias.max())
-TEMPORADA_MAX = 274  # 1-ene → 1-oct, aprox. temporada completa
-cobertura = (JD_END - JD_START + 1) / TEMPORADA_MAX
+        # Curva cruda normalizada cuando corresponde
+        if emerac_raw[-1] > 0:
+            ax_ac.plot(
+                fechas, emerac_raw / emerac_raw[-1],
+                label="EMERAC cruda (normalizada)",
+                color="orange",
+                alpha=0.6
+            )
+        else:
+            ax_ac.plot(
+                fechas, emerac_raw,
+                label="EMERAC cruda",
+                color="orange",
+                alpha=0.6
+            )
 
-st.write({
-    "Fecha inicio datos": str(df["Fecha"].iloc[0].date()),
-    "Fecha fin datos":    str(df["Fecha"].iloc[-1].date()),
-    "JD inicio": JD_START,
-    "JD fin":    JD_END,
-    "Cobertura relativa de temporada (~1-ene a 1-oct)": f"{cobertura*100:.1f} %",
-})
+        # Curva procesada normalizada
+        if emerac[-1] > 0:
+            ax_ac.plot(
+                fechas, emerac / emerac[-1],
+                label="EMERAC procesada (normalizada)",
+                color="green",
+                linewidth=2
+            )
+        else:
+            ax_ac.plot(
+                fechas, emerac,
+                label="EMERAC procesada",
+                color="green",
+                linewidth=2
+            )
 
-# ===============================================================
-# 🔧 PERCENTILES SOBRE CURVA TRUNCADA
-# ===============================================================
-res = calc_percentiles_trunc(dias, emerac)
+        ax_ac.set_xlabel("Fecha calendario real")
+        ax_ac.set_ylabel("EMERAC (0–1 relativo al período)")
+        ax_ac.set_title("EMERAC: ANN vs post-proceso")
+        ax_ac.legend()
+        fig_ac.autofmt_xdate()
 
-if res is None:
-    st.error("No se pudieron calcular percentiles.")
-    st.stop()
+        st.pyplot(fig_ac)
 
-d25, d50, d75, d95 = res
+    # -----------------------------------------------------------
+    # COBERTURA TEMPORAL Y CALIDAD DE INFORMACIÓN
+    # -----------------------------------------------------------
+    st.subheader("🗓️ Cobertura temporal de los datos")
 
-st.subheader("📌 Percentiles simulados del año (sobre lo emergido hasta la fecha)")
-st.write({
-    "d25 (del período observado)": round(d25, 1),
-    "d50 (del período observado)": round(d50, 1),
-    "d75 (del período observado)": round(d75, 1),
-    "d95 (del período observado)": round(d95, 1)
-})
+    JD_START = int(dias.min())
+    JD_END   = int(dias.max())
+    TEMPORADA_MAX = 274  # 1-ene → 1-oct, aprox. temporada completa
+    cobertura = (JD_END - JD_START + 1) / TEMPORADA_MAX
 
-# ===============================================================
-# 🔧 CLASIFICACIÓN + CONFIANZA
-# ===============================================================
-entrada_sc = scaler_cl.transform([[d25, d50, d75, d95]])
-cl = int(model_cl.predict(entrada_sc)[0])
+    st.write({
+        "Fecha inicio datos": str(df["Fecha"].iloc[0].date()),
+        "Fecha fin datos":    str(df["Fecha"].iloc[-1].date()),
+        "JD inicio": JD_START,
+        "JD fin":    JD_END,
+        "Cobertura relativa de temporada (~1-ene a 1-oct)": f"{cobertura*100:.1f} %",
+    })
 
-nombres = {1: "🌱 Temprano / Compacto", 0: "🌾 Extendido / Lento"}
-colors  = {1: "green", 0: "orange"}
+    # -----------------------------------------------------------
+    # PERCENTILES SOBRE CURVA TRUNCADA
+    # -----------------------------------------------------------
+    res = calc_percentiles_trunc(dias, emerac)
 
-st.markdown(f"""
-## 🎯 Patrón del año (basado en datos parciales):
-### <span style='color:{colors[cl]}; font-size:30px;'>{nombres[cl]}</span>
-""", unsafe_allow_html=True)
+    if res is None:
+        st.error("No se pudieron calcular percentiles.")
+        st.stop()
 
-# ===============================================================
-# 🔧 CURVAS COMPARATIVAS
-# ===============================================================
-st.subheader("Curva del año vs centroides históricos (forma normalizada)")
+    d25, d50, d75, d95 = res
 
-dias_x,   curva_x    = curva([d25, d50, d75, d95])
-dias_ext, curva_ext  = curva(centroides[0])
-dias_temp, curva_temp = curva(centroides[1])
+    st.subheader("📌 Percentiles simulados del año (sobre lo emergido hasta la fecha)")
+    st.write({
+        "d25 (del período observado)": round(d25, 1),
+        "d50 (del período observado)": round(d50, 1),
+        "d75 (del período observado)": round(d75, 1),
+        "d95 (del período observado)": round(d95, 1)
+    })
 
-fig, ax = plt.subplots(figsize=(9,5))
-ax.plot(dias_x,    curva_x,    lw=3, label="Año evaluado (parcial)",   color="blue")
-ax.plot(dias_temp, curva_temp, lw=2, label="Centroide Temprano",       color="green")
-ax.plot(dias_ext,  curva_ext,  lw=2, label="Centroide Extendido",      color="orange")
-ax.set_xlabel("Día juliano (escala normalizada)")
-ax.set_ylabel("EMERAC relativa (0–1)")
-ax.legend()
-st.pyplot(fig)
+    # -----------------------------------------------------------
+    # CLASIFICACIÓN + CONFIANZA
+    # -----------------------------------------------------------
+    entrada_sc = scaler_cl.transform([[d25, d50, d75, d95]])
+    cl = int(model_cl.predict(entrada_sc)[0])
 
-# ===============================================================
-# 🔧 RADAR MULTISERIES
-# ===============================================================
-st.subheader("Radar comparativo del patrón")
+    nombres = {1: "🌱 Temprano / Compacto", 0: "🌾 Extendido / Lento"}
+    colors  = {1: "green", 0: "orange"}
 
-vals_year = [d25, d50, d75, d95]
-vals_temp = list(centroides[1])
-vals_ext  = list(centroides[0])
+    st.markdown(f"""
+    ## 🎯 Patrón del año (basado en datos parciales):
+    ### <span style='color:{colors[cl]}; font-size:30px;'>{nombres[cl]}</span>
+    """, unsafe_allow_html=True)
 
-fig_rad = radar_multiseries(
-    {
-        "Año evaluado": vals_year,
-        "Temprano": vals_temp,
-        "Extendido": vals_ext
-    },
-    labels=["d25", "d50", "d75", "d95"],
-    title="Radar — Año Evaluado (parcial) vs Temprano vs Extendido"
-)
+    # -----------------------------------------------------------
+    # CURVAS COMPARATIVAS
+    # -----------------------------------------------------------
+    st.subheader("Curva del año vs centroides históricos (forma normalizada)")
 
-st.pyplot(fig_rad)
+    dias_x,   curva_x     = curva([d25, d50, d75, d95])
+    dias_ext, curva_ext   = curva(centroides[0])
+    dias_temp, curva_temp = curva(centroides[1])
 
-# ===============================================================
-# 🔧 CERTEZA TEMPORAL DEL PATRÓN + MOMENTO CRÍTICO (FECHA REAL)
-# ===============================================================
-st.subheader("📈 Certeza temporal del patrón (día por día)")
+    fig, ax = plt.subplots(figsize=(9,5))
+    ax.plot(dias_x,    curva_x,    lw=3, label="Año evaluado (parcial)",   color="blue")
+    ax.plot(dias_temp, curva_temp, lw=2, label="Centroide Temprano",       color="green")
+    ax.plot(dias_ext,  curva_ext,  lw=2, label="Centroide Extendido",      color="orange")
+    ax.set_xlabel("Día juliano (escala normalizada)")
+    ax.set_ylabel("EMERAC relativa (0–1)")
+    ax.legend()
+    st.pyplot(fig)
 
-probs_temp = []
-probs_ext  = []
-dias_eval  = []
-fechas_eval = []
+    # -----------------------------------------------------------
+    # RADAR MULTISERIES
+    # -----------------------------------------------------------
+    st.subheader("Radar comparativo del patrón")
 
-for i in range(5, len(df)):
+    vals_year = [d25, d50, d75, d95]
+    vals_temp = list(centroides[1])
+    vals_ext  = list(centroides[0])
 
-    dias_parc   = dias[:i]
-    emerac_parc = emerac[:i]
-    fechas_parc = df["Fecha"].iloc[:i]
-
-    res_parc = calc_percentiles_trunc(dias_parc, emerac_parc)
-    if res_parc is None:
-        continue
-
-    d25_p, d50_p, d75_p, d95_p = res_parc
-
-    entrada_sc_parc = scaler_cl.transform([[d25_p, d50_p, d75_p, d95_p]])
-
-    # Distancias a centroides en espacio escaleado
-    d_ext = np.linalg.norm(
-        entrada_sc_parc - model_cl.cluster_centers_[0].reshape(1, -1)
+    fig_rad = radar_multiseries(
+        {
+            "Año evaluado": vals_year,
+            "Temprano": vals_temp,
+            "Extendido": vals_ext
+        },
+        labels=["d25", "d50", "d75", "d95"],
+        title="Radar — Año Evaluado (parcial) vs Temprano vs Extendido"
     )
-    d_temp = np.linalg.norm(
-        entrada_sc_parc - model_cl.cluster_centers_[1].reshape(1, -1)
-    )
 
-    # Probabilidades ~ inverso de la distancia
-    if d_ext == 0 and d_temp == 0:
-        prob_temp = 0.5
-        prob_ext  = 0.5
+    st.pyplot(fig_rad)
+
+    # -----------------------------------------------------------
+    # CERTEZA TEMPORAL DEL PATRÓN + MOMENTO CRÍTICO (FECHA REAL)
+    # -----------------------------------------------------------
+    st.subheader("📈 Certeza temporal del patrón (día por día)")
+
+    probs_temp = []
+    probs_ext  = []
+    dias_eval  = []
+    fechas_eval = []
+
+    for i in range(5, len(df)):
+
+        dias_parc   = dias[:i]
+        emerac_parc = emerac[:i]
+        fechas_parc = df["Fecha"].iloc[:i]
+
+        res_parc = calc_percentiles_trunc(dias_parc, emerac_parc)
+        if res_parc is None:
+            continue
+
+        d25_p, d50_p, d75_p, d95_p = res_parc
+
+        entrada_sc_parc = scaler_cl.transform([[d25_p, d50_p, d75_p, d95_p]])
+
+        # Distancias a centroides en espacio escalado
+        d_ext = np.linalg.norm(
+            entrada_sc_parc - model_cl.cluster_centers_[0].reshape(1, -1)
+        )
+        d_temp = np.linalg.norm(
+            entrada_sc_parc - model_cl.cluster_centers_[1].reshape(1, -1)
+        )
+
+        # Probabilidades ~ inverso de la distancia
+        if d_ext == 0 and d_temp == 0:
+            prob_temp = 0.5
+            prob_ext  = 0.5
+        else:
+            w_ext  = 1.0 / (d_ext + 1e-9)
+            w_temp = 1.0 / (d_temp + 1e-9)
+            s = w_ext + w_temp
+            prob_temp = w_temp / s
+            prob_ext  = w_ext / s
+
+        dias_eval.append(dias_parc[-1])
+        fechas_eval.append(fechas_parc.iloc[-1])
+        probs_temp.append(prob_temp)
+        probs_ext.append(prob_ext)
+
+    # ----- Determinar patrón resultante (cl ya calculado arriba) -----
+    if cl == 1:
+        probs_clase   = probs_temp
+        nombre_clase  = "Temprano / Compacto"
+        color_clase   = "green"
     else:
-        w_ext  = 1.0 / (d_ext + 1e-9)
-        w_temp = 1.0 / (d_temp + 1e-9)
-        s = w_ext + w_temp
-        prob_temp = w_temp / s
-        prob_ext  = w_ext / s
+        probs_clase   = probs_ext
+        nombre_clase  = "Extendido / Lento"
+        color_clase   = "orange"
 
-    dias_eval.append(dias_parc[-1])
-    fechas_eval.append(fechas_parc.iloc[-1])
-    probs_temp.append(prob_temp)
-    probs_ext.append(prob_ext)
+    # ----- Momento crítico y máxima certeza -----
+    UMBRAL = 0.8  # umbral de decisión
 
-# ----- Determinar patrón resultante (cl ya calculado arriba) -----
-if cl == 1:
-    probs_clase   = probs_temp
-    nombre_clase  = "Temprano / Compacto"
-    color_clase   = "green"
-else:
-    probs_clase   = probs_ext
-    nombre_clase  = "Extendido / Lento"
-    color_clase   = "orange"
+    idx_crit = next((i for i, p in enumerate(probs_clase) if p >= UMBRAL), None)
+    idx_max  = int(np.argmax(probs_clase)) if len(probs_clase) > 0 else None
 
-# ----- Momento crítico y máxima certeza -----
-UMBRAL = 0.8  # umbral de decisión
+    fecha_crit = None
+    prob_crit  = None
+    if idx_crit is not None:
+        fecha_crit = fechas_eval[idx_crit]
+        prob_crit  = probs_clase[idx_crit]
 
-idx_crit = next((i for i, p in enumerate(probs_clase) if p >= UMBRAL), None)
-idx_max  = int(np.argmax(probs_clase)) if len(probs_clase) > 0 else None
+    fecha_max = None
+    prob_max  = None
+    if idx_max is not None:
+        fecha_max = fechas_eval[idx_max]
+        prob_max  = probs_clase[idx_max]
 
-fecha_crit = None
-prob_crit  = None
-if idx_crit is not None:
-    fecha_crit = fechas_eval[idx_crit]
-    prob_crit  = probs_clase[idx_crit]
+    # ----- Gráfico con fechas reales -----
+    figp, axp = plt.subplots(figsize=(9,5))
 
-fecha_max = None
-prob_max  = None
-if idx_max is not None:
-    fecha_max = fechas_eval[idx_max]
-    prob_max  = probs_clase[idx_max]
+    axp.plot(fechas_eval, probs_temp, label="Probabilidad Temprano",  color="green",  lw=2.0)
+    axp.plot(fechas_eval, probs_ext,  label="Probabilidad Extendido", color="orange", lw=2.0)
 
-# ----- Gráfico con fechas reales -----
-figp, axp = plt.subplots(figsize=(9,5))
+    if fecha_crit is not None:
+        axp.axvline(fecha_crit, color=color_clase, linestyle="--", linewidth=2,
+                    label=f"Momento crítico ({nombre_clase})")
 
-axp.plot(fechas_eval, probs_temp, label="Probabilidad Temprano",  color="green",  lw=2.0)
-axp.plot(fechas_eval, probs_ext,  label="Probabilidad Extendido", color="orange", lw=2.0)
+    if fecha_max is not None and (fecha_crit is None or fecha_max != fecha_crit):
+        axp.axvline(fecha_max, color="blue", linestyle=":", linewidth=2,
+                    label="Fecha máxima certeza")
 
-if fecha_crit is not None:
-    axp.axvline(fecha_crit, color=color_clase, linestyle="--", linewidth=2,
-                label=f"Momento crítico ({nombre_clase})")
+    axp.set_ylim(0,1)
+    axp.set_xlabel("Fecha calendario real")
+    axp.set_ylabel("Probabilidad")
+    axp.set_title("Evolución de la certeza del patrón")
+    axp.legend()
+    figp.autofmt_xdate()
+    st.pyplot(figp)
 
-if fecha_max is not None and (fecha_crit is None or fecha_max != fecha_crit):
-    axp.axvline(fecha_max, color="blue", linestyle=":", linewidth=2,
-                label="Fecha máxima certeza")
+    # -----------------------------------------------------------
+    # RESUMEN DE MOMENTO CRÍTICO + CONFIANZA GLOBAL
+    # -----------------------------------------------------------
+    st.markdown("### 🧠 Momento crítico de definición del patrón")
 
-axp.set_ylim(0,1)
-axp.set_xlabel("Fecha calendario real")
-axp.set_ylabel("Probabilidad")
-axp.set_title("Evolución de la certeza del patrón")
-axp.legend()
-figp.autofmt_xdate()
-st.pyplot(figp)
-
-# ===============================================================
-# 🔧 RESUMEN DE MOMENTO CRÍTICO + CONFIANZA GLOBAL
-# ===============================================================
-st.markdown("### 🧠 Momento crítico de definición del patrón")
-
-if fecha_crit is not None:
-    st.write(
-        f"- **Patrón resultante:** {nombre_clase}  \n"
-        f"- **Momento crítico (primer día con prob ≥ {UMBRAL:.0%}):** "
-        f"**{fecha_crit.strftime('%d-%b')}**  \n"
-        f"- **Probabilidad en ese día:** {prob_crit:.2f}  \n"
-        f"- **Fecha de máxima certeza:** {fecha_max.strftime('%d-%b')} "
-        f"(prob = {prob_max:.2f})"
-    )
-elif fecha_max is not None:
-    st.write(
-        f"- **Patrón resultante:** {nombre_clase}  \n"
-        f"- No se alcanza el umbral de {UMBRAL:.0%}, "
-        f"pero la máxima certeza se logra el "
-        f"**{fecha_max.strftime('%d-%b')}** con probabilidad **{prob_max:.2f}**."
-    )
-else:
-    st.info("No se pudo calcular la evolución de probabilidad del patrón.")
-
-# ----- Evaluación de confianza global (ALTA / MEDIA / BAJA) -----
-if prob_max is not None:
-    # Regla heurística combinando cobertura temporal + probabilidad máxima
-    if cobertura >= 0.7 and prob_max >= 0.8:
-        nivel_conf = "ALTA"
-        color_conf = "green"
-    elif cobertura >= 0.4 and prob_max >= 0.65:
-        nivel_conf = "MEDIA"
-        color_conf = "orange"
+    if fecha_crit is not None:
+        st.write(
+            f"- **Patrón resultante:** {nombre_clase}  \n"
+            f"- **Momento crítico (primer día con prob ≥ {UMBRAL:.0%}):** "
+            f"**{fecha_crit.strftime('%d-%b')}**  \n"
+            f"- **Probabilidad en ese día:** {prob_crit:.2f}  \n"
+            f"- **Fecha de máxima certeza:** {fecha_max.strftime('%d-%b')} "
+            f"(prob = {prob_max:.2f})"
+        )
+    elif fecha_max is not None:
+        st.write(
+            f"- **Patrón resultante:** {nombre_clase}  \n"
+            f"- No se alcanza el umbral de {UMBRAL:.0%}, "
+            f"pero la máxima certeza se logra el "
+            f"**{fecha_max.strftime('%d-%b')}** con probabilidad **{prob_max:.2f}**."
+        )
     else:
-        nivel_conf = "BAJA"
-        color_conf = "red"
+        st.info("No se pudo calcular la evolución de probabilidad del patrón.")
 
-    st.markdown(
-        f"### 🔒 Nivel de confianza de la clasificación: "
-        f"<span style='color:{color_conf}; font-size:26px;'>{nivel_conf}</span>",
-        unsafe_allow_html=True
+    # ----- Evaluación de confianza global (ALTA / MEDIA / BAJA) -----
+    if prob_max is not None:
+        # Regla heurística combinando cobertura temporal + probabilidad máxima
+        if cobertura >= 0.7 and prob_max >= 0.8:
+            nivel_conf = "ALTA"
+            color_conf = "green"
+        elif cobertura >= 0.4 and prob_max >= 0.65:
+            nivel_conf = "MEDIA"
+            color_conf = "orange"
+        else:
+            nivel_conf = "BAJA"
+            color_conf = "red"
+
+        st.markdown(
+            f"### 🔒 Nivel de confianza de la clasificación: "
+            f"<span style='color:{color_conf}; font-size:26px;'>{nivel_conf}</span>",
+            unsafe_allow_html=True
+        )
+        st.write(
+            f"- **Cobertura temporal:** {cobertura*100:.1f} % de la temporada estimada  \n"
+            f"- **Probabilidad máxima del patrón resultante:** {prob_max:.2f}"
+        )
+    else:
+        st.info("No se pudo estimar un nivel de confianza para la clasificación.")
+
+# ===============================================================
+# TAB 2 — GUÍA DE PATRONES (TEMPRANO vs TARDÍO)
+# ===============================================================
+with tab_patrones:
+    st.subheader("📊 Tabla comparativa de patrones de emergencia")
+
+    data = {
+        "Rasgo": [
+            "Inicio",
+            "Velocidad",
+            "Concentración",
+            "Fecha 80% EMERAC",
+            "Fecha d95 (fin del proceso)",
+            "Implicancias de manejo"
+        ],
+        "Patrón Temprano": [
+            "Febrero – inicio de marzo",
+            "Muy rápida",
+            "1–2 pulsos concentrados",
+            "Abril",
+            "Fin de abril – inicios de mayo",
+            "Residuales + control temprano (antes del 10 de marzo)"
+        ],
+        "Patrón Tardío / Extendido": [
+            "Mitad de marzo – abril",
+            "Lenta y escalonada",
+            "2–4 pulsos, forma extendida",
+            "Mayo – junio",
+            "Junio – agosto",
+            "Monitoreo prolongado + postemergente tardío"
+        ]
+    }
+
+    df_pat = pd.DataFrame(data)
+    st.dataframe(df_pat, use_container_width=True)
+
+    st.markdown("""
+    ### 🟦🟥 Codificación de patrones utilizada
+
+    - **🟦 Tempranos:** 2008, 2012, 2013, 2025  
+    - **🟥 Tardíos / Extendidos:** 2009, 2010, 2011, 2014, 2015, 2023, 2024  
+
+    Esta clasificación proviene del modelo `modelo_cluster_d25_d50_d75_d95.pkl`
+    (Cluster 1 = Temprano, Cluster 0 = Tardío).
+    """)
+
+    st.subheader("📝 Descripción agronómica sintetizada")
+
+    texto = """
+    Los **patrones tempranos** muestran una emergencia concentrada entre febrero y abril,
+    con más del 80% del total emergido antes del 20 de abril. Estos años suelen requerir
+    **control temprano**, idealmente con residuales previos al 10 de marzo, y monitoreo intensivo
+    en la primera quincena de marzo.
+
+    Los **patrones tardíos y extendidos** desplazan la emergencia hacia abril–junio, con colas
+    que pueden prolongarse hasta agosto. Esto obliga a **mantener estrategias de control
+    postemergente tardías** y ampliar la ventana de monitoreo hasta finales de otoño.
+    """
+    st.markdown(texto)
+
+    csv = df_pat.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        label="⬇️ Descargar tabla en CSV",
+        data=csv,
+        file_name="comparacion_patrones.csv",
+        mime="text/csv"
     )
-    st.write(
-        f"- **Cobertura temporal:** {cobertura*100:.1f} % de la temporada estimada  \n"
-        f"- **Probabilidad máxima del patrón resultante:** {prob_max:.2f}"
-    )
-else:
-    st.info("No se pudo estimar un nivel de confianza para la clasificación.")
 
-# -*- coding: utf-8 -*-
-import streamlit as st
-import pandas as pd
+    st.success("Tabla de referencia de patrones generada correctamente.")
 
-st.set_page_config(
-    page_title="Comparación de Patrones — PREDWEEM",
-    layout="wide"
-)
 
-st.title("🌾 Comparación de Patrones de Emergencia (Temprano vs Tardío)")
-
-# ===============================
-# TABLA FINAL (editable)
-# ===============================
-
-data = {
-    "Rasgo": [
-        "Inicio",
-        "Velocidad",
-        "Concentración",
-        "Fecha 80% EMERAC",
-        "Fecha d95 (fin del proceso)",
-        "Implicancias de manejo"
-    ],
-    "Patrón Temprano": [
-        "Febrero – inicio de marzo",
-        "Muy rápida",
-        "1–2 pulsos concentrados",
-        "Abril",
-        "Fin de abril – inicios de mayo",
-        "Residuales + control temprano (antes del 10 de marzo)"
-    ],
-    "Patrón Tardío / Extendido": [
-        "Mitad de marzo – abril",
-        "Lenta y escalonada",
-        "2–4 pulsos, forma extendida",
-        "Mayo – junio",
-        "Junio – agosto",
-        "Monitoreo prolongado + postemergente tardío"
-    ]
-}
-
-df = pd.DataFrame(data)
-
-st.subheader("📊 Tabla comparativa de patrones de emergencia")
-st.dataframe(df, use_container_width=True)
-
-# ===============================
-# COLOR LABELS POR PATRÓN
-# ===============================
-
-st.markdown("""
-### 🟦🟥 Codificación de patrones utilizada
-
-- **🟦 Tempranos:** 2008, 2012, 2013, 2025  
-- **🟥 Tardíos / Extendidos:** 2009, 2010, 2011, 2014, 2015, 2023, 2024
-
-Esta clasificación proviene del modelo `modelo_cluster_d25_d50_d75_d95.pkl`
-(Cluster 1 = Temprano, Cluster 0 = Tardío).
-""")
-
-# ===============================
-# DESCRIPCIÓN AUTOMÁTICA
-# ===============================
-
-st.subheader("📝 Descripción agronómica sintetizada")
-
-texto = """
-Los **patrones tempranos** muestran una emergencia concentrada entre febrero y abril,
-con más del 80% del total emergido antes del 20 de abril. Estos años suelen requerir
-**control temprano**, idealmente con residuales previos al 10 de marzo, y monitoreo intensivo
-en la primera quincena de marzo.
-
-Los **patrones tardíos y extendidos** desplazan la emergencia hacia abril–junio, con colas
-que pueden prolongarse hasta agosto. Esto obliga a **mantener estrategias de control
-postemergente tardías** y ampliar la ventana de monitoreo hasta finales de otoño.
-"""
-
-st.markdown(texto)
-
-# ===============================
-# DESCARGA DE LA TABLA
-# ===============================
-
-csv = df.to_csv(index=False).encode("utf-8")
-
-st.download_button(
-    label="⬇️ Descargar tabla en CSV",
-    data=csv,
-    file_name="comparacion_patrones.csv",
-    mime="text/csv"
-)
-
-st.success("Tabla generada correctamente.")
 
 
 
