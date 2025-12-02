@@ -383,7 +383,7 @@ with tab_diag:
 
     JD_START = int(dias.min())
     JD_END   = int(dias.max())
-    TEMPORADA_MAX = 274  # 1-ene → 1-oct, aprox. temporada completa
+    TEMPORADA_MAX = 241  # 1-ene → 1-sep, aprox. temporada completa
     cobertura = (JD_END - JD_START + 1) / TEMPORADA_MAX
 
     st.write({
