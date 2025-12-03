@@ -287,6 +287,182 @@ dias   = df["Julian_days"].to_numpy()
 fechas = df["Fecha"].to_numpy()
 
 # ===============================================================
+# 🔥 MAPA DE RIESGO DIARIO DE EMERGENCIA — 4 NIVELES (Nulo, Bajo, Medio, Alto)
+# ===============================================================
+
+st.subheader("🔥 Mapa de riesgo diario de emergencia — 4 niveles")
+
+# Normalización del riesgo
+max_emerrel = df["EMERREL"].max()
+
+if max_emerrel > 0:
+    df["Riesgo"] = df["EMERREL"] / max_emerrel
+else:
+    df["Riesgo"] = 0.0
+
+# Definición de niveles
+def clasificar_riesgo(r):
+    if r <= 0.15:
+        return "Nulo"
+    elif r <= 0.40:
+        return "Bajo"
+    elif r <= 0.65:
+        return "Medio"
+    else:
+        return "Alto"
+
+
+df["Nivel_riesgo"] = df["Riesgo"].apply(clasificar_riesgo)
+
+# Colores por nivel
+color_map = {
+    "Nulo": "white",
+    "Bajo": "green",
+    "Medio": "yellow",
+    "Alto": "red"
+}
+
+# ---------------------------------------------------------------
+# 🔶 Gráfico tipo barras coloreadas por nivel de riesgo
+# ---------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(12, 1.6))
+
+for fecha, nivel in zip(df["Fecha"], df["Nivel_riesgo"]):
+    ax.bar(
+        fecha, 
+        1, 
+        color=color_map[nivel], 
+        edgecolor="black", 
+        width=1
+    )
+
+ax.set_yticks([])
+ax.set_title("Niveles de riesgo diario de emergencia (Nulo, Bajo, Medio, Alto)")
+fig.autofmt_xdate()
+
+st.pyplot(fig)
+
+# ---------------------------------------------------------------
+# Mostrar tabla resumen
+# ---------------------------------------------------------------
+st.write("Tabla de niveles de riesgo por día:")
+st.dataframe(df[["Fecha", "EMERREL", "Riesgo", "Nivel_riesgo"]], use_container_width=True)
+
+
+# ===============================================================
+# 📈 RIESGO ACUMULADO DE EMERGENCIA (diagnóstico temprano)
+# ===============================================================
+st.subheader("📈 Riesgo acumulado de emergencia (diagnóstico temprano)")
+
+# Cálculo del riesgo acumulado
+df["Riesgo_acum_raw"] = df["Riesgo"].cumsum()
+
+# Normalizar a 0–1
+max_acum = df["Riesgo_acum_raw"].max()
+if max_acum > 0:
+    df["Riesgo_acum"] = df["Riesgo_acum_raw"] / max_acum
+else:
+    df["Riesgo_acum"] = 0.0
+
+# Mostrar tabla
+st.write("Riesgo acumulado normalizado (0–1):")
+st.dataframe(df[["Fecha", "Riesgo", "Riesgo_acum"]], use_container_width=True)
+
+# ---------------------------------------------------------------
+# Diagnóstico temprano basado en umbrales
+# ---------------------------------------------------------------
+st.markdown("### 🧠 Diagnóstico temprano (según riesgo acumulado)")
+
+# Definición interpretativa (puede ajustarse)
+if df["Riesgo_acum"].iloc[-1] < 0.20:
+    st.info("➡️ Riesgo acumulado BAJO: el proceso de emergencia está muy atrasado.")
+elif df["Riesgo_acum"].iloc[-1] < 0.50:
+    st.warning("➡️ Riesgo acumulado MEDIO: emergencia en progreso, monitoreo activo.")
+else:
+    st.success("➡️ Riesgo acumulado ALTO: el año está en fase avanzada del proceso.")
+
+# ===============================================================
+# 🎯 DIAGNÓSTICO ANTICIPADO DEL PATRÓN BASADO EN RIESGO ACUMULADO
+# ===============================================================
+st.header("🎯 Diagnóstico anticipado de patrón (Temprano vs Extendido)")
+
+# Selección del valor de riesgo acumulado hasta la fecha actual
+RA = df["Riesgo_acum"].iloc[-1]
+fecha_actual = df["Fecha"].iloc[-1]
+JD_actual = df["Julian_days"].iloc[-1]
+
+st.write(f"**Fecha actual:** {fecha_actual.strftime('%d-%b')} — JD {JD_actual}")
+st.write(f"**Riesgo acumulado al día de hoy:** {RA:.3f}")
+
+# --------------------------------------------
+# Reglas agronómicas para diagnóstico temprano
+# --------------------------------------------
+
+diagnostico = None
+motivo = ""
+
+# 1) Si estamos antes de JD 90 (fines de marzo)
+if JD_actual <= 90:
+    if RA >= 0.30:
+        diagnostico = "Temprano"
+        motivo = "Riesgo temprano alto para esta fecha (RA ≥ 0.30 antes de fin de marzo)."
+    else:
+        diagnostico = "Extendido"
+        motivo = "Riesgo aún bajo para la época (RA < 0.30), indica inicio tardío."
+
+# 2) Entre JD 90 y 120 (abril)
+elif 90 < JD_actual <= 120:
+    if RA >= 0.45:
+        diagnostico = "Temprano"
+        motivo = "Acumulación de riesgo consistente con patrón compacto."
+    elif RA <= 0.25:
+        diagnostico = "Extendido"
+        motivo = "Emergencia lenta, riesgo acumulado muy bajo."
+    else:
+        diagnostico = "Indeterminado"
+        motivo = "Riesgo intermedio: aún no es posible clasificar con certeza."
+
+# 3) Entre JD 120 y 150 (mayo)
+else:
+    if RA >= 0.60:
+        diagnostico = "Temprano"
+        motivo = "Para mayo, RA ≥ 0.60 implica avance acelerado típico del patrón temprano."
+    else:
+        diagnostico = "Extendido"
+        motivo = "Para esta fecha, RA < 0.60 sugiere patrón extendido/lento."
+
+# --------------------------------------------
+# Mostrar resultado
+# --------------------------------------------
+color = {
+    "Temprano": "green",
+    "Extendido": "orange",
+    "Indeterminado": "gray"
+}[diagnostico]
+
+st.markdown(f"""
+### **Diagnóstico anticipado:**
+## <span style='color:{color}; font-size:32px;'>{diagnostico}</span>
+""", unsafe_allow_html=True)
+
+st.write(f"**Motivo:** {motivo}")
+
+# --------------------------------------------
+# Gráfico señalando el punto actual
+# --------------------------------------------
+fig_diag, ax_diag = plt.subplots(figsize=(8,4))
+ax_diag.plot(df["Fecha"], df["Riesgo_acum"], linewidth=3, color="purple")
+ax_diag.scatter(fecha_actual, RA, s=120, color=color, edgecolor="black", zorder=5)
+ax_diag.set_ylim(0, 1)
+ax_diag.set_title("Riesgo acumulado y diagnóstico anticipado")
+ax_diag.set_xlabel("Fecha")
+ax_diag.set_ylabel("Riesgo acumulado (0–1)")
+fig_diag.autofmt_xdate()
+st.pyplot(fig_diag)
+
+
+
+# ===============================================================
 # 🔧 TABS PRINCIPALES
 # ===============================================================
 tab_diag, tab_patrones = st.tabs([
