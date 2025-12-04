@@ -287,66 +287,207 @@ dias   = df["Julian_days"].to_numpy()
 fechas = df["Fecha"].to_numpy()
 
 # ===============================================================
-# 🔥 MAPA DE RIESGO DIARIO DE EMERGENCIA — 4 NIVELES (Nulo, Bajo, Medio, Alto)
+# 🔥 MAPA DE RIESGO — VERSIÓN MODERNA E INTERACTIVA (SEGURO)
 # ===============================================================
+import plotly.express as px
+import plotly.graph_objects as go
 
-st.subheader("🔥 Mapa de riesgo diario de emergencia — 4 niveles")
+st.subheader("🔥 Mapa moderno e interactivo de riesgo de emergencia")
 
-# Normalización del riesgo
-max_emerrel = df["EMERREL"].max()
+# ---------------------------------------------------------------
+# 🛡️ Validación: asegurar que EMERREL está disponible
+# ---------------------------------------------------------------
+if "EMERREL" not in df.columns:
+    st.error("No se encontró la columna EMERREL. Asegurate de ejecutar la ANN antes del mapa de riesgo.")
+    st.stop()
 
-if max_emerrel > 0:
-    df["Riesgo"] = df["EMERREL"] / max_emerrel
-else:
-    df["Riesgo"] = 0.0
-
-# Definición de niveles
-def clasificar_riesgo(r):
-    if r <= 0.15:
-        return "Nulo"
-    elif r <= 0.40:
-        return "Bajo"
-    elif r <= 0.65:
-        return "Medio"
+# ---------------------------------------------------------------
+# 🛡️ Crear columna Riesgo si no existe
+# ---------------------------------------------------------------
+if "Riesgo" not in df.columns:
+    max_emerrel = df["EMERREL"].max()
+    if max_emerrel > 0:
+        df["Riesgo"] = df["EMERREL"] / max_emerrel
     else:
-        return "Alto"
-
-
-df["Nivel_riesgo"] = df["Riesgo"].apply(clasificar_riesgo)
-
-# Colores por nivel
-color_map = {
-    "Nulo": "white",
-    "Bajo": "green",
-    "Medio": "yellow",
-    "Alto": "red"
-}
+        df["Riesgo"] = 0.0
 
 # ---------------------------------------------------------------
-# 🔶 Gráfico tipo barras coloreadas por nivel de riesgo
+# 🛡️ Crear columna Nivel_riesgo si no existe
 # ---------------------------------------------------------------
-fig, ax = plt.subplots(figsize=(12, 1.6))
+if "Nivel_riesgo" not in df.columns:
+    def clasificar_riesgo(r):
+        if r <= 0.10:
+            return "Nulo"
+        elif r <= 0.33:
+            return "Bajo"
+        elif r <= 0.66:
+            return "Medio"
+        else:
+            return "Alto"
+    df["Nivel_riesgo"] = df["Riesgo"].apply(clasificar_riesgo)
 
-for fecha, nivel in zip(df["Fecha"], df["Nivel_riesgo"]):
-    ax.bar(
-        fecha, 
-        1, 
-        color=color_map[nivel], 
-        edgecolor="black", 
-        width=1
+# ---------------------------------------------------------------
+# Copia segura para el gráfico
+# ---------------------------------------------------------------
+df_risk = df.copy()
+df_risk["Fecha_str"] = df_risk["Fecha"].dt.strftime("%d-%b")
+
+# Día con riesgo máximo — protegido
+if df_risk["Riesgo"].max() > 0:
+    idx_max_riesgo = df_risk["Riesgo"].idxmax()
+    fecha_max_riesgo = df_risk.loc[idx_max_riesgo, "Fecha"]
+    valor_max_riesgo = df_risk.loc[idx_max_riesgo, "Riesgo"]
+else:
+    fecha_max_riesgo = None
+    valor_max_riesgo = None
+
+# ---------------------------------------------------------------
+# 🟦 Sidebar visual
+# ---------------------------------------------------------------
+with st.sidebar:
+    st.markdown("### 🎨 Estilo del mapa de riesgo")
+    cmap = st.selectbox(
+        "Mapa de colores",
+        ["viridis", "plasma", "cividis", "turbo", "magma", "inferno", "cool", "warm"],
+        index=0
+    )
+    tipo_barra = st.radio(
+        "Modo de visualización",
+        ["Rectángulo suave (recomendado)", "Barras finas tipo timeline"],
+        index=0
     )
 
-ax.set_yticks([])
-ax.set_title("Niveles de riesgo diario de emergencia (Nulo, Bajo, Medio, Alto)")
-fig.autofmt_xdate()
+# ---------------------------------------------------------------
+# 🔥 Generación del gráfico
+# ---------------------------------------------------------------
+if tipo_barra == "Rectángulo suave (recomendado)":
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=[df_risk["Riesgo"].values],
+            x=df_risk["Fecha"],
+            y=["Riesgo"],
+            colorscale=cmap,
+            zmin=0, zmax=1,
+            showscale=True,
+            hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>",
+        )
+    )
+    fig.update_yaxes(showticklabels=False)
 
-st.pyplot(fig)
+else:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=df_risk["Fecha"],
+            y=df_risk["Riesgo"],
+            marker=dict(color=df_risk["Riesgo"], colorscale=cmap, cmin=0, cmax=1),
+            hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{y:.2f}<extra></extra>",
+        )
+    )
+    fig.update_yaxes(range=[0, 1], title="Riesgo")
 
 # ---------------------------------------------------------------
-# Mostrar tabla resumen
+# ⭐ Anotación segura
 # ---------------------------------------------------------------
-st.write("Tabla de niveles de riesgo por día:")
-st.dataframe(df[["Fecha", "EMERREL", "Riesgo", "Nivel_riesgo"]], use_container_width=True)
+if fecha_max_riesgo is not None:
+    fig.add_annotation(
+        x=fecha_max_riesgo,
+        y=1.05 if tipo_barra != "Rectángulo suave (recomendado)" else 0.6,
+        text=f"⬆ Máximo riesgo ({valor_max_riesgo:.2f})",
+        showarrow=False,
+        font=dict(size=12, color="red")
+    )
+
+fig.update_layout(
+    height=250,
+    margin=dict(l=30, r=30, t=40, b=20),
+    title="Mapa interactivo de riesgo diario de emergencia (0–1)",
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+with st.expander("📋 Tabla detallada de riesgo diario"):
+    st.dataframe(
+        df_risk[["Fecha", "EMERREL", "Riesgo", "Nivel_riesgo"]],
+        use_container_width=True
+    )
+
+
+# ===============================================================
+# 🎬 ANIMACIÓN DEL RIESGO DE EMERGENCIA DÍA A DÍA
+# ===============================================================
+import plotly.express as px
+import plotly.graph_objects as go
+
+st.subheader("🎬 Animación temporal del riesgo de emergencia (día por día)")
+
+# ---------------------------------------------------------------
+# 🛡 Validación
+# ---------------------------------------------------------------
+if "Riesgo" not in df.columns:
+    st.error("No existe la columna Riesgo. Asegurate de ejecutar el cálculo previo.")
+    st.stop()
+
+# Preparación del DataFrame para animación
+df_anim = df.copy()
+df_anim["Fecha_str"] = df_anim["Fecha"].dt.strftime("%d-%b")
+
+# ---------------------------------------------------------------
+# 🎨 Selector de paleta de colores
+# ---------------------------------------------------------------
+with st.sidebar:
+    cmap_anim = st.selectbox(
+        "Mapa de colores para la animación",
+        ["viridis", "plasma", "cividis", "turbo", "magma", "inferno", "icefire", "rdbu"],
+        index=0,
+        key="anim_cmap"
+    )
+
+# ---------------------------------------------------------------
+# 🎬 Gráfico animado
+# ---------------------------------------------------------------
+fig_anim = px.scatter(
+    df_anim,
+    x="Fecha",
+    y="Riesgo",
+    animation_frame="Fecha_str",
+    range_y=[0, 1],
+    color="Riesgo",
+    color_continuous_scale=cmap_anim,
+    size=[12]*len(df_anim),   # puntos uniformes
+    hover_data={"Fecha_str": True, "Riesgo": ":.2f"},
+    labels={"Fecha": "Fecha calendario", "Riesgo": "Riesgo de emergencia (0–1)"}
+)
+
+# Línea base de riesgo completo
+fig_anim.add_trace(
+    go.Scatter(
+        x=df_anim["Fecha"],
+        y=df_anim["Riesgo"],
+        mode="lines",
+        line=dict(color="gray", width=1.5),
+        name="Riesgo acumulado"
+    )
+)
+
+# Mejora estética
+fig_anim.update_layout(
+    title="Evolución diaria del riesgo de emergencia",
+    height=450,
+    margin=dict(l=20, r=20, t=50, b=20),
+)
+
+# ---------------------------------------------------------------
+# Controlar velocidad de animación
+# ---------------------------------------------------------------
+fig_anim.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 300  # 300 ms entre frames
+
+# Mostrar animación
+st.plotly_chart(fig_anim, use_container_width=True)
+
+
+
+
 
 
 # ===============================================================
