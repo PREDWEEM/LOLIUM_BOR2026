@@ -585,25 +585,100 @@ ax_cmp.set_ylabel("EMERREL normalizada (0–1)")
 ax_cmp.legend()
 st.pyplot(fig_cmp)
 
-st.subheader("🌈 Los tres patrones funcionales (medoides)")
+# ===============================================================
+# 🔮 CLASIFICADOR ANTICIPADO DEL PATRÓN
+# Basado en similitud funcional (frecuencia, distribución y
+# magnitud de picos) hasta la última fecha disponible
+# ===============================================================
 
-fig_all, ax_all = plt.subplots(figsize=(9,5))
-ax_all.plot(JD_COMMON, med0, label="Patrón 0 — Intermedio/Bimodal", color="blue")
-ax_all.plot(JD_COMMON, med1, label="Patrón 1 — Temprano/Compacto",   color="green")
-ax_all.plot(JD_COMMON, med2, label="Patrón 2 — Tardío/Extendido",    color="orange")
-ax_all.plot(JD_COMMON, curve_interp_year, label="Año evaluado", color="black", linewidth=2)
+st.header("🔮 Clasificación anticipada del patrón esperado")
 
-ax_all.set_xlabel("Día Juliano")
-ax_all.set_ylabel("EMERREL normalizada")
-ax_all.legend()
-st.pyplot(fig_all)
+# ---------------------------------------------------------------
+# Dominio temporal disponible (EMERREL simulada)
+# ---------------------------------------------------------------
+dias_obs = df["Julian_days"].values
+emer_obs = df["EMERREL"].values
 
-st.subheader("📏 Distancias DTW a los 3 patrones")
-st.write({
-    "Patrón 0 – Intermedio/Bimodal": float(d0),
-    "Patrón 1 – Temprano/Compacto":  float(d1),
-    "Patrón 2 – Tardío/Extendido":   float(d2),
-})
+if len(dias_obs) < 10 or emer_obs.sum() == 0:
+    st.info("ℹ️ Aún no hay información suficiente para una clasificación anticipada.")
+else:
+
+    # -----------------------------------------------------------
+    # Normalización por el máximo observado
+    # (preserva magnitud relativa de picos)
+    # -----------------------------------------------------------
+    emer_obs_norm = emer_obs / emer_obs.max()
+
+    # -----------------------------------------------------------
+    # Dominio temporal efectivo
+    # -----------------------------------------------------------
+    jd_ini = dias_obs.min()
+    jd_fin = dias_obs.max()
+    mask = (JD_COMMON >= jd_ini) & (JD_COMMON <= jd_fin)
+
+    # Curva simulada parcial (interpolada)
+    curve_year_partial = np.interp(
+        JD_COMMON[mask],
+        dias_obs,
+        emer_obs_norm,
+        left=0,
+        right=0
+    )
+
+    # Medoides recortados al mismo dominio temporal
+    med0_p = med0[mask]
+    med1_p = med1[mask]
+    med2_p = med2[mask]
+
+    # -----------------------------------------------------------
+    # Distancias DTW (similitud de forma + picos)
+    # -----------------------------------------------------------
+    d0_p = dtw_distance(curve_year_partial, med0_p)
+    d1_p = dtw_distance(curve_year_partial, med1_p)
+    d2_p = dtw_distance(curve_year_partial, med2_p)
+
+    dist_vec = np.array([d0_p, d1_p, d2_p])
+    cluster_p = int(np.argmin(dist_vec))
+
+    # -----------------------------------------------------------
+    # Certidumbre (separación estructural entre patrones)
+    # -----------------------------------------------------------
+    cert = 1 - dist_vec.min() / dist_vec.sum()
+
+    if cert >= 0.55:
+        cert_txt = "ALTA"
+    elif cert >= 0.40:
+        cert_txt = "MEDIA"
+    else:
+        cert_txt = "BAJA"
+
+    # -----------------------------------------------------------
+    # Resultados
+    # -----------------------------------------------------------
+    st.subheader("🧠 Diagnóstico anticipado del patrón")
+
+    st.markdown(f"""
+**Período evaluado:** JD {jd_ini} – JD {jd_fin}  
+**Patrón más similar:** **{cluster_names.get(cluster_p, f"Cluster {cluster_p}")}**  
+**Certidumbre:** **{cert_txt}**
+""")
+
+    if cert_txt == "ALTA":
+        st.success("✅ La estructura de emergencia ya es consistente con un patrón histórico.")
+    elif cert_txt == "MEDIA":
+        st.warning("⚠️ El patrón es probable, pero podría ajustarse si emergen nuevos pulsos.")
+    else:
+        st.info("ℹ️ Señal aún inestable: la frecuencia o distribución de picos no permite una definición robusta.")
+
+    # -----------------------------------------------------------
+    # Distancias explícitas (transparencia diagnóstica)
+    # -----------------------------------------------------------
+    with st.expander("📏 Distancias DTW parciales por patrón"):
+        st.write({
+            "Patrón 0 – Intermedio/Bimodal": round(d0_p, 1),
+            "Patrón 1 – Temprano/Compacto": round(d1_p, 1),
+            "Patrón 2 – Tardío/Extendido": round(d2_p, 1)
+        })
 
 # ===============================================================
 # ✅ FIN
