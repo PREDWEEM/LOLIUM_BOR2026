@@ -1,7 +1,7 @@
 import time, requests, pandas as pd, numpy as np, xml.etree.ElementTree as ET
 from pathlib import Path
 
-# NUEVA URL (Tres Arroyos)
+# NUEVA URL
 URL_FCST = "https://meteobahia.com.ar/scripts/forecast/for-bd.xml"
 OUT = Path("LOLIUM_BORD2026/blob/gh-pages/meteo_daily.csv")
 OUT.parent.mkdir(parents=True, exist_ok=True)
