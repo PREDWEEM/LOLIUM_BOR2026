@@ -205,53 +205,58 @@ fechas = df["Fecha"].to_numpy()
 # ===============================================================
 st.subheader("🔥 Mapa moderno e interactivo de riesgo de emergencia")
 
-# Cálculo del riesgo (0–1 normalizado)
-if "Riesgo" not in df.columns:
-    max_emerrel = df["EMERREL"].max()
-    if max_emerrel > 0:
-        df["Riesgo"] = df["EMERREL"] / max_emerrel
-    else:
-        df["Riesgo"] = 0.0
+# ---------------------------------------------------------------
+# Asegurar columnas Riesgo y Nivel_riesgo SIEMPRE
+# Riesgo = EMERREL / max(EMERREL)  (0–1)
+# ---------------------------------------------------------------
+max_emerrel = float(df["EMERREL"].max()) if "EMERREL" in df.columns else 0.0
+if max_emerrel > 0:
+    df["Riesgo"] = (df["EMERREL"] / max_emerrel).clip(0, 1)
+else:
+    df["Riesgo"] = 0.0
 
-# Clasificación del nivel de riesgo
-if "Nivel_riesgo" not in df.columns:
-    def clasificar_riesgo(r):
-        if r <= 0.10:
-            return "Nulo"
-        elif r <= 0.33:
-            return "Bajo"
-        elif r <= 0.66:
-            return "Medio"
-        else:
-            return "Alto"
-    df["Nivel_riesgo"] = df["Riesgo"].apply(clasificar_riesgo)
+def clasificar_riesgo(r):
+    r = float(r)
+    if r <= 0.10:
+        return "Nulo"
+    elif r <= 0.33:
+        return "Bajo"
+    elif r <= 0.66:
+        return "Medio"
+    else:
+        return "Alto"
+
+df["Nivel_riesgo"] = df["Riesgo"].apply(clasificar_riesgo)
 
 df_risk = df.copy()
 df_risk["Fecha_str"] = df_risk["Fecha"].dt.strftime("%d-%b")
 
-# Día de riesgo máximo
-if df_risk["Riesgo"].max() > 0:
-    idx_max_riesgo   = df_risk["Riesgo"].idxmax()
-    fecha_max_riesgo = df_risk.loc[idx_max_riesgo, "Fecha"]
-    valor_max_riesgo = df_risk.loc[idx_max_riesgo, "Riesgo"]
-else:
-    fecha_max_riesgo = None
-    valor_max_riesgo = None
+# Día de riesgo máximo (robusto)
+idx_max_riesgo = int(df_risk["Riesgo"].values.argmax()) if len(df_risk) else None
+fecha_max_riesgo = df_risk.loc[idx_max_riesgo, "Fecha"] if idx_max_riesgo is not None else None
+valor_max_riesgo = float(df_risk.loc[idx_max_riesgo, "Riesgo"]) if idx_max_riesgo is not None else None
 
+# ---------------------------------------------------------------
+# Controles de estilo (sidebar)
+# ---------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🎨 Estilo del mapa de riesgo")
     cmap = st.selectbox(
         "Mapa de colores",
         ["viridis", "plasma", "cividis", "turbo", "magma", "inferno", "cool", "warm"],
-        index=0
+        index=0,
+        key="risk_cmap"
     )
     tipo_barra = st.radio(
         "Modo de visualización",
         ["Rectángulo suave (recomendado)", "Barras finas tipo timeline"],
-        index=0
+        index=0,
+        key="risk_mode"
     )
 
-# Gráfico principal
+# ---------------------------------------------------------------
+# Gráfico principal (Heatmap tipo timeline o barras)
+# ---------------------------------------------------------------
 if tipo_barra == "Rectángulo suave (recomendado)":
     fig = go.Figure(
         data=go.Heatmap(
@@ -261,7 +266,7 @@ if tipo_barra == "Rectángulo suave (recomendado)":
             colorscale=cmap,
             zmin=0, zmax=1,
             showscale=True,
-            hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>",
+            hovertemplate="<b>%{x|%d-%b-%Y}</b><br>Riesgo: %{z:.2f}<extra></extra>",
         )
     )
     fig.update_yaxes(showticklabels=False)
@@ -272,15 +277,17 @@ else:
             x=df_risk["Fecha"],
             y=df_risk["Riesgo"],
             marker=dict(color=df_risk["Riesgo"], colorscale=cmap, cmin=0, cmax=1),
-            hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{y:.2f}<extra></extra>",
+            hovertemplate="<b>%{x|%d-%b-%Y}</b><br>Riesgo: %{y:.2f}<extra></extra>",
+            name="Riesgo"
         )
     )
     fig.update_yaxes(range=[0, 1], title="Riesgo")
 
+# Anotación del máximo
 if fecha_max_riesgo is not None:
     fig.add_annotation(
         x=fecha_max_riesgo,
-        y=1.05 if tipo_barra != "Rectángulo suave (recomendado)" else 0.6,
+        y=0.60 if tipo_barra == "Rectángulo suave (recomendado)" else 1.05,
         text=f"⬆ Máximo riesgo ({valor_max_riesgo:.2f})",
         showarrow=False,
         font=dict(size=12, color="red")
@@ -301,12 +308,12 @@ with st.expander("📋 Tabla detallada de riesgo diario"):
     )
 
 # ===============================================================
-# 🎬 ANIMACIÓN DEL RIESGO DE EMERGENCIA DÍA A DÍA
+# 🎬 ANIMACIÓN DEL RIESGO DE EMERGENCIA DÍA A DÍA (robusta)
 # ===============================================================
 st.subheader("🎬 Animación temporal del riesgo de emergencia (día por día)")
 
 df_anim = df.copy()
-df_anim["Fecha_str"] = df_anim["Fecha"].dt.strftime("%d-%b")
+df_anim["Fecha_str"] = df_anim["Fecha"].dt.strftime("%d-%b-%Y")
 
 with st.sidebar:
     cmap_anim = st.selectbox(
@@ -316,6 +323,7 @@ with st.sidebar:
         key="anim_cmap"
     )
 
+# Scatter animado: punto “del día” y línea de contexto
 fig_anim = px.scatter(
     df_anim,
     x="Fecha",
@@ -324,19 +332,21 @@ fig_anim = px.scatter(
     range_y=[0, 1],
     color="Riesgo",
     color_continuous_scale=cmap_anim,
-    size=[12]*len(df_anim),
     hover_data={"Fecha_str": True, "Riesgo": ":.2f"},
-    labels={"Fecha": "Fecha calendario", "Riesgo": "Riesgo de emergencia (0–1)"}
+    labels={"Fecha": "Fecha calendario", "Riesgo": "Riesgo de emergencia (0–1)"},
 )
 
-# Línea base
+# Tamaño fijo de los puntos (no usar size=[...])
+fig_anim.update_traces(marker=dict(size=14), selector=dict(mode="markers"))
+
+# Línea base (contexto completo)
 fig_anim.add_trace(
     go.Scatter(
         x=df_anim["Fecha"],
         y=df_anim["Riesgo"],
         mode="lines",
         line=dict(color="gray", width=1.5),
-        name="Riesgo observado"
+        name="Serie completa"
     )
 )
 
@@ -346,9 +356,13 @@ fig_anim.update_layout(
     margin=dict(l=20, r=20, t=50, b=20),
 )
 
-# Control de velocidad
+# Control de velocidad (si existe menú)
 if fig_anim.layout.updatemenus and len(fig_anim.layout.updatemenus) > 0:
-    fig_anim.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 300
+    try:
+        fig_anim.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 300
+        fig_anim.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 0
+    except Exception:
+        pass
 
 st.plotly_chart(fig_anim, use_container_width=True)
 
