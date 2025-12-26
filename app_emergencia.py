@@ -197,6 +197,18 @@ emerrel, emerac = postprocess_emergence(
 df["EMERREL"] = emerrel
 df["EMERAC"]  = emerac
 
+# ===============================================================
+# ⛔ REGLA AGRONÓMICA: NO EMERGENCIA ANTES DE JD 50
+# EMERREL = 0 desde JD 1 a 49 inclusive
+# ===============================================================
+mask_pre = df["Julian_days"] <= 49
+
+df.loc[mask_pre, "EMERREL"] = 0.0
+
+# Recalcular EMERAC luego de forzar ceros tempranos
+df["EMERAC"] = df["EMERREL"].cumsum()
+
+
 dias   = df["Julian_days"].to_numpy()
 fechas = df["Fecha"].to_numpy()
 
