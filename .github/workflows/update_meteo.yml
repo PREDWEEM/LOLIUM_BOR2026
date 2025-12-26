@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check start date (01/02/2026)
+      - name: Check start date (01/01/2026)
         run: |
           TODAY=$(date -u +"%Y-%m-%d")
-          START="2026-02-01"
+          START="2026-01-01"
 
           if [[ "$TODAY" < "$START" ]]; then
             echo "⏳ Todavía no es $START. Workflow abortado."
