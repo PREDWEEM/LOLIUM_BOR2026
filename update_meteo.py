@@ -8,7 +8,7 @@ from pathlib import Path
 URL = "https://meteobahia.com.ar/scripts/forecast/for-bd.xml"
 OUT = Path("meteo_daily.csv")
 
-START = datetime(2026, 2, 1)
+START = datetime(2026, 1, 1)
 
 def to_float(x):
     try:
@@ -41,16 +41,16 @@ def fetch_meteobahia():
 def update_file():
     today = datetime.utcnow().date()
 
-    # 1) Antes del 01/02/2026 → NO HACER NADA
+    # 1) Antes del 01/01/2026 → NO HACER NADA
     if today < START.date():
-        print("⏳ Antes del 01/02/2026 → no se actualiza meteo_daily.csv")
+        print("⏳ Antes del 01/01/2026 → no se actualiza meteo_daily.csv")
         return
 
-    # 2) EXACTAMENTE EL 01/02/2026 → BORRAR ARCHIVO
+    # 2) EXACTAMENTE EL 01/01/2026 → BORRAR ARCHIVO
     if today == START.date():
         if OUT.exists():
             OUT.unlink()
-            print("🆕 meteo_daily.csv reiniciado el 01/02/2026.")
+            print("🆕 meteo_daily.csv reiniciado el 01/01/2026.")
 
     # 3) Descargar datos nuevos
     df_new = fetch_meteobahia()
