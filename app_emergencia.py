@@ -430,11 +430,17 @@ def interpolate_curve(jd, y, jd_common):
     """Interpola la curva EMERREL a la grilla JD_COMMON usada en el clustering."""
     return np.interp(jd_common, jd, y)
 
+# ---------------------------------------------------------------
 # Normalizar EMERREL simulada a la misma escala (0–1 por máximo)
-if emerrel.max() > 0:
-    emerrel_norm = emerrel / emerrel.max()
+# + Regla agronómica: EMERREL = 0 desde JD 1 a 49 inclusive
+# ---------------------------------------------------------------
+emerrel_for_year = np.array(emerrel, dtype=float).copy()
+emerrel_for_year[dias <= 49] = 0.0  # regla aplicada a la curva del año evaluado
+
+if emerrel_for_year.max() > 0:
+    emerrel_norm = emerrel_for_year / emerrel_for_year.max()
 else:
-    emerrel_norm = emerrel.copy()
+    emerrel_norm = emerrel_for_year.copy()
 
 curve_interp_year = interpolate_curve(dias, emerrel_norm, JD_COMMON)
 
