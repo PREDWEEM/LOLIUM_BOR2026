@@ -162,7 +162,7 @@ def postprocess_emergence(emerrel_raw,
 # ===============================================================
 # 🔧 CARGA FIJA DESDE meteo_daily.csv
 # ===============================================================
-st.title("🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026")
+st.title("🌾 PREDWEEM vK3 — LOLIUM BORDENAVE 2026")
 
 with st.sidebar:
     st.header("Ajustes de emergencia")
