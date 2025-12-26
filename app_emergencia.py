@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM vK3 — LOLIUM BORDENAVE 2026
 # - ANN → EMERREL diaria
 # - Post-proceso: recorte negativos, suavizado opcional, acumulado
 # - Riesgo diario + animación
@@ -23,7 +23,7 @@ import plotly.graph_objects as go
 # CONFIG STREAMLIT + ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM vK3 – LOLIUM TRES ARROYOS 2026",
+    page_title="PREDWEEM vK3 – LOLIUM BORDENAVE 2026",
     layout="wide",
 )
 
@@ -52,7 +52,7 @@ def safe(fn, msg):
 # ===============================================================
 # 🔧 API METEOBAHIA (7 días) — OPCIONAL (no usada en esta versión)
 # ===============================================================
-API_URL = "https://meteobahia.com.ar/scripts/forecast/for-ta.xml"
+API_URL = "https://meteobahia.com.ar/scripts/forecast/for-bd.xml"
 
 def _to_float(x):
     try:
