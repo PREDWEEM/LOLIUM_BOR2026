@@ -609,52 +609,41 @@ st.pyplot(fig_cmp)
 
 # ===============================================================
 # 🔮 CLASIFICADOR ANTICIPADO DEL PATRÓN
-# Basado en similitud funcional (frecuencia, distribución y
-# magnitud de picos) hasta la última fecha disponible
 # ===============================================================
 
 st.header("🔮 Clasificación anticipada del patrón esperado")
 
-# ---------------------------------------------------------------
-# Dominio temporal disponible (EMERREL simulada)
-# ---------------------------------------------------------------
+# --- CONFIGURACIÓN DEL UMBRAL ---
+# Un pico menor a 0.10 (10% de emergencia relativa) se considera ruido o señal débil
+UMBRAL_MINIMO = 0.10 
+
 dias_obs = df["Julian_days"].values
 emer_obs = df["EMERREL"].values
+pico_actual = emer_obs.max() if len(emer_obs) > 0 else 0
 
+# 1. Verificación de datos suficientes
 if len(dias_obs) < 10 or emer_obs.sum() == 0:
     st.info("ℹ️ Aún no hay información suficiente para una clasificación anticipada.")
+
+# 2. Verificación de relevancia de la señal (Nuevo Umbral)
+elif pico_actual < UMBRAL_MINIMO:
+    st.warning(f"⚠️ **Señal insuficiente para diagnóstico:** El pico máximo actual ({pico_actual:.3f}) es inferior al umbral de relevancia establecido ({UMBRAL_MINIMO}).")
+    st.caption("La clasificación funcional requiere un pulso de emergencia claro para comparar la forma de la curva con los patrones históricos.")
+
+# 3. Clasificación si la señal es válida
 else:
+    # Normalización segura
+    emer_obs_norm = emer_obs / pico_actual
 
-    # -----------------------------------------------------------
-    # Normalización por el máximo observado
-    # (preserva magnitud relativa de picos)
-    # -----------------------------------------------------------
-    emer_obs_norm = emer_obs / emer_obs.max()
-
-    # -----------------------------------------------------------
-    # Dominio temporal efectivo
-    # -----------------------------------------------------------
-    jd_ini = dias_obs.min()
-    jd_fin = dias_obs.max()
+    # Definición de ventana temporal
+    jd_ini, jd_fin = dias_obs.min(), dias_obs.max()
     mask = (JD_COMMON >= jd_ini) & (JD_COMMON <= jd_fin)
 
-    # Curva simulada parcial (interpolada)
-    curve_year_partial = np.interp(
-        JD_COMMON[mask],
-        dias_obs,
-        emer_obs_norm,
-        left=0,
-        right=0
-    )
+    # Interpolación y recorte de medoides
+    curve_year_partial = np.interp(JD_COMMON[mask], dias_obs, emer_obs_norm, left=0, right=0)
+    med0_p, med1_p, med2_p = med0[mask], med1[mask], med2[mask]
 
-    # Medoides recortados al mismo dominio temporal
-    med0_p = med0[mask]
-    med1_p = med1[mask]
-    med2_p = med2[mask]
-
-    # -----------------------------------------------------------
-    # Distancias DTW (similitud de forma + picos)
-    # -----------------------------------------------------------
+    # Cálculo de distancias DTW
     d0_p = dtw_distance(curve_year_partial, med0_p)
     d1_p = dtw_distance(curve_year_partial, med1_p)
     d2_p = dtw_distance(curve_year_partial, med2_p)
@@ -662,44 +651,39 @@ else:
     dist_vec = np.array([d0_p, d1_p, d2_p])
     cluster_p = int(np.argmin(dist_vec))
 
-    # -----------------------------------------------------------
-    # Certidumbre (separación estructural entre patrones)
-    # -----------------------------------------------------------
-    cert = 1 - dist_vec.min() / dist_vec.sum()
-
+    # Cálculo de certidumbre estructural
+    cert = 1 - (dist_vec.min() / dist_vec.sum())
+    
     if cert >= 0.55:
-        cert_txt = "ALTA"
+        cert_txt, color_cert = "ALTA", "green"
     elif cert >= 0.40:
-        cert_txt = "MEDIA"
+        cert_txt, color_cert = "MEDIA", "orange"
     else:
-        cert_txt = "BAJA"
+        cert_txt, color_cert = "BAJA", "red"
 
-    # -----------------------------------------------------------
-    # Resultados
-    # -----------------------------------------------------------
+    # --- Interfaz de Resultados ---
     st.subheader("🧠 Diagnóstico anticipado del patrón")
 
-    st.markdown(f"""
-**Período evaluado:** JD {jd_ini} – JD {jd_fin}  
-**Patrón más similar:** **{cluster_names.get(cluster_p, f"Cluster {cluster_p}")}**  
-**Certidumbre:** **{cert_txt}**
-""")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Patrón Predominante", cluster_names.get(cluster_p, "N/A"))
+    with c2:
+        st.write(f"**Certidumbre:** :{color_cert}[{cert_txt}]")
+        st.progress(min(max(cert, 0.0), 1.0))
 
     if cert_txt == "ALTA":
-        st.success("✅ La estructura de emergencia ya es consistente con un patrón histórico.")
+        st.success("✅ La estructura de emergencia actual es muy consistente con un patrón histórico.")
     elif cert_txt == "MEDIA":
-        st.warning("⚠️ El patrón es probable, pero podría ajustarse si emergen nuevos pulsos.")
+        st.warning("⚠️ El patrón es probable, pero nuevos pulsos climáticos podrían modificar la tendencia.")
     else:
-        st.info("ℹ️ Señal aún inestable: la frecuencia o distribución de picos no permite una definición robusta.")
+        st.error("ℹ️ Señal inestable: La distribución de picos actual no coincide claramente con ningún patrón conocido.")
 
-    # -----------------------------------------------------------
-    # Distancias explícitas (transparencia diagnóstica)
-    # -----------------------------------------------------------
-    with st.expander("📏 Distancias DTW parciales por patrón"):
+    # Transparencia diagnóstica
+    with st.expander("📏 Detalles técnicos: Distancias DTW parciales"):
         st.write({
-            "Patrón 0 – Intermedio/Bimodal": round(d0_p, 1),
-            "Patrón 1 – Temprano/Compacto": round(d1_p, 1),
-            "Patrón 2 – Tardío/Extendido": round(d2_p, 1)
+            "Distancia a Intermedio/Bimodal": round(d0_p, 2),
+            "Distancia a Temprano/Compacto": round(d1_p, 2),
+            "Distancia a Tardío/Extendido": round(d2_p, 2)
         })
 
 # ===============================================================
