@@ -416,18 +416,17 @@ def interpolate_curve(jd, y, jd_common):
     return np.interp(jd_common, jd, y)
 
 # ---------------------------------------------------------------
-# ---------------------------------------------------------------
 # Curva del año evaluado (normalizada) con UMBRAL DE SEGURIDAD
 # ---------------------------------------------------------------
 emerrel_for_year = np.array(emerrel, dtype=float).copy()
 emerrel_for_year[dias <= 15] = 0.0  # Regla biológica JD 15
 
 max_actual = emerrel_for_year.max()
-UMBRAL_RELEVANCIA = 0.05  # El mismo que usamos en la anticipada
+UMBRAL_RELEVANCIA = 0.10  # El mismo que usamos en la anticipada
 
 if max_actual < UMBRAL_RELEVANCIA:
     st.warning("⚠️ **Sin Emergencia Relevante:** No se puede realizar la clasificación funcional K=3 porque la emergencia detectada es insignificante o nula.")
-    st.info("El sistema requiere que el pico de emergencia supere el 5% para determinar un patrón de comportamiento robusto.")
+    st.info("El sistema requiere que el pico de emergencia supere el 10% para determinar un patrón de comportamiento robusto.")
     # Creamos una bandera para saltar los gráficos y descripciones
     ignorar_clasificacion = True
 else:
