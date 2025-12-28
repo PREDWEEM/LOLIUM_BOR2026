@@ -416,65 +416,50 @@ def interpolate_curve(jd, y, jd_common):
     return np.interp(jd_common, jd, y)
 
 # ---------------------------------------------------------------
-# Curva del año evaluado (normalizada)
-# + Regla agronómica: EMERREL = 0 desde JD 1 a 15 inclusive
+# ---------------------------------------------------------------
+# Curva del año evaluado (normalizada) con UMBRAL DE SEGURIDAD
 # ---------------------------------------------------------------
 emerrel_for_year = np.array(emerrel, dtype=float).copy()
+emerrel_for_year[dias <= 15] = 0.0  # Regla biológica JD 15
 
-# Regla biológica: no emergencia antes de JD 15
-emerrel_for_year[dias <= 15] = 0.0
+max_actual = emerrel_for_year.max()
+UMBRAL_RELEVANCIA = 0.05  # El mismo que usamos en la anticipada
 
-# Normalización 0–1 por máximo (preserva forma relativa)
-if emerrel_for_year.max() > 0:
-    emerrel_norm = emerrel_for_year / emerrel_for_year.max()
+if max_actual < UMBRAL_RELEVANCIA:
+    st.warning("⚠️ **Sin Emergencia Relevante:** No se puede realizar la clasificación funcional K=3 porque la emergencia detectada es insignificante o nula.")
+    st.info("El sistema requiere que el pico de emergencia supere el 5% para determinar un patrón de comportamiento robusto.")
+    # Creamos una bandera para saltar los gráficos y descripciones
+    ignorar_clasificacion = True
 else:
-    emerrel_norm = emerrel_for_year.copy()
+    ignorar_clasificacion = False
+    # Normalización 0–1 segura
+    emerrel_norm = emerrel_for_year / max_actual
 
-# Interpolación a la grilla común del clustering
-curve_interp_year = interpolate_curve(dias, emerrel_norm, JD_COMMON)
+    # Interpolación a la grilla común
+    curve_interp_year = interpolate_curve(dias, emerrel_norm, JD_COMMON)
 
-# Medoides (curvas representativas de cada patrón)
-med0 = curves_interp[medoids_k3[0]]   # Patrón 0 — Intermedio/Bimodal
-med1 = curves_interp[medoids_k3[1]]   # Patrón 1 — Temprano/Compacto
-med2 = curves_interp[medoids_k3[2]]   # Patrón 2 — Tardío/Extendido
+    # Medoides
+    med0 = curves_interp[medoids_k3[0]]
+    med1 = curves_interp[medoids_k3[1]]
+    med2 = curves_interp[medoids_k3[2]]
 
+    # Distancias DTW a cada patrón
+    d0 = dtw_distance(curve_interp_year, med0)
+    d1 = dtw_distance(curve_interp_year, med1)
+    d2 = dtw_distance(curve_interp_year, med2)
 
-# Distancias DTW a cada patrón
-d0 = dtw_distance(curve_interp_year, med0)
-d1 = dtw_distance(curve_interp_year, med1)
-d2 = dtw_distance(curve_interp_year, med2)
+    dist_vector = np.array([d0, d1, d2])
+    cluster_pred = int(np.argmin(dist_vector))
 
-dist_vector  = np.array([d0, d1, d2])
-cluster_pred = int(np.argmin(dist_vector))
+    # --- Mostrar Resultados solo si hay señal ---
+    st.markdown(f"""
+    ## 🎯 Patrón asignado por análisis funcional K=3:
+    ### <span style='color:{cluster_colors[cluster_pred]}; font-size:30px;'>
+    {cluster_names[cluster_pred]}
+    </span>
+    """, unsafe_allow_html=True)
 
-# Mapeo de nombres y colores
-cluster_names = {
-    0: "🌾 Intermedio / Bimodal",
-    1: "🌱 Temprano / Compacto",
-    2: "🍂 Tardío / Extendido"
-}
-
-cluster_colors = {
-    0: "blue",
-    1: "green",     # temprano
-    2: "orange"     # tardío
-}
-
-cluster_desc = {
-    0: "Patrón mixto con dos pulsos bien diferenciados: uno temprano moderado y uno otoñal fuerte.",
-    1: "Patrón temprano y concentrado, con emergencia dominante en feb–mar y pico marcado antes de abril.",
-    2: "Patrón tardío/extenso con emergencia sostenida abril–junio y fuerte cola otoñal."
-}
-
-# Resultado principal
-st.markdown(f"""
-## 🎯 Patrón asignado por análisis funcional K=3:
-### <span style='color:{cluster_colors[cluster_pred]}; font-size:30px;'>
-{cluster_names[cluster_pred]}
-</span>
-""", unsafe_allow_html=True)
-
-st.info(cluster_desc[cluster_pred])
+    st.info(cluster_desc[cluster_pred])
 
 # ===============================================================
 # 🌱 Descripción agronómica ampliada del patrón
