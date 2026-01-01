@@ -17,7 +17,15 @@ def to_float(x):
         return None
 
 def fetch_meteobahia():
-    r = requests.get(URL, timeout=20)
+    # Definimos un "User-Agent" para parecer un navegador normal
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    # Agregamos los headers a la petición
+    r = requests.get(URL, headers=headers, timeout=20)
+    
+    # Esto ahora debería funcionar sin el error 403
     r.raise_for_status()
     root = ET.fromstring(r.content)
 
