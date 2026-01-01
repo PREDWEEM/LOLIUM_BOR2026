@@ -152,7 +152,7 @@ if df is not None and modelo_ann is not None:
     st.divider()
     st.header("🌾 Análisis Funcional de Patrones")
 
-    UMBRAL_RELEVANCIA = 0.10
+    UMBRAL_RELEVANCIA = 0.25
     if max_er < UMBRAL_RELEVANCIA:
         st.warning(f"⚠️ Pico máximo ({max_er:.3f}) por debajo del umbral de {UMBRAL_RELEVANCIA}. No se asigna patrón funcional.")
     else:
