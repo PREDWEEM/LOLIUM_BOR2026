@@ -157,17 +157,38 @@ if df is not None and modelo_ann is not None:
         fig_prec.update_layout(title="Precipitaciones (mm)", height=300)
         st.plotly_chart(fig_prec, use_container_width=True)
 
-    # 5. Análisis Funcional (DTW) - Solo si hay suficientes datos
-    st.divider()
-    st.header("🌾 Análisis de Patrones de Emergencia")
+    # ===============================================================
+# 🌾 ANÁLISIS FUNCIONAL PROTEGIDO
+# ===============================================================
+st.divider()
+st.header("🌾 Análisis de Patrones de Emergencia")
+
+# 1. Verificación de rango de fechas
+fecha_min = df["Fecha"].min()
+fecha_max = df["Fecha"].max()
+inicio_analisis = pd.Timestamp("2026-02-01")
+
+if fecha_max < inicio_analisis:
+    st.info(f"📅 **Fase de Monitoreo Inicial**: Actualmente recolectando datos de enero ({fecha_max.strftime('%d/%m')}). "
+            f"El análisis comparativo de patrones funcionales se activará a partir del **01/02/2026**.")
     
-    UMBRAL_RELEVANCIA = 0.10
-    if len(df) < 5:
-        st.info("🕒 Acumulando datos... El análisis de patrones funcionales comenzará cuando el archivo tenga al menos 5 registros.")
-    elif max_er < UMBRAL_RELEVANCIA:
-        st.warning(f"⚠️ Actividad baja: El pico de emergencia ({max_er:.3f}) es menor al umbral {UMBRAL_RELEVANCIA}. No se puede asignar un patrón.")
-    else:
-        # Lógica DTW
+    # Mostramos un gráfico simple de lo que hay hasta ahora
+    fig_progreso = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = len(df),
+        title = {'text': "Días acumulados para el modelo"},
+        gauge = {'axis': {'range': [None, 31]}, 'bar': {'color': "teal"}}
+    ))
+    st.plotly_chart(fig_progreso, use_container_width=True)
+
+else:
+    # Solo si pasamos de febrero, ejecutamos la lógica pesada
+    try:
+        UMBRAL_RELEVANCIA = 0.10
+        if max_er < UMBRAL_RELEVANCIA:
+            st.warning(f"⚠️ Actividad baja: El pico de emergencia ({max_er:.3f}) es menor al umbral. No se puede asignar un patrón aún.")
+        else:
+                  # Lógica DTW
         JD_COMMON = cluster_model["JD_common"]
         curves_interp = cluster_model["curves_interp"]
         meds_idx = cluster_model["medoids_k3"]
