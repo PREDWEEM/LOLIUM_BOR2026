@@ -7,21 +7,24 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import pickle, io
-from pathlib import Path
 import plotly.graph_objects as go
+import pickle
+import io
+from pathlib import Path
+from datetime import datetime
 
 # ---------------------------------------------------------
-# CONFIG STREAMLIT + ESTILO
+# CONFIGURACIÓN Y ESTILO
 # ---------------------------------------------------------
-st.set_page_config(page_title="PREDWEEM vK3 – LOLIUM BORDENAVE 2026", layout="wide")
+st.set_page_config(page_title="PREDWEEM vK3 – LOLIUM 2026", layout="wide")
 
 st.markdown("""
 <style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header [data-testid="stToolbar"] {visibility: hidden;}
-.stAppDeployButton {display: none;}
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header [data-testid="stToolbar"] {visibility: hidden;}
+    .stAppDeployButton {display: none;}
+    .main { background-color: #f8f9fa; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -65,6 +68,7 @@ class PracticalANNModel:
 @st.cache_resource
 def load_models():
     try:
+        # Asegúrate de que estos archivos estén en tu repositorio de GitHub
         ann = PracticalANNModel(
             np.load(BASE/"IW.npy"), np.load(BASE/"bias_IW.npy"),
             np.load(BASE/"LW.npy"), np.load(BASE/"bias_out.npy")
@@ -73,37 +77,45 @@ def load_models():
             k3 = pickle.load(f)
         return ann, k3
     except Exception as e:
-        st.error(f"Error cargando archivos de modelo: {e}")
+        st.error(f"⚠️ Error cargando archivos de modelo (ANN/Pickle): {e}")
         return None, None
 
 # ===============================================================
-# 📂 GESTIÓN DE DATOS (CARGA Y DESCARGA)
+# 📂 GESTIÓN DE DATOS
 # ===============================================================
-st.sidebar.header("📂 Gestión de Datos")
-uploaded_file = st.sidebar.file_uploader("Subir Clima (Excel o CSV)", type=["xlsx", "csv"])
-
-def get_data(file_input):
+def get_data(uploaded_file):
     try:
-        if file_input is not None:
-            if file_input.name.endswith('.csv'):
-                return pd.read_csv(file_input, parse_dates=["Fecha"])
+        if uploaded_file is not None:
+            if uploaded_file.name.endswith('.csv'):
+                return pd.read_csv(uploaded_file, parse_dates=["Fecha"])
             else:
-                return pd.read_excel(file_input, parse_dates=["Fecha"])
+                return pd.read_excel(uploaded_file, parse_dates=["Fecha"])
         else:
             path_fixed = BASE / "meteo_daily.csv"
             if path_fixed.exists():
+                # Mostrar fecha de última actualización en el sidebar
+                mtime = datetime.fromtimestamp(path_fixed.stat().st_mtime)
+                st.sidebar.info(f"📅 Datos auto-actualizados el: {mtime.strftime('%d/%m %H:%M')}")
                 return pd.read_csv(path_fixed, parse_dates=["Fecha"])
             return None
     except Exception as e:
-        st.error(f"Error al leer datos: {e}")
+        st.error(f"❌ Error al leer datos: {e}")
         return None
 
-# Carga de modelos e inicio de lógica
+# Carga inicial
+st.sidebar.header("📂 Gestión de Datos")
+uploaded_file = st.sidebar.file_uploader("Subir Clima Manual (Excel/CSV)", type=["xlsx", "csv"])
+
 modelo_ann, cluster_model = load_models()
 df = get_data(uploaded_file)
 
+# ===============================================================
+# 🖥️ INTERFAZ PRINCIPAL
+# ===============================================================
+st.title("🌾 PREDWEEM vK3 — LOLIUM BORDENAVE 2026")
+
 if df is not None and modelo_ann is not None:
-    # Limpieza y preparación
+    # 1. Limpieza y preparación
     cols_necesarias = ["Fecha", "TMAX", "TMIN", "Prec"]
     if not all(col in df.columns for col in cols_necesarias):
         st.error(f"El archivo debe contener las columnas: {cols_necesarias}")
@@ -112,49 +124,48 @@ if df is not None and modelo_ann is not None:
     df = df.dropna(subset=cols_necesarias).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
 
-    # Predicción ANN
+    # 2. Predicción ANN
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
-    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
-    df["EMERAC"] = df["EMERREL"].cumsum()
     
-    # Cálculo de Riesgo
+    # Regla de seguridad biológica para enero
+    df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
+    
+    df["EMERAC"] = df["EMERREL"].cumsum()
     max_er = df["EMERREL"].max()
     df["Riesgo"] = df["EMERREL"] / max_er if max_er > 0 else 0.0
 
-    # BOTÓN DE DESCARGA EN SIDEBAR
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Predicciones')
-    
-    st.sidebar.download_button(
-        label="📥 Descargar Predicciones (Excel)",
-        data=output.getvalue(),
-        file_name="predicciones_lolium_predweem.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-    # ===============================================================
-    # 🖥️ VISUALIZACIÓN
-    # ===============================================================
-    st.title("🌾 PREDWEEM vK3 — LOLIUM BORDENAVE 2026")
-    
-    # Mapa de Riesgo
+    # 3. Visualización de Riesgo (Heatmap)
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
-        colorscale='Viridis', zmin=0, zmax=1,
-        hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>"))
-    fig_risk.update_layout(height=200, title="Evolución del Riesgo de Emergencia", margin=dict(t=40, b=10))
+        colorscale='YlOrRd', zmin=0, zmax=1,
+        hovertemplate="<b>%{x|%d-%b}</b><br>Nivel de Riesgo: %{z:.2f}<extra></extra>"))
+    fig_risk.update_layout(height=180, title="Evolución del Riesgo de Emergencia (Probabilidad)", margin=dict(t=40, b=10))
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # Clasificación Funcional
-    st.divider()
-    st.header("🌾 Análisis Funcional de Patrones")
+    # 4. Gráfico de Lluvias y Temperaturas
+    c1, c2 = st.columns(2)
+    with c1:
+        fig_temp = go.Figure()
+        fig_temp.add_trace(go.Scatter(x=df["Fecha"], y=df["TMAX"], name="T Máx", line=dict(color='red')))
+        fig_temp.add_trace(go.Scatter(x=df["Fecha"], y=df["TMIN"], name="T Mín", line=dict(color='blue')))
+        fig_temp.update_layout(title="Temperaturas Registradas", height=300)
+        st.plotly_chart(fig_temp, use_container_width=True)
+    with c2:
+        fig_prec = go.Figure(go.Bar(x=df["Fecha"], y=df["Prec"], marker_color="teal", name="Precipitación"))
+        fig_prec.update_layout(title="Precipitaciones (mm)", height=300)
+        st.plotly_chart(fig_prec, use_container_width=True)
 
+    # 5. Análisis Funcional (DTW) - Solo si hay suficientes datos
+    st.divider()
+    st.header("🌾 Análisis de Patrones de Emergencia")
+    
     UMBRAL_RELEVANCIA = 0.10
-    if max_er < UMBRAL_RELEVANCIA:
-        st.warning(f"⚠️ Pico máximo ({max_er:.3f}) por debajo del umbral de {UMBRAL_RELEVANCIA}. No se asigna patrón funcional.")
+    if len(df) < 5:
+        st.info("🕒 Acumulando datos... El análisis de patrones funcionales comenzará cuando el archivo tenga al menos 5 registros.")
+    elif max_er < UMBRAL_RELEVANCIA:
+        st.warning(f"⚠️ Actividad baja: El pico de emergencia ({max_er:.3f}) es menor al umbral {UMBRAL_RELEVANCIA}. No se puede asignar un patrón.")
     else:
         # Lógica DTW
         JD_COMMON = cluster_model["JD_common"]
@@ -171,26 +182,43 @@ if df is not None and modelo_ann is not None:
         names = {0: "🌾 Intermedio / Bimodal", 1: "🌱 Temprano / Compacto", 2: "🍂 Tardío / Extendido"}
         colors = {0: "blue", 1: "green", 2: "orange"}
         
-        st.markdown(f"### Patrón Asignado: <span style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</span>", unsafe_allow_html=True)
+        st.markdown(f"### Patrón Detectado: <span style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</span>", unsafe_allow_html=True)
 
-        c1, c2 = st.columns([2, 1])
-        with c1:
+        col_a, col_b = st.columns([2, 1])
+        with col_a:
             fig_cmp, ax = plt.subplots(figsize=(8, 3.5))
-            ax.plot(JD_COMMON, curve_year_interp, label="Datos Actuales", color="black", lw=2)
-            ax.plot(JD_COMMON, meds[cluster_pred], label="Patrón de Referencia", color=colors[cluster_pred], ls="--")
-            ax.set_title("Ajuste a Patrones Históricos")
+            ax.plot(JD_COMMON, curve_year_interp, label="Campaña Actual", color="black", lw=2)
+            ax.plot(JD_COMMON, meds[cluster_pred], label=f"Referencia: {names[cluster_pred]}", color=colors[cluster_pred], ls="--")
+            ax.set_title("Ajuste a Curvas Históricas")
+            ax.set_ylabel("Emergencia Relativa")
             ax.legend()
             st.pyplot(fig_cmp)
-        with c2:
+        with col_b:
             cert = 1 - (min(dists) / sum(dists))
             st.metric("Certidumbre de Patrón", f"{cert:.1%}")
-            st.info(f"El patrón '{names[cluster_pred]}' es el que mejor describe la forma de emergencia en este lote.")
+            st.write(f"Este patrón indica una emergencia principalmente **{names[cluster_pred].split('/')[1].strip()}**.")
 
-    with st.expander("🔍 Ver tabla de datos"):
-        st.dataframe(df.style.format(precision=3))
+    # 6. Botón de Descarga
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Predicciones')
+    
+    st.sidebar.download_button(
+        label="📥 Descargar CSV de Predicciones",
+        data=output.getvalue(),
+        file_name=f"predweem_results_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    with st.expander("🔍 Ver tabla de datos completa"):
+        st.dataframe(df.style.format(precision=3), use_container_width=True)
 
 else:
-    st.warning("👈 Por favor, sube un archivo o coloca 'meteo_daily.csv' en la carpeta raíz.")
+    st.info("👋 **Bienvenido a PREDWEEM 2026**")
+    st.write("Esperando datos... Si acabas de iniciar el repositorio hoy, asegúrate de que el Workflow de GitHub haya terminado de generar el archivo `meteo_daily.csv`.")
+    if st.button("Verificar estado de archivos"):
+        st.write(f"Buscando en: `{BASE}`")
+        st.write(f"¿Existe meteo_daily.csv?: {'✅ Si' if (BASE / 'meteo_daily.csv').exists() else '❌ No'}")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Formato: Fecha, TMAX, TMIN, Prec")
+st.sidebar.caption("vK3 - Bordenave | Modelo ANN + DTW")
