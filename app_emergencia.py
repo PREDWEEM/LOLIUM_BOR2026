@@ -68,7 +68,6 @@ class PracticalANNModel:
 @st.cache_resource
 def load_models():
     try:
-        # Asegúrate de que estos archivos estén en tu repositorio de GitHub
         ann = PracticalANNModel(
             np.load(BASE/"IW.npy"), np.load(BASE/"bias_IW.npy"),
             np.load(BASE/"LW.npy"), np.load(BASE/"bias_out.npy")
@@ -77,12 +76,9 @@ def load_models():
             k3 = pickle.load(f)
         return ann, k3
     except Exception as e:
-        st.error(f"⚠️ Error cargando archivos de modelo (ANN/Pickle): {e}")
+        st.error(f"⚠️ Error cargando archivos de modelo: {e}")
         return None, None
 
-# ===============================================================
-# 📂 GESTIÓN DE DATOS
-# ===============================================================
 def get_data(uploaded_file):
     try:
         if uploaded_file is not None:
@@ -93,7 +89,6 @@ def get_data(uploaded_file):
         else:
             path_fixed = BASE / "meteo_daily.csv"
             if path_fixed.exists():
-                # Mostrar fecha de última actualización en el sidebar
                 mtime = datetime.fromtimestamp(path_fixed.stat().st_mtime)
                 st.sidebar.info(f"📅 Datos auto-actualizados el: {mtime.strftime('%d/%m %H:%M')}")
                 return pd.read_csv(path_fixed, parse_dates=["Fecha"])
@@ -129,117 +124,108 @@ if df is not None and modelo_ann is not None:
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
     
-    # Regla de seguridad biológica para enero
+    # Regla biológica: antes del 15 de enero no hay emergencia significativa
     df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
     
     df["EMERAC"] = df["EMERREL"].cumsum()
     max_er = df["EMERREL"].max()
     df["Riesgo"] = df["EMERREL"] / max_er if max_er > 0 else 0.0
 
-    # 3. Visualización de Riesgo (Heatmap)
+    # 3. Visualización de Riesgo
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
         colorscale='YlOrRd', zmin=0, zmax=1,
         hovertemplate="<b>%{x|%d-%b}</b><br>Nivel de Riesgo: %{z:.2f}<extra></extra>"))
-    fig_risk.update_layout(height=180, title="Evolución del Riesgo de Emergencia (Probabilidad)", margin=dict(t=40, b=10))
+    fig_risk.update_layout(height=180, title="Evolución del Riesgo de Emergencia", margin=dict(t=40, b=10))
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # 4. Gráfico de Lluvias y Temperaturas
+    # 4. Gráfico Clima
     c1, c2 = st.columns(2)
     with c1:
         fig_temp = go.Figure()
         fig_temp.add_trace(go.Scatter(x=df["Fecha"], y=df["TMAX"], name="T Máx", line=dict(color='red')))
         fig_temp.add_trace(go.Scatter(x=df["Fecha"], y=df["TMIN"], name="T Mín", line=dict(color='blue')))
-        fig_temp.update_layout(title="Temperaturas Registradas", height=300)
+        fig_temp.update_layout(title="Temperaturas (°C)", height=300)
         st.plotly_chart(fig_temp, use_container_width=True)
     with c2:
         fig_prec = go.Figure(go.Bar(x=df["Fecha"], y=df["Prec"], marker_color="teal", name="Precipitación"))
-        fig_prec.update_layout(title="Precipitaciones (mm)", height=300)
+        fig_prec.update_layout(title="Lluvias (mm)", height=300)
         st.plotly_chart(fig_prec, use_container_width=True)
 
-    # ===============================================================
-# 🌾 ANÁLISIS FUNCIONAL PROTEGIDO
-# ===============================================================
-st.divider()
-st.header("🌾 Análisis de Patrones de Emergencia")
-
-# 1. Verificación de rango de fechas
-fecha_min = df["Fecha"].min()
-fecha_max = df["Fecha"].max()
-inicio_analisis = pd.Timestamp("2026-02-01")
-
-if fecha_max < inicio_analisis:
-    st.info(f"📅 **Fase de Monitoreo Inicial**: Actualmente recolectando datos de enero ({fecha_max.strftime('%d/%m')}). "
-            f"El análisis comparativo de patrones funcionales se activará a partir del **01/02/2026**.")
+    # 5. Análisis de Patrones (Protegido por fecha)
+    st.divider()
+    st.header("🌾 Análisis de Patrones de Emergencia")
     
-    # Mostramos un gráfico simple de lo que hay hasta ahora
-    fig_progreso = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = len(df),
-        title = {'text': "Días acumulados para el modelo"},
-        gauge = {'axis': {'range': [None, 31]}, 'bar': {'color': "teal"}}
-    ))
-    st.plotly_chart(fig_progreso, use_container_width=True)
+    fecha_max = df["Fecha"].max()
+    inicio_analisis = pd.Timestamp("2026-02-01")
 
-else:
-    # Solo si pasamos de febrero, ejecutamos la lógica pesada
-    try:
-        UMBRAL_RELEVANCIA = 0.10
-        if max_er < UMBRAL_RELEVANCIA:
-            st.warning(f"⚠️ Actividad baja: El pico de emergencia ({max_er:.3f}) es menor al umbral. No se puede asignar un patrón aún.")
-        else:
-                  # Lógica DTW
-        JD_COMMON = cluster_model["JD_common"]
-        curves_interp = cluster_model["curves_interp"]
-        meds_idx = cluster_model["medoids_k3"]
+    if fecha_max < inicio_analisis:
+        st.info(f"📅 **Fase de Monitoreo Inicial**: Actualmente recolectando datos de enero ({fecha_max.strftime('%d/%m')}). "
+                f"El análisis de patrones funcionales se activará el **01/02/2026**.")
         
-        emer_norm = df["EMERREL"].to_numpy() / max_er
-        curve_year_interp = np.interp(JD_COMMON, df["Julian_days"], emer_norm)
-        
-        meds = [curves_interp[i] for i in meds_idx]
-        dists = [dtw_distance(curve_year_interp, m) for m in meds]
-        cluster_pred = np.argmin(dists)
+        fig_progreso = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = len(df),
+            title = {'text': "Días registrados en enero"},
+            gauge = {'axis': {'range': [None, 31]}, 'bar': {'color': "teal"}}
+        ))
+        st.plotly_chart(fig_progreso, use_container_width=True)
+    else:
+        try:
+            UMBRAL_RELEVANCIA = 0.10
+            if max_er < UMBRAL_RELEVANCIA:
+                st.warning(f"⚠️ Actividad baja: Pico de emergencia ({max_er:.3f}) menor al umbral de relevancia.")
+            else:
+                JD_COMMON = cluster_model["JD_common"]
+                curves_interp = cluster_model["curves_interp"]
+                meds_idx = cluster_model["medoids_k3"]
+                
+                emer_norm = df["EMERREL"].to_numpy() / max_er
+                curve_year_interp = np.interp(JD_COMMON, df["Julian_days"], emer_norm)
+                
+                meds = [curves_interp[i] for i in meds_idx]
+                dists = [dtw_distance(curve_year_interp, m) for m in meds]
+                cluster_pred = np.argmin(dists)
 
-        names = {0: "🌾 Intermedio / Bimodal", 1: "🌱 Temprano / Compacto", 2: "🍂 Tardío / Extendido"}
-        colors = {0: "blue", 1: "green", 2: "orange"}
-        
-        st.markdown(f"### Patrón Detectado: <span style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</span>", unsafe_allow_html=True)
+                names = {0: "🌾 Intermedio / Bimodal", 1: "🌱 Temprano / Compacto", 2: "🍂 Tardío / Extendido"}
+                colors = {0: "blue", 1: "green", 2: "orange"}
+                
+                st.markdown(f"### Patrón Detectado: <span style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</span>", unsafe_allow_html=True)
 
-        col_a, col_b = st.columns([2, 1])
-        with col_a:
-            fig_cmp, ax = plt.subplots(figsize=(8, 3.5))
-            ax.plot(JD_COMMON, curve_year_interp, label="Campaña Actual", color="black", lw=2)
-            ax.plot(JD_COMMON, meds[cluster_pred], label=f"Referencia: {names[cluster_pred]}", color=colors[cluster_pred], ls="--")
-            ax.set_title("Ajuste a Curvas Históricas")
-            ax.set_ylabel("Emergencia Relativa")
-            ax.legend()
-            st.pyplot(fig_cmp)
-        with col_b:
-            cert = 1 - (min(dists) / sum(dists))
-            st.metric("Certidumbre de Patrón", f"{cert:.1%}")
-            st.write(f"Este patrón indica una emergencia principalmente **{names[cluster_pred].split('/')[1].strip()}**.")
+                col_a, col_b = st.columns([2, 1])
+                with col_a:
+                    fig_cmp, ax = plt.subplots(figsize=(8, 3.5))
+                    ax.plot(JD_COMMON, curve_year_interp, label="Campaña Actual", color="black", lw=2)
+                    ax.plot(JD_COMMON, meds[cluster_pred], label="Referencia", color=colors[cluster_pred], ls="--")
+                    ax.set_title("Ajuste a Curvas Históricas")
+                    ax.legend()
+                    st.pyplot(fig_cmp)
+                with col_b:
+                    cert = 1 - (min(dists) / sum(dists))
+                    st.metric("Certidumbre", f"{cert:.1%}")
+        except Exception as e:
+            st.error(f"Error en análisis de patrones: {e}")
 
-    # 6. Botón de Descarga
+    # 6. Exportación y Tabla
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Predicciones')
     
     st.sidebar.download_button(
-        label="📥 Descargar CSV de Predicciones",
+        label="📥 Descargar Predicciones (Excel)",
         data=output.getvalue(),
-        file_name=f"predweem_results_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        file_name=f"predweem_2026_{datetime.now().strftime('%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    with st.expander("🔍 Ver tabla de datos completa"):
+    with st.expander("🔍 Ver tabla de datos detallada"):
         st.dataframe(df.style.format(precision=3), use_container_width=True)
 
 else:
     st.info("👋 **Bienvenido a PREDWEEM 2026**")
-    st.write("Esperando datos... Si acabas de iniciar el repositorio hoy, asegúrate de que el Workflow de GitHub haya terminado de generar el archivo `meteo_daily.csv`.")
-    if st.button("Verificar estado de archivos"):
-        st.write(f"Buscando en: `{BASE}`")
-        st.write(f"¿Existe meteo_daily.csv?: {'✅ Si' if (BASE / 'meteo_daily.csv').exists() else '❌ No'}")
+    st.write("Esperando a que GitHub Actions genere el primer archivo `meteo_daily.csv`...")
+    if st.button("🔄 Verificar archivos en servidor"):
+        st.write(f"Archivo detectado: {'✅ Sí' if (BASE / 'meteo_daily.csv').exists() else '❌ No'}")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("vK3 - Bordenave | Modelo ANN + DTW")
+st.sidebar.caption("PREDWEEM vK3 - Bordenave")
