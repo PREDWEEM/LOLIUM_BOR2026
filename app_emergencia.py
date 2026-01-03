@@ -22,6 +22,12 @@ st.markdown("""
 footer {visibility: hidden;}
 header [data-testid="stToolbar"] {visibility: hidden;}
 .stAppDeployButton {display: none;}
+.stMetric { 
+    background-color: #ffffff; 
+    padding: 15px; 
+    border-radius: 10px; 
+    border: 1px solid #e2e8f0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -119,10 +125,6 @@ if df is not None and modelo_ann is not None:
     df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
     df["EMERAC"] = df["EMERREL"].cumsum()
     
-    # Cálculo de Riesgo
-    max_er = df["EMERREL"].max()
-    df["Riesgo"] = df["EMERREL"] / max_er if max_er > 0 else 0.0
-
     # BOTÓN DE DESCARGA EN SIDEBAR
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -131,7 +133,7 @@ if df is not None and modelo_ann is not None:
     st.sidebar.download_button(
         label="📥 Descargar Predicciones (Excel)",
         data=output.getvalue(),
-        file_name="predicciones_lolium_predweem.xlsx",
+        file_name="predicciones_lolium_bordenave.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
@@ -140,18 +142,38 @@ if df is not None and modelo_ann is not None:
     # ===============================================================
     st.title("🌾 PREDWEEM vK3 — LOLIUM BORDENAVE 2026")
     
-    # Mapa de Riesgo
+    # --- 1. MAPA DE CALOR (EMERREL) CON ESCALA DISCRETA ---
+    # Rango: 0-0.49 Verde | 0.5-0.9 Amarillo | > 0.9 Rojo
+    custom_colorscale = [
+        [0.00, "green"],
+        [0.49, "green"],
+        [0.49, "yellow"], # Salto inmediato en 0.49
+        [0.90, "yellow"],
+        [0.90, "red"],    # Salto inmediato en 0.90
+        [1.00, "red"]
+    ]
+
     fig_risk = go.Figure(data=go.Heatmap(
-        z=[df["Riesgo"].values], x=df["Fecha"], y=["Riesgo"],
-        colorscale='Viridis', zmin=0, zmax=1,
-        hovertemplate="<b>%{x|%d-%b}</b><br>Riesgo: %{z:.2f}<extra></extra>"))
-    fig_risk.update_layout(height=200, title="Evolución del Riesgo de Emergencia", margin=dict(t=40, b=10))
+        z=[df["EMERREL"].values], 
+        x=df["Fecha"], 
+        y=["Intensidad"],
+        colorscale=custom_colorscale, 
+        zmin=0, zmax=1,
+        showscale=True,
+        hovertemplate="<b>%{x|%d-%b}</b><br>Emergencia Rel: %{z:.3f}<extra></extra>"))
+    
+    fig_risk.update_layout(
+        height=180, 
+        title="Mapa Semáforo: Emergencia Relativa Diaria", 
+        margin=dict(t=50, b=10, l=10, r=10)
+    )
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # Clasificación Funcional
+    # --- 2. CLASIFICACIÓN FUNCIONAL ---
     st.divider()
-    st.header("🌾 Análisis Funcional de Patrones")
+    st.header("📊 Análisis Funcional de Patrones")
 
+    max_er = df["EMERREL"].max()
     UMBRAL_RELEVANCIA = 0.25
     if max_er < UMBRAL_RELEVANCIA:
         st.warning(f"⚠️ Pico máximo ({max_er:.3f}) por debajo del umbral de {UMBRAL_RELEVANCIA}. No se asigna patrón funcional.")
@@ -169,22 +191,22 @@ if df is not None and modelo_ann is not None:
         cluster_pred = np.argmin(dists)
 
         names = {0: "🌾 Intermedio / Bimodal", 1: "🌱 Temprano / Compacto", 2: "🍂 Tardío / Extendido"}
-        colors = {0: "blue", 1: "green", 2: "orange"}
+        colors = {0: "#1f77b4", 1: "#2ca02c", 2: "#ff7f0e"}
         
-        st.markdown(f"### Patrón Asignado: <span style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</span>", unsafe_allow_html=True)
+        st.markdown(f"### Patrón Detectado: <span style='color:{colors[cluster_pred]};'>{names[cluster_pred]}</span>", unsafe_allow_html=True)
 
         c1, c2 = st.columns([2, 1])
         with c1:
             fig_cmp, ax = plt.subplots(figsize=(8, 3.5))
             ax.plot(JD_COMMON, curve_year_interp, label="Datos Actuales", color="black", lw=2)
-            ax.plot(JD_COMMON, meds[cluster_pred], label="Patrón de Referencia", color=colors[cluster_pred], ls="--")
+            ax.plot(JD_COMMON, meds[cluster_pred], label="Referencia", color=colors[cluster_pred], ls="--")
             ax.set_title("Ajuste a Patrones Históricos")
             ax.legend()
             st.pyplot(fig_cmp)
         with c2:
             cert = 1 - (min(dists) / sum(dists))
             st.metric("Certidumbre de Patrón", f"{cert:.1%}")
-            st.info(f"El patrón '{names[cluster_pred]}' es el que mejor describe la forma de emergencia en este lote.")
+            st.info(f"El patrón '{names[cluster_pred]}' es el que mejor describe la forma de emergencia en esta zona.")
 
     with st.expander("🔍 Ver tabla de datos"):
         st.dataframe(df.style.format(precision=3))
@@ -193,4 +215,4 @@ else:
     st.warning("👈 Por favor, sube un archivo o coloca 'meteo_daily.csv' en la carpeta raíz.")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Formato: Fecha, TMAX, TMIN, Prec")
+st.sidebar.caption("PREDWEEM vK3 | Bordenave 2026")
