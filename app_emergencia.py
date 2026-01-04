@@ -104,7 +104,7 @@ def load_models():
 # ---------------------------------------------------------
 st.set_page_config(page_title="PREDWEEM vK3 – Bordenave", layout="wide", page_icon="🌾")
 
-st.sidebar.title("🌾 PREDWEEM vK3")
+st.sidebar.title("🌾 PREDWEEM vK3  Lolium Bordenave 2026")
 st.sidebar.caption("Lolium Bordenave 2026")
 
 # Parámetros en Sidebar
