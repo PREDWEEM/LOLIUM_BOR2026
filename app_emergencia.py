@@ -142,7 +142,7 @@ if df is not None and modelo_ann is not None:
     df.loc[df["Julian_days"] <= 30, "EMERREL"] = 0.0 # Filtro biológico inicial
     
     # --- UI ---
-    st.title("🌾 PREDWEEM vK3 — Monitoreo Digital")
+    st.title("🌾 PREDWEEM vK3 — BORDENAVE 2026")
     
 
     # A. MAPA SEMAFÓRICO
