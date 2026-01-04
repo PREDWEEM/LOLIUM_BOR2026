@@ -158,17 +158,17 @@ if df is not None and modelo_ann is not None:
     fig_m.update_layout(height=300, title="Dinámica de Emergencia Relativa", margin=dict(t=30, b=10))
     st.plotly_chart(fig_m, use_container_width=True)
 
-    # C. ANÁLISIS FUNCIONAL (CORTE 1 DE ABRIL)
+    # C. ANÁLISIS FUNCIONAL (CORTE 1 DE MAYO)
     st.divider()
     st.header("📊 Análisis Funcional de Patrones")
     
-    fecha_corte = pd.Timestamp("2026-04-01")
+    fecha_corte = pd.Timestamp("2026-05-01")
     df_trimestre = df[df["Fecha"] < fecha_corte].copy()
 
     if df_trimestre.empty:
-        st.info("ℹ️ El análisis de patrones se activará cuando existan datos previos al 1 de Abril.")
+        st.info("ℹ️ El análisis de patrones se activará cuando existan datos previos al 1 de MAYO.")
     else:
-        st.success(f"🔍 Analizando datos colectados: Enero, Febrero y Marzo (Corte al 1 de Abril).")
+        st.success(f"🔍 Analizando datos colectados: Enero, Febrero y Marzo (Corte al 1 de MAYO).")
         
         # Lógica de Clasificación DTW
         jd_corte = df_trimestre["Julian_days"].max()
