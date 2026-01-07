@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM vK3 — LOLIUM TRES ARROYOS 2026
+# 🌾 PREDWEEM vK3 — LOLIUM BORDENAVE 2026
 # ===============================================================
 
 import streamlit as st
@@ -103,10 +103,10 @@ def load_models():
 # ---------------------------------------------------------
 # 2. CONFIGURACIÓN DE PÁGINA Y DATOS
 # ---------------------------------------------------------
-st.set_page_config(page_title="PREDWEEM vK3 – TRES ARROYOS", layout="wide", page_icon="🌾")
+st.set_page_config(page_title="PREDWEEM vK3 – BORDENAVE", layout="wide", page_icon="🌾")
 
 st.sidebar.title("🌾 PREDWEEM vK3")
-st.sidebar.caption("Lolium TRES ARROYOS 2026")
+st.sidebar.caption("Lolium BORDENAVE 2026")
 
 # Parámetros en Sidebar
 umbral_alerta = st.sidebar.slider("Umbral de Alerta (Emergencia)", 0.1, 1.0, 0.5, 0.05)
@@ -143,7 +143,7 @@ if df is not None and modelo_ann is not None:
     df.loc[df["Julian_days"] <= 30, "EMERREL"] = 0.0 # Filtro biológico inicial
     
     # --- UI ---
-    st.title("🌾 PREDWEEM vK3 — TRES ARROYOS 2026")
+    st.title("🌾 PREDWEEM vK3 — BORDENAVE 2026")
 
     # A. MAPA SEMAFÓRICO
     colorscale = [[0, "#dcfce7"], [0.49, "#16a34a"], [0.49, "#facc15"], [0.9, "#eab308"], [0.9, "#ef4444"], [1, "#b91c1c"]]
