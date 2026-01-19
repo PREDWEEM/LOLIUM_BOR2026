@@ -1,23 +1,38 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM vK3 — LOLIUM BORDENAVE 2026
+# Script Corregido y Unificado (Plotly + Robustez)
 # ===============================================================
 
 import streamlit as st
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import pickle, io
 from pathlib import Path
 
 # ---------------------------------------------------------
-# 0. ROBUSTNESS: GENERADOR DE ARCHIVOS MOCK (Para pruebas)
+# CONFIGURACIÓN INICIAL
+# ---------------------------------------------------------
+st.set_page_config(page_title="PREDWEEM vK3 – BORDENAVE", layout="wide", page_icon="🌾")
+
+# CSS para limpiar la interfaz
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# 0. ROBUSTNESS: GENERADOR DE ARCHIVOS MOCK
 # ---------------------------------------------------------
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
 def create_mock_files_if_missing():
-    """Genera archivos base si no existen para que el script sea ejecutable de inmediato."""
+    """Genera archivos base si no existen para evitar crash en primera ejecución."""
     if not (BASE / "IW.npy").exists():
         np.save(BASE / "IW.npy", np.random.rand(4, 10))
         np.save(BASE / "bias_IW.npy", np.random.rand(10))
@@ -26,7 +41,7 @@ def create_mock_files_if_missing():
     
     if not (BASE / "modelo_clusters_k3.pkl").exists():
         jd = np.arange(1, 366)
-        # Crear 3 patrones sintéticos (Temprano, Intermedio, Tardío)
+        # Crear 3 patrones sintéticos
         p1 = np.exp(-((jd - 100)**2)/600)  # Temprano
         p2 = np.exp(-((jd - 160)**2)/900) + 0.3*np.exp(-((jd - 260)**2)/1200) # Bimodal
         p3 = np.exp(-((jd - 230)**2)/1500) # Tardío
@@ -39,7 +54,6 @@ def create_mock_files_if_missing():
             pickle.dump(mock_cluster, f)
 
     if not (BASE / "meteo_daily.csv").exists():
-        # Generamos datos hasta mayo para permitir el análisis funcional de inmediato
         dates = pd.date_range(start="2026-01-01", periods=150)
         data = {
             "Fecha": dates,
@@ -101,20 +115,20 @@ def load_models():
         return None, None
 
 # ---------------------------------------------------------
-# 2. CONFIGURACIÓN DE PÁGINA Y DATOS
+# 2. UI Y CARGA DE DATOS
 # ---------------------------------------------------------
-st.set_page_config(page_title="PREDWEEM vK3 – BORDENAVE", layout="wide", page_icon="🌾")
-
 st.sidebar.title("🌾 PREDWEEM vK3")
 st.sidebar.caption("Lolium BORDENAVE 2026")
 
-# Parámetros en Sidebar
 umbral_alerta = st.sidebar.slider("Umbral de Alerta (Emergencia)", 0.1, 1.0, 0.5, 0.05)
 archivo_subido = st.sidebar.file_uploader("Subir Clima (Excel/CSV)", type=["xlsx", "csv"])
 
 def get_data(file_input):
     if file_input:
-        df = pd.read_csv(file_input, parse_dates=["Fecha"]) if file_input.name.endswith('.csv') else pd.read_excel(file_input, parse_dates=["Fecha"])
+        if file_input.name.endswith('.csv'):
+            df = pd.read_csv(file_input, parse_dates=["Fecha"])
+        else:
+            df = pd.read_excel(file_input, parse_dates=["Fecha"])
     else:
         path = BASE / "meteo_daily.csv"
         df = pd.read_csv(path, parse_dates=["Fecha"]) if path.exists() else None
@@ -132,7 +146,7 @@ df = get_data(archivo_subido)
 # 3. PROCESAMIENTO Y DASHBOARD
 # ---------------------------------------------------------
 if df is not None and modelo_ann is not None:
-    # Limpieza
+    # --- PREPROCESAMIENTO ---
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
 
@@ -140,9 +154,11 @@ if df is not None and modelo_ann is not None:
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
-    df.loc[df["Julian_days"] <= 30, "EMERREL"] = 0.0 # Filtro biológico inicial
     
-    # --- UI ---
+    # Filtro biológico (Enero inactivo)
+    df.loc[df["Julian_days"] <= 30, "EMERREL"] = 0.0 
+    
+    # --- VISUALIZACIÓN ---
     st.title("🌾 PREDWEEM vK3 — BORDENAVE 2026")
 
     # A. MAPA SEMAFÓRICO
@@ -162,68 +178,89 @@ if df is not None and modelo_ann is not None:
     st.divider()
     st.header("📊 Análisis Funcional de Patrones")
     
-    # Punto de corte: 1 de Mayo (Incluye información de Ene, Feb, Mar y Abr)
     fecha_corte = pd.Timestamp("2026-05-01")
     df_cuatrimestre = df[df["Fecha"] < fecha_corte].copy()
 
     if df_cuatrimestre.empty:
         st.info("ℹ️ El análisis funcional se activará cuando existan datos colectados previos al 1 de MAYO.")
     else:
-        st.success(f"🔍 Clasificación activa: Analizando datos de Enero a Abril (Corte al 1 de MAYO).")
+        st.success(f"🔍 Clasificación activa: Analizando datos hasta el 1 de Mayo.")
         
-        # Lógica de Clasificación DTW
+        # 1. Preparar datos observados
         jd_corte = df_cuatrimestre["Julian_days"].max()
         max_e_obs = df_cuatrimestre["EMERREL"].max() if df_cuatrimestre["EMERREL"].max() > 0 else 1
         
-        # Curva actual interpolada a la grilla común hasta el día de corte
         JD_COMMON = cluster_model["JD_common"]
         jd_obs_grid = JD_COMMON[JD_COMMON <= jd_corte]
         curva_obs_norm = np.interp(jd_obs_grid, df_cuatrimestre["Julian_days"], df_cuatrimestre["EMERREL"] / max_e_obs)
         
-        # Comparación con patrones históricos (medoides)
+        # 2. Calcular distancias DTW
         dists = []
         meds = cluster_model["curves_interp"]
         for m in meds:
-            # Recortamos el patrón histórico al mismo punto para comparar
             m_slice = m[JD_COMMON <= jd_corte]
-            # Re-normalizamos el trozo para que la escala sea comparable en forma
             m_slice_norm = m_slice / m_slice.max() if m_slice.max() > 0 else m_slice
             dists.append(dtw_distance(curva_obs_norm, m_slice_norm))
             
-        cluster_pred = np.argmin(dists)
+        # 3. Identificación Robusta (FIX KEYERROR)
+        cluster_pred = int(np.argmin(dists))
+        
         nombres = {0: "🌾 Intermedio / Bimodal", 1: "🌱 Temprano / Compacto", 2: "🍂 Tardío / Extendido"}
         colores = {0: "#0284c7", 1: "#16a34a", 2: "#ea580c"}
+        
+        # Uso de .get() para evitar crashes si el modelo trae un cluster 3, 4, etc.
+        nombre_final = nombres.get(cluster_pred, f"Patrón Desconocido (Tipo {cluster_pred})")
+        color_final = colores.get(cluster_pred, "#64748b") # Gris por defecto
 
         c1, c2 = st.columns([3, 1])
         with c1:
-            st.markdown(f"#### Patrón Detectado: <span style='color:{colores[cluster_pred]}'>{nombres[cluster_pred]}</span>", unsafe_allow_html=True)
-            fig_p, ax = plt.subplots(figsize=(10, 4))
+            st.markdown(f"#### Patrón Detectado: <span style='color:{color_final}'>{nombre_final}</span>", unsafe_allow_html=True)
             
-            # Graficamos el patrón completo para mostrar la proyección futura
-            ax.plot(JD_COMMON, meds[cluster_pred], color=colores[cluster_pred], ls="--", alpha=0.4, label="Proyección Patrón Anual")
-            
-            # Graficamos los datos reales observados
-            # Escalamos para que coincidan visualmente con el patrón
+            # --- NUEVA GRÁFICA PLOTLY (Reemplaza Matplotlib) ---
+            fig_p = go.Figure()
+
+            # Trazado Histórico (Proyección)
+            fig_p.add_trace(go.Scatter(
+                x=JD_COMMON, 
+                y=meds[cluster_pred], 
+                mode='lines',
+                line=dict(color=color_final, width=2, dash='dash'),
+                name="Proyección Histórica",
+                opacity=0.6
+            ))
+
+            # Trazado Real (Observado)
             factor_escala = meds[cluster_pred].max() if meds[cluster_pred].max() > 0 else 1
-            ax.plot(jd_obs_grid, curva_obs_norm * factor_escala, color="black", lw=2.5, label="Observado (Ene-Abr)")
-            
-            ax.axvline(jd_corte, color="red", ls=":", label="Corte 1 de Mayo")
-            ax.set_title("Ajuste de Campaña Actual vs. Patrones Históricos")
-            ax.set_xlabel("Día Juliano")
-            ax.legend()
-            ax.grid(True, alpha=0.2)
-            st.pyplot(fig_p)
+            fig_p.add_trace(go.Scatter(
+                x=jd_obs_grid, 
+                y=curva_obs_norm * factor_escala, 
+                mode='lines',
+                line=dict(color='black', width=3),
+                name="Observado 2026"
+            ))
+
+            fig_p.add_vline(x=jd_corte, line_width=1, line_dash="dot", line_color="red", annotation_text="Corte")
+
+            fig_p.update_layout(
+                title="Ajuste de Campaña Actual vs. Patrón Histórico (DTW)",
+                xaxis_title="Día Juliano",
+                yaxis_title="Emergencia Relativa (Norm)",
+                height=350,
+                margin=dict(l=20, r=20, t=40, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_p, use_container_width=True)
             
         with c2:
             st.metric("Distancia DTW", f"{min(dists):.2f}")
             st.caption("Menor distancia = Mayor similitud.")
-            st.info("El sistema evalúa la 'forma' de la emergencia acumulada durante el primer cuatrimestre para proyectar el comportamiento más probable del resto de la campaña.")
+            st.info("El sistema evalúa la 'forma' de la curva acumulada para proyectar el comportamiento restante.")
 
     # Exportar
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False)
-    st.sidebar.download_button("📥 Descargar Datos y Predicciones", output.getvalue(), "predweem_bordenave_2026.xlsx")
+    st.sidebar.download_button("📥 Descargar Datos", output.getvalue(), "predweem_tres_arroyos_2026.xlsx")
 
 else:
     st.warning("👈 Cargue un archivo de clima o use los datos por defecto para visualizar el dashboard.")
