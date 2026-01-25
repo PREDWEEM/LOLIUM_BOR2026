@@ -184,7 +184,7 @@ umbral_er = st.sidebar.slider("Umbral Emergencia Diaria", 0.05, 0.80, 0.50)
 
 st.sidebar.markdown("**Ventana Térmica (°Cd)**")
 dga_optimo = st.sidebar.number_input("Objetivo Óptimo", value=600, step=50)
-dga_critico = st.sidebar.number_input("Límite Crítico", value=850, step=50)
+dga_critico = st.sidebar.number_input("Límite Crítico", value=700, step=50)
 
 st.sidebar.caption("PREDWEEM vK3 | Tres Arroyos 2026")
 
