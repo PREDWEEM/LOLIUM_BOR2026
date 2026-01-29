@@ -5,31 +5,31 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
-URL = "https://meteobahia.com.ar/scripts/forecast/for-bd.xml"
+# Configuración y constantes
+URL = "https://meteobahia.com.ar/scripts/forecast/for-ta.xml"
 OUT = Path("meteo_daily.csv")
-
 START = datetime(2026, 1, 1)
 
 def to_float(x):
+    """Convierte strings con coma decimal a float."""
     try:
         return float(str(x).replace(",", "."))
-    except:
+    except (ValueError, TypeError):
         return None
 
 def fetch_meteobahia():
-    # Definimos un "User-Agent" para parecer un navegador normal
+    """Descarga y procesa el XML de MeteoBahía."""
+    # User-Agent para evitar errores 403
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    # Agregamos los headers a la petición
     r = requests.get(URL, headers=headers, timeout=20)
-    
-    # Esto ahora debería funcionar sin el error 403
     r.raise_for_status()
     root = ET.fromstring(r.content)
 
     rows = []
+    # Navegamos por la estructura del XML
     for d in root.findall(".//forecast/tabular/day"):
         fecha = d.find("fecha").get("value")
         tmax  = d.find("tmax").get("value")
@@ -47,31 +47,43 @@ def fetch_meteobahia():
     return df
 
 def update_file():
+    """Lee el CSV viejo, lo actualiza con datos nuevos y lo guarda."""
     today = datetime.utcnow().date()
 
-    # 1) Antes del 01/01/2026 → NO HACER NADA
+    # 1) Restricción de fecha de inicio
     if today < START.date():
-        print("⏳ Antes del 01/01/2026 → no se actualiza meteo_daily.csv")
+        print(f"⏳ Esperando al {START.date()} para iniciar actualizaciones.")
         return
 
-    # 2) EXACTAMENTE EL 01/01/2026 → BORRAR ARCHIVO
+    # 2) Reinicio anual: Si es exactamente el día de inicio, borramos el historial previo
     if today == START.date():
         if OUT.exists():
             OUT.unlink()
-            print("🆕 meteo_daily.csv reiniciado el 01/01/2026.")
+            print("🆕 Historial reiniciado para el nuevo ciclo (2026).")
 
-    # 3) Descargar datos nuevos
+    # 3) Obtener datos frescos del sitio web
+    print("📡 Descargando datos actuales...")
     df_new = fetch_meteobahia()
 
-    # 4) Si ya existe el archivo (post-reinicio) → concatenar
+    # 4) Lógica de actualización (Merge)
     if OUT.exists():
+        # Leemos el archivo actual
         df_old = pd.read_csv(OUT, parse_dates=["Fecha"])
-        df_all = pd.concat([df_old, df_new]).drop_duplicates("Fecha").sort_values("Fecha")
+        
+        # Concatenamos. Al poner df_new al final y usar keep='last', 
+        # los datos nuevos sobrescriben a los viejos si la fecha coincide.
+        df_all = pd.concat([df_old, df_new]).drop_duplicates("Fecha", keep="last").sort_values("Fecha")
+        print("🔄 Actualizando registros existentes y agregando nuevos...")
     else:
         df_all = df_new
+        print("📝 Creando nuevo archivo meteo_daily.csv...")
 
+    # 5) Guardar resultado final
     df_all.to_csv(OUT, index=False)
-    print(f"[OK] Archivo actualizado: {len(df_all)} registros.")
+    print(f"[OK] Proceso completado. Total de registros: {len(df_all)}.")
 
 if __name__ == "__main__":
-    update_file()
+    try:
+        update_file()
+    except Exception as e:
+        print(f"❌ Error durante la actualización: {e}")
