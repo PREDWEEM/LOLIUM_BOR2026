@@ -224,7 +224,7 @@ if df is not None and modelo_ann is not None:
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
-    df.loc[df["Julian_days"] <= 31, "EMERREL"] = 0.0 
+    df.loc[df["Julian_days"] <= 33, "EMERREL"] = 0.0 
     
     # C. CÁLCULO BIO-TÉRMICO
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
