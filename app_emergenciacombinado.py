@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4 — LOLIUM TRES ARROYOS 2026
-# Actualización: Inicio de ventana desde el primer pico detectado
+# 🌾 PREDWEEM INTEGRAL vK4.1 — LOLIUM TRES ARROYOS 2026
+# Actualización: Inicio de conteo desde el PRIMER pico + Heatmap
 # ===============================================================
 
 import streamlit as st
@@ -47,6 +47,9 @@ st.markdown("""
         margin-bottom: 10px;
         font-size: 0.9em;
     }
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -88,7 +91,7 @@ def create_mock_files_if_missing():
 create_mock_files_if_missing()
 
 # ---------------------------------------------------------
-# 3. LÓGICA TÉCNICA
+# 3. LÓGICA TÉCNICA (ANN + DTW + BIO)
 # ---------------------------------------------------------
 def dtw_distance(a, b):
     na, nb = len(a), len(b)
@@ -100,13 +103,18 @@ def dtw_distance(a, b):
             dp[i,j] = cost + min(dp[i-1,j], dp[i,j-1], dp[i-1,j-1])
     return dp[na, nb]
 
+# Función centralizada para cálculo de TT (usada en Plot y en Dataframe)
 def calculate_tt_scalar(t, t_base, t_opt, t_crit):
-    if t <= t_base: return 0.0
-    elif t <= t_opt: return t - t_base
+    if t <= t_base:
+        return 0.0
+    elif t <= t_opt:
+        return t - t_base
     elif t < t_crit:
+        # Ponderación lineal descendente
         factor = (t_crit - t) / (t_crit - t_opt)
         return (t - t_base) * factor
-    else: return 0.0
+    else:
+        return 0.0
 
 class PracticalANNModel:
     def __init__(self, IW, bIW, LW, bLW):
@@ -147,14 +155,23 @@ def load_models():
 def get_data(file_input):
     try:
         if file_input:
-            if file_input.name.endswith('.csv'): df = pd.read_csv(file_input, parse_dates=["Fecha"])
-            else: df = pd.read_excel(file_input, parse_dates=["Fecha"])
+            if file_input.name.endswith('.csv'):
+                df = pd.read_csv(file_input, parse_dates=["Fecha"])
+            else:
+                df = pd.read_excel(file_input, parse_dates=["Fecha"])
         else:
             path = BASE / "meteo_daily.csv"
-            if path.exists(): df = pd.read_csv(path, parse_dates=["Fecha"])
-            else: return None
+            if path.exists():
+                df = pd.read_csv(path, parse_dates=["Fecha"])
+            else:
+                return None
+        
         df.columns = [c.upper().strip() for c in df.columns]
-        mapeo = {'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'}
+        mapeo = {
+            'FECHA': 'Fecha', 'DATE': 'Fecha', 
+            'TMAX': 'TMAX', 'TMIN': 'TMIN', 
+            'PREC': 'Prec', 'LLUVIA': 'Prec'
+        }
         df = df.rename(columns=mapeo)
         return df
     except Exception as e:
@@ -165,103 +182,222 @@ def get_data(file_input):
 # 4. INTERFAZ Y SIDEBAR
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
+
+LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
+st.sidebar.image(LOGO_URL, use_container_width=True)
+
 st.sidebar.markdown("## ⚙️ Configuración")
 archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual", type=["xlsx", "csv"])
 df = get_data(archivo_usuario)
 
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Pico)", 0.05, 0.80, 0.50)
+st.sidebar.divider()
+st.sidebar.markdown("**Parámetros de Emergencia**")
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.05, 0.80, 0.50)
 
 st.sidebar.divider()
-st.sidebar.markdown("🌡️ **Fisiología Térmica**")
-t_base_val = st.sidebar.number_input("T Base", value=2.0, step=0.5)
-t_opt_max = st.sidebar.number_input("T Óptima Max", value=20.0, step=1.0)
+st.sidebar.markdown("🌡️ **Fisiología Térmica (Bio-Limit)**")
+st.sidebar.caption("Ajusta la respuesta biológica al calor.")
+
+# --- CONTROLES TÉRMICOS ---
+col_t1, col_t2 = st.sidebar.columns(2)
+with col_t1:
+    t_base_val = st.number_input("T Base", value=2.0, step=0.5)
+with col_t2:
+    t_opt_max = st.number_input("T Óptima Max", value=20.0, step=1.0)
+
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
-dga_optimo = st.sidebar.number_input("Objetivo Control (°Cd)", value=600, step=50)
-dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=700, step=50)
+st.sidebar.markdown("**Objetivos (°Cd)**")
+dga_optimo = st.sidebar.number_input("Objetivo Control", value=600, step=50)
+dga_critico = st.sidebar.number_input("Límite Ventana", value=700, step=50)
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO Y VISUALIZACIÓN
+# 5. MOTOR DE CÁLCULO
 # ---------------------------------------------------------
 if df is not None and modelo_ann is not None:
+    
+    # A. Preprocesamiento
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
-    # Predicción
+    # B. Predicción Neural
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel, 0.0)
+    df.loc[df["Julian_days"] <= 0, "EMERREL"] = 0.0 
     
-    # Cálculo Térmico
+    # C. CÁLCULO BIO-TÉRMICO
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
+    # Aplicamos la función centralizada
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
     
+    # -----------------------------------------------------
+    # VISUALIZACIÓN
+    # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM-BORDENAVE 2026")
 
-    # TABS
+    # --- GRÁFICO DE CALOR (HEATMAP) ---
+    colorscale_hard = [[0.0, "green"], [0.24, "green"], [0.25, "yellow"], [0.74, "yellow"], [0.75, "red"], [1.0, "red"]]
+    fig_risk = go.Figure(data=go.Heatmap(
+        z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
+        colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False
+    ))
+    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Intensidad de Emergencia")
+    st.plotly_chart(fig_risk, use_container_width=True)
+
+    # TABS PRINCIPALES
     tab1, tab2, tab3 = st.tabs(["📊 MONITOR DE DECISIÓN", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
 
+    # --- TAB 1: MONITOR ---
     with tab1:
         col_main, col_gauge = st.columns([2, 1])
         
-        # --- LÓGICA DE VENTANA (MODIFICADA: PRIMER PICO) ---
+        # ==============================================================================
+        # MODIFICACIÓN CLAVE: Lógica de Ventana basada en el PRIMER PICO
+        # ==============================================================================
+        # Obtenemos los índices donde la tasa diaria supera el umbral definido en el sidebar
         indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
+        
         fecha_inicio_ventana = None
         
+        # Si existe al menos un índice que cumpla la condición...
         if indices_pulso:
-            # Seleccionamos directamente la fecha del primer índice que superó el umbral
-            fecha_inicio_ventana = df.loc[indices_pulso[0], "Fecha"]
+            # ...tomamos la fecha del PRIMERO de ellos.
+            first_peak_index = indices_pulso[0]
+            fecha_inicio_ventana = df.loc[first_peak_index, "Fecha"]
         
+        # Cálculo de acumulados si hay ventana activa
         dga_actual = 0.0
         dias_stress = 0
         if fecha_inicio_ventana:
             df_ventana = df[df["Fecha"] >= fecha_inicio_ventana].copy()
             df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
-            dga_actual = df_ventana["DGA_cum"].iloc[-1]
+            # Tomamos el último valor acumulado
+            dga_actual = df_ventana["DGA_cum"].iloc[-1] if not df_ventana.empty else 0.0
             dias_stress = len(df_ventana[df_ventana["Tmedia"] > t_opt_max])
+        # ==============================================================================
 
         with col_main:
             fig_emer = go.Figure()
-            fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria', line=dict(color='#166534', width=2.5)))
-            fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text="Umbral Pico")
-            fig_emer.update_layout(title="Dinámica de Emergencia", height=350)
+            fig_emer.add_trace(go.Scatter(
+                x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria',
+                line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
+            ))
+            # Línea del umbral para referencia visual
+            fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Pico ({umbral_er})")
+            
+            fig_emer.update_layout(title="Dinámica de Emergencia y Detección de Picos", height=350)
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
-                st.info(f"📅 **Inicio de Conteo (Primer Pico):** {fecha_inicio_ventana.strftime('%d-%m-%Y')}")
+                st.success(f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Primer pico detectado)")
                 if dias_stress > 0:
-                    st.markdown(f"""<div class="bio-alert">🔥 <b>Alerta:</b> {dias_stress} días de estrés térmico desde el inicio.</div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div class="bio-alert">🔥 <b>Estrés Térmico:</b> {dias_stress} días con T > {t_opt_max}°C desde el inicio.</div>""", unsafe_allow_html=True)
             else:
-                st.warning("⏳ Esperando el primer pico de emergencia (Tasa > umbral).")
+                st.warning(f"⏳ Esperando el primer pico de emergencia (Tasa diaria >= {umbral_er}).")
 
         with col_gauge:
+            max_axis = dga_critico * 1.2
             fig_gauge = go.Figure(go.Indicator(
-                mode = "gauge+number", value = dga_actual,
-                title = {'text': "<b>°Cd ACUMULADOS</b>"},
+                mode = "gauge+number+delta", value = dga_actual,
+                domain = {'x': [0, 1], 'y': [0, 1]},
+                title = {'text': "<b>ACUMULACIÓN TÉRMICA (°Cd)</b><br><span style='font-size:0.8em;color:gray'>Desde primer pico</span>"},
                 gauge = {
-                    'axis': {'range': [None, dga_critico*1.2]},
+                    'axis': {'range': [None, max_axis]},
                     'bar': {'color': "black"},
                     'steps': [
                         {'range': [0, dga_optimo], 'color': "#4ade80"},
                         {'range': [dga_optimo, dga_critico], 'color': "#facc15"},
-                        {'range': [dga_critico, dga_critico*1.2], 'color': "#f87171"}
+                        {'range': [dga_critico, max_axis], 'color': "#f87171"}
                     ]
                 }
             ))
+            fig_gauge.update_layout(height=300, margin=dict(t=50, b=10, l=30, r=30))
             st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # (El resto de las pestañas Tab 2 y Tab 3 se mantienen igual...)
+    # --- TAB 2: ANÁLISIS ---
     with tab2:
-        st.info("Módulo de Clasificación DTW Activo.")
-    
-    with tab3:
-        st.info("Módulo de Bio-Calibración Activo.")
+        st.header("🔍 Clasificación DTW")
+        fecha_corte = pd.Timestamp("2026-05-01")
+        df_obs = df[df["Fecha"] < fecha_corte].copy()
 
-    # Exportación
+        if not df_obs.empty and df_obs["EMERREL"].sum() > 0:
+            jd_corte = df_obs["Julian_days"].max()
+            max_e = df_obs["EMERREL"].max() if df_obs["EMERREL"].max() > 0 else 1.0
+            JD_COM = cluster_model["JD_common"]
+            jd_grid = JD_COM[JD_COM <= jd_corte]
+            obs_norm = np.interp(jd_grid, df_obs["Julian_days"], df_obs["EMERREL"] / max_e)
+
+            dists = []
+            for m in cluster_model["curves_interp"]:
+                m_slice = m[JD_COM <= jd_corte]
+                m_norm = m_slice / m_slice.max() if m_slice.max() > 0 else m_slice
+                dists.append(dtw_distance(obs_norm, m_norm))
+
+            pred = int(np.argmin(dists))
+            names = {0: "🌾 Bimodal", 1: "🌱 Temprano", 2: "🍂 Tardío"}
+            cols = {0: "#0284c7", 1: "#16a34a", 2: "#ea580c"}
+            
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                fp = go.Figure()
+                fp.add_trace(go.Scatter(x=JD_COM, y=cluster_model["curves_interp"][pred], name="Patrón Histórico", line=dict(dash='dash', color=cols.get(pred))))
+                fp.add_trace(go.Scatter(x=jd_grid, y=obs_norm * cluster_model["curves_interp"][pred].max(), name="2026", line=dict(color='black', width=3)))
+                st.plotly_chart(fp, use_container_width=True)
+            with c2:
+                st.success(f"### {names.get(pred)}")
+                st.metric("DTW Score", f"{min(dists):.2f}")
+        else:
+             st.info("Datos insuficientes para clasificación DTW (Se requiere actividad antes de Mayo).")
+
+    # --- TAB 3: VISUALIZACIÓN DE CURVA (BIO) ---
+    with tab3:
+        st.subheader("🧪 Curva de Respuesta Fisiológica")
+        st.markdown(f"Así se comporta la acumulación térmica según los parámetros definidos.")
+        
+        # Generar datos sintéticos para el gráfico
+        x_temps = np.linspace(0, 45, 200)
+        y_tt = [calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps]
+        
+        fig_bio = go.Figure()
+        
+        # Curva Principal
+        fig_bio.add_trace(go.Scatter(
+            x=x_temps, y=y_tt, mode='lines', name='Acumulación TT',
+            line=dict(color='#2563eb', width=4),
+            fill='tozeroy', fillcolor='rgba(37, 99, 235, 0.1)'
+        ))
+        
+        # Zonas
+        fig_bio.add_vrect(x0=t_base_val, x1=t_opt_max, fillcolor="green", opacity=0.1, annotation_text="Óptimo", annotation_position="top left")
+        fig_bio.add_vrect(x0=t_opt_max, x1=t_critica, fillcolor="orange", opacity=0.1, annotation_text="Estrés (Penalizado)", annotation_position="top right")
+        fig_bio.add_vrect(x0=t_critica, x1=45, fillcolor="red", opacity=0.1, annotation_text="Inhibición", annotation_position="top right")
+        
+        fig_bio.update_layout(
+            xaxis_title="Temperatura Media Diaria (°C)",
+            yaxis_title="Tiempo Térmico Acumulado (°Cd)",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_bio, use_container_width=True)
+        
+        st.info(f"""
+        **Interpretación:** * Hasta **{t_base_val}°C**: No pasa nada (Dormición/Inactividad).
+        * Entre **{t_base_val}°C y {t_opt_max}°C**: Crecimiento lineal.
+        * Entre **{t_opt_max}°C y {t_critica}°C**: La eficiencia cae rápidamente.
+        * Más de **{t_critica}°C**: El sistema se detiene (TT = 0).
+        """)
+
+    # EXPORTACIÓN
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
+        pd.DataFrame({
+            'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'Umbral_Pico'],
+            'Valor': [t_base_val, t_opt_max, t_critica, umbral_er]
+        }).to_excel(writer, sheet_name='Bio_Params', index=False)
+        
     st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Report.xlsx")
 
 else:
-    st.info("👋 Cargue datos para iniciar el monitoreo.")
+    st.info("👋 **Bienvenido a PREDWEEM.** Cargue datos climáticos para comenzar.")
