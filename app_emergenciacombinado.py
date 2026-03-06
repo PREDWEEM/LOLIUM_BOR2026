@@ -212,25 +212,73 @@ dga_optimo = st.sidebar.number_input("Objetivo Control", value=600, step=50)
 dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO
+# 5. MOTOR DE CÁLCULO (LÓGICA INTEGRADA vK4.2)
 # ---------------------------------------------------------
 if df is not None and modelo_ann is not None:
     
-    # A. Preprocesamiento
+    # --- A. PREPROCESAMIENTO ---
+    # Limpieza de datos y ordenamiento cronológico
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
-    # B. Predicción Neural
+    # --- B. PREDICCIÓN NEURAL ---
+    # Obtenemos la predicción base de la Red Neuronal
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
-    emerrel, _ = modelo_ann.predict(X)
-    df["EMERREL"] = np.maximum(emerrel, 0.0)
-    df.loc[df["Julian_days"] <= 0, "EMERREL"] = 0.0 
+    emerrel_raw, _ = modelo_ann.predict(X)
+    df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
     
-    # C. CÁLCULO BIO-TÉRMICO
+    # --- C. RESTRICCIÓN HÍDRICA (NUEVA LÓGICA) ---
+    # Calculamos la lluvia acumulada en una ventana de 15 días (incluyendo el actual)
+    df["Prec_sum_15d"] = df["Prec"].rolling(window=15, min_periods=1).sum()
+    
+    # Condicional solicitado: Si sum(Prec) < 10mm, EMERREL se capa en 0.14
+    # Esto simula que sin humedad previa no hay "explosión" de emergencia masiva
+    df.loc[df["Prec_sum_15d"] < 10, "EMERREL"] = df["EMERREL"].clip(upper=0.14)
+    
+    # Restricción histórica: Anulamos emergencia antes de Marzo (Julian Day 59)
+    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0 
+
+    # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
-    # Aplicamos la función centralizada
+    # Cálculo de Grados Día (DG) usando la función fisiológica con T_base, T_opt y T_crit
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
     
+    # --- E. DETECCIÓN DE VENTANA Y ACUMULADOS ---
+    # Definimos 'Hoy' para los cálculos de Gauge
+    fecha_hoy = pd.Timestamp.now().normalize() 
+    if fecha_hoy not in df['Fecha'].values:
+        fecha_hoy = df['Fecha'].max()
+    
+    # Identificar el PRIMER PICO que supera el umbral del slider
+    indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
+    
+    dga_hoy = 0.0
+    dga_7dias = 0.0
+    fecha_inicio_ventana = None
+    msg_estado = "Esperando pico de emergencia..."
+
+    if indices_pulso:
+        # Tomamos la fecha del primer gran pulso de emergencia
+        idx_primer_pico = indices_pulso[0]
+        fecha_inicio_ventana = df.loc[idx_primer_pico, "Fecha"]
+        
+        # Filtramos el dataframe desde el pico para acumular Tiempo Térmico
+        df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
+        df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
+        
+        # 1. Acumulado al día de hoy
+        mask_hoy = (df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy)
+        dga_hoy = df.loc[mask_hoy, "DG"].sum()
+        
+        # 2. Pronóstico a +7 días
+        idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
+        df_pronostico = df.iloc[idx_hoy + 1 : idx_hoy + 8]
+        dga_7dias = dga_hoy + df_pronostico["DG"].sum()
+        
+        msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
+        
+        # Contador de días de estrés térmico desde el inicio de la ventana
+        dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
     # -----------------------------------------------------
     # VISUALIZACIÓN
     # -----------------------------------------------------
