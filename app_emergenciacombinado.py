@@ -233,7 +233,7 @@ if df is not None and modelo_ann is not None:
     
     # Condicional solicitado: Si sum(Prec) < 10mm, EMERREL se capa en 0.14
     # Esto simula que sin humedad previa no hay "explosión" de emergencia masiva
-    df.loc[df["Prec_sum_15d"] < 5, "EMERREL"] = df["EMERREL"].clip(upper=0.14)
+    df.loc[df["Prec_sum_15d"] < 10, "EMERREL"] = df["EMERREL"].clip(upper=0.14)
     
     # Restricción histórica: Anulamos emergencia antes de Marzo (Julian Day 59)
     df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0 
