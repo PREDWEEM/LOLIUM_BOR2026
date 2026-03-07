@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.1 — LOLIUM TRES ARROYOS 2026
-# Actualización: Inicio de conteo desde el PRIMER pico + Heatmap
+# 🌾 PREDWEEM INTEGRAL vK4.2 — LOLIUM BORDENAVE 2026
+# Actualización: Inicio de conteo desde el PRIMER pico + Heatmap + Lluvia Diaria
 # ===============================================================
 
 import streamlit as st
@@ -160,11 +160,16 @@ def get_data(file_input):
             else:
                 df = pd.read_excel(file_input, parse_dates=["Fecha"])
         else:
-            path = BASE / "meteo_daily.csv"
-            if path.exists():
-                df = pd.read_csv(path, parse_dates=["Fecha"])
-            else:
-                return None
+            # Conexión directa a GitHub (Asumo que sigue siendo loliumTA_2026 por ahora)
+            github_url = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/meteo_daily.csv"
+            try:
+                df = pd.read_csv(github_url, parse_dates=["Fecha"])
+            except Exception:
+                path = BASE / "meteo_daily.csv"
+                if path.exists():
+                    df = pd.read_csv(path, parse_dates=["Fecha"])
+                else:
+                    return None
         
         df.columns = [c.upper().strip() for c in df.columns]
         mapeo = {
@@ -182,9 +187,6 @@ def get_data(file_input):
 # 4. INTERFAZ Y SIDEBAR
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
-
-LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
-st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.sidebar.markdown("## ⚙️ Configuración")
 archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual", type=["xlsx", "csv"])
@@ -279,6 +281,7 @@ if df is not None and modelo_ann is not None:
         
         # Contador de días de estrés térmico desde el inicio de la ventana
         dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
+    
     # -----------------------------------------------------
     # VISUALIZACIÓN
     # -----------------------------------------------------
@@ -293,8 +296,8 @@ if df is not None and modelo_ann is not None:
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Intensidad de Emergencia")
     st.plotly_chart(fig_risk, use_container_width=True)
 
-    # TABS PRINCIPALES
-    tab1, tab2, tab3 = st.tabs(["📊 MONITOR DE DECISIÓN", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
+    # TABS PRINCIPALES AHORA SON 4
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "🌧️ PRECIPITACIONES", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
 
     # --- TAB 1: MONITOR ---
     with tab1:
@@ -344,9 +347,9 @@ if df is not None and modelo_ann is not None:
             else:
                 st.warning(f"⏳ Esperando el primer pico de emergencia (Tasa diaria >= {umbral_er}).")
 
-        
+
         with col_gauge:
-            # 1. Sincronización de fechas (Hoy es 10 de Feb 2026)
+            # 1. Sincronización de fechas 
             fecha_hoy = pd.Timestamp.now().normalize() 
             if fecha_hoy not in df['Fecha'].values:
                 fecha_hoy = df['Fecha'].max()
@@ -418,10 +421,31 @@ if df is not None and modelo_ann is not None:
 
             fig_gauge.update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30))
             st.plotly_chart(fig_gauge, use_container_width=True)
-        
-                            
-    # --- TAB 2: ANÁLISIS ---
+
+    # --- TAB 2: PRECIPITACIONES ---
     with tab2:
+        st.header("🌧️ Dinámica de Precipitaciones Diarias")
+        
+        fig_prec = go.Figure()
+        
+        # Gráfico de barras para lluvia diaria unicamente
+        fig_prec.add_trace(go.Bar(
+            x=df["Fecha"], y=df["Prec"], name='Lluvia Diaria (mm)',
+            marker_color='#60a5fa', opacity=0.8
+        ))
+
+        fig_prec.update_layout(
+            title="Precipitación Diaria Registrada",
+            xaxis_title="Fecha",
+            yaxis_title="Milímetros (mm)",
+            hovermode="x unified",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_prec, use_container_width=True)
+                            
+    # --- TAB 3: ANÁLISIS ---
+    with tab3:
         st.header("🔍 Clasificación DTW")
         fecha_corte = pd.Timestamp("2026-05-01")
         df_obs = df[df["Fecha"] < fecha_corte].copy()
@@ -455,8 +479,8 @@ if df is not None and modelo_ann is not None:
         else:
              st.info("Datos insuficientes para clasificación DTW (Se requiere actividad antes de Mayo).")
 
-    # --- TAB 3: VISUALIZACIÓN DE CURVA (BIO) ---
-    with tab3:
+    # --- TAB 4: VISUALIZACIÓN DE CURVA (BIO) ---
+    with tab4:
         st.subheader("🧪 Curva de Respuesta Fisiológica")
         st.markdown(f"Así se comporta la acumulación térmica según los parámetros definidos.")
         
