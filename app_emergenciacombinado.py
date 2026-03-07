@@ -161,7 +161,7 @@ def get_data(file_input):
                 df = pd.read_excel(file_input, parse_dates=["Fecha"])
         else:
             # Conexión directa a GitHub (Asumo que sigue siendo loliumTA_2026 por ahora)
-            github_url = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/meteo_daily.csv"
+            github_url = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BORDE2026/main/meteo_daily.csv"
             try:
                 df = pd.read_csv(github_url, parse_dates=["Fecha"])
             except Exception:
