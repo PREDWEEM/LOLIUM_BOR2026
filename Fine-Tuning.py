@@ -1,146 +1,71 @@
-import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 import io
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="PREDWEEM - Optimizador Global", layout="wide")
+# 1. CARGA DE PESOS ORIGINALES (SEMILLA)
+IW = np.load('IW.npy')
+bIW = np.load('bias_IW.npy')
+LW = np.load('LW.npy')
+bLW = np.load('bias_out.npy')
 
-# ==========================================
-# 1. ARQUITECTURA DE LA RED NEURONAL (LÓGICA DE PESOS)
-# ==========================================
-def run_ann(X_input, iw, biw, lw, blw):
-    # Rangos de normalización originales del proyecto
+# 2. CARGA DE DATOS DEL SITIO 2
+df_m = pd.read_csv('meteo_daily (2).csv')
+df_m['Fecha'] = pd.to_datetime(df_m['Fecha'])
+df_m['Julian_days'] = df_m['Fecha'].dt.dayofyear
+df_m['Prec_sum'] = df_m['Prec'].rolling(window=21, min_periods=1).sum()
+
+df_c = pd.read_csv('VALIDA (1).xlsx - Hoja1.csv')
+df_c['FECHA'] = pd.to_datetime(df_c['FECHA'])
+df_c['ER_obs'] = df_c['PLM2'] / df_c['PLM2'].max()
+
+# 3. MOTOR DE LA RED NEURONAL
+def predict_ann(params, X_raw):
+    # Reconstrucción de los 331 parámetros
+    ptr = 0
+    new_IW = params[ptr:ptr+220].reshape(4, 55); ptr += 220
+    new_bIW = params[ptr:ptr+55]; ptr += 55
+    new_LW = params[ptr:ptr+55].reshape(1, 55); ptr += 55
+    new_bLW = params[ptr]
+
+    # Escalamiento original del modelo PREDWEEM
     in_min = np.array([1, 0, -7, 0])
     in_max = np.array([300, 41, 25.5, 84])
-    X_n = 2 * (X_input - in_min) / (in_max - in_min) - 1
+    X_n = 2 * (X_raw - in_min) / (in_max - in_min) - 1
     
-    emer_rel = []
+    emer = []
     for x in X_n:
-        # Capa Oculta (4 neuronas entrada -> 55 neuronas ocultas)
-        z1 = iw.T @ x + biw
-        a1 = np.tanh(z1)
-        # Capa de Salida (55 ocultas -> 1 salida)
-        z2 = np.dot(lw, a1) + blw
-        emer_rel.append((np.tanh(z2) + 1) / 2)
+        a1 = np.tanh(new_IW.T @ x + new_bIW)
+        z2 = np.dot(new_LW, a1) + new_bLW
+        emer.append((np.tanh(z2) + 1) / 2)
+    return np.diff(np.cumsum(np.array(emer).flatten()), prepend=0)
+
+X_all = df_m[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
+
+# 4. OPTIMIZACIÓN
+def objective(params):
+    preds = predict_ann(params, X_all)
+    # Flexibilizamos filtros: menos restrictivos para el sitio 2
+    preds[(df_m['Prec_sum'] < 12) | (df_m['Julian_days'] <= 10)] = 0.0
     
-    # Cálculo de tasa diaria a partir del acumulado
-    return np.diff(np.cumsum(np.array(emer_rel).flatten()), prepend=0)
+    y_p_adj = []
+    for f_o in df_c['FECHA']:
+        mask = (df_m['Fecha'] >= f_o - pd.Timedelta(days=3)) & (df_m['Fecha'] <= f_o + pd.Timedelta(days=3))
+        y_p_adj.append(preds[mask].max() if any(mask) else 0)
+    
+    return np.mean((df_c['ER_obs'].values - np.array(y_p_adj))**2)
 
-# ==========================================
-# 2. INTERFAZ DE USUARIO
-# ==========================================
-st.title("🧠 PREDWEEM: Re-entrenamiento Global de la Red")
-st.warning("⚠️ Esta herramienta optimiza los 331 parámetros del modelo. Recomendado para sitios con dinámicas muy diferentes al original.")
+# Ejecutar optimización (Ajuste global)
+x0 = np.concatenate([IW.flatten(), bIW, LW.flatten(), [bLW]])
+res = minimize(objective, x0, method='L-BFGS-B', options={'maxiter': 100})
 
-st.sidebar.header("⚙️ Hiperparámetros")
-max_iter = st.sidebar.number_input("Máximo de Iteraciones", value=100)
-u_hidrico = st.sidebar.slider("Umbral Hídrico Sugerido (mm)", 5, 30, 15)
-d_inicio = st.sidebar.slider("Día de Inicio Sugerido (Julian)", 1, 31, 10)
+# 5. RESULTADOS Y GUARDADO
+params_opt = res.x
+np.save('IW_SITE2.npy', params_opt[0:220].reshape(4, 55))
+np.save('bias_IW_SITE2.npy', params_opt[220:275])
+np.save('LW_SITE2.npy', params_opt[275:330].reshape(1, 55))
+np.save('bias_out_SITE2.npy', params_opt[330])
 
-# Carga de archivos
-col_a, col_b = st.columns(2)
-with col_a:
-    f_meteo = st.file_uploader("1. Clima del Nuevo Sitio (CSV)", type=['csv'])
-with col_b:
-    f_valida = st.file_uploader("2. Campo del Nuevo Sitio (Excel/CSV)", type=['xlsx', 'csv'])
-
-# ==========================================
-# 3. LÓGICA DE OPTIMIZACIÓN
-# ==========================================
-if f_meteo and f_valida:
-    try:
-        # Procesamiento de Clima
-        df_m = pd.read_csv(f_meteo)
-        df_m.columns = df_m.columns.str.strip()
-        df_m['Fecha'] = pd.to_datetime(df_m['Fecha'])
-        df_m['Julian_days'] = df_m['Fecha'].dt.dayofyear
-        df_m['Prec_sum'] = df_m['Prec'].rolling(window=21, min_periods=1).sum()
-        
-        # Procesamiento de Campo
-        if f_valida.name.endswith('.csv'):
-            df_c = pd.read_csv(f_valida)
-        else:
-            df_c = pd.read_excel(f_valida, engine='openpyxl')
-        df_c.columns = df_c.columns.str.strip()
-        df_c['FECHA'] = pd.to_datetime(df_c['FECHA'])
-        df_c['ER_obs'] = df_c['PLM2'] / df_c['PLM2'].max()
-
-        # Cargar Pesos Originales como Semilla de Optimización
-        IW_orig = np.load('IW.npy')
-        bIW_orig = np.load('bias_IW.npy')
-        LW_orig = np.load('LW.npy')
-        bLW_orig = np.load('bias_out.npy')
-
-        X_matrix = df_m[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
-
-        if st.button("🔥 Iniciar Optimización Global"):
-            with st.spinner("Calibrando 331 neuronas..."):
-                
-                def objective(params):
-                    # Reconstrucción del vector plano a matrices de la RNA
-                    ptr = 0
-                    new_iw = params[ptr:ptr+220].reshape(4, 55); ptr += 220
-                    new_biw = params[ptr:ptr+55]; ptr += 55
-                    new_lw = params[ptr:ptr+55].reshape(1, 55); ptr += 55
-                    new_blw = params[ptr]
-                    
-                    preds = run_ann(X_matrix, new_iw, new_biw, new_lw, new_blw)
-                    
-                    # Filtros biológicos dinámicos
-                    preds[(df_m['Prec_sum'] < u_hidrico) | (df_m['Julian_days'] <= d_inicio)] = 0.0
-                    
-                    # Sincronización (Ventana 7 días para muestreos semanales)
-                    y_p_adj = []
-                    for f_o in df_c['FECHA']:
-                        mask = (df_m['Fecha'] >= f_o - pd.Timedelta(days=3)) & (df_m['Fecha'] <= f_o + pd.Timedelta(days=3))
-                        y_p_adj.append(preds[mask].max() if any(mask) else 0)
-                    
-                    # Loss: Error Cuadrático Medio
-                    return np.mean((df_c['ER_obs'].values - np.array(y_p_adj))**2)
-
-                # Vector inicial plano
-                x0 = np.concatenate([IW_orig.flatten(), bIW_orig, LW_orig.flatten(), [bLW_orig]])
-                
-                # Algoritmo de optimización (L-BFGS-B para gran cantidad de parámetros)
-                res = minimize(objective, x0, method='L-BFGS-B', options={'maxiter': max_iter})
-                
-                # Reconstrucción de resultados finales
-                ptr = 0
-                opt_iw = res.x[ptr:ptr+220].reshape(4, 55); ptr += 220
-                opt_biw = res.x[ptr:ptr+55]; ptr += 55
-                opt_lw = res.x[ptr:ptr+55].reshape(1, 55); ptr += 55
-                opt_blw = res.x[ptr]
-
-                st.success(f"✅ Calibración terminada. Error (MSE): {res.fun:.4f}")
-
-                # Gráfico Comparativo
-                p_final = run_ann(X_matrix, opt_iw, opt_biw, opt_lw, opt_blw)
-                p_final[(df_m['Prec_sum'] < u_hidrico) | (df_m['Julian_days'] <= d_inicio)] = 0.0
-                
-                fig, ax = plt.subplots(figsize=(10, 4))
-                ax.plot(df_m['Fecha'], p_final, label='Modelo Optimizado', color='#1e3a8a', lw=2)
-                ax.scatter(df_c['FECHA'], df_c['ER_obs'], color='#b91c1c', s=100, label='Campo', zorder=5)
-                ax.set_title("Ajuste Global Finalizado")
-                ax.legend()
-                st.pyplot(fig)
-
-                # DESCARGA DE RESULTADOS
-                st.subheader("📦 Descargar Nuevos Pesos (.npy)")
-                cols = st.columns(4)
-                def get_download_btn(label, data, fname):
-                    buf = io.BytesIO()
-                    np.save(buf, data)
-                    return st.download_button(label, buf.getvalue(), fname)
-
-                with cols[0]: get_download_btn("IW_opt.npy", opt_iw, "IW_opt.npy")
-                with cols[1]: get_download_btn("bias_IW_opt.npy", opt_biw, "bias_IW_opt.npy")
-                with cols[2]: get_download_btn("LW_opt.npy", opt_lw, "LW_opt.npy")
-                with cols[3]: get_download_btn("bias_out_opt.npy", opt_blw, "bias_out_opt.npy")
-
-    except Exception as e:
-        st.error(f"Error técnico: {e}")
-else:
-    st.info("Sube los archivos del nuevo sitio para iniciar la optimización global.")
+print(f"✅ Calibración completada para el Sitio 2.")
+print(f"Error final: {res.fun:.4f}")
