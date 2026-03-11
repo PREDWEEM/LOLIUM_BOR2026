@@ -91,7 +91,7 @@ if f_meteo and f_campo:
             # 2. Simulación
             preds = run_ann_fast(X_n, x_actual)
             p21 = m[prec_c].rolling(21, min_periods=1).sum().values
-            preds[(p21 < u_lluvia) | (m['julian'] <= 10)] = 0
+            preds[(p21 < u_lluvia) | (m['julian'] <= 25)] = 0
             
             # 3. Preparar Campo
             c = dict_c[y].copy().dropna(how='all')
