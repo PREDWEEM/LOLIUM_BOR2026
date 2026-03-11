@@ -3,68 +3,88 @@ import pandas as pd
 import zipfile
 import io
 
-st.title("📦 Generador de ZIP PREDWEEM")
-st.markdown("Sube los archivos meteorológicos anuales para estandarizarlos y descargarlos en un solo ZIP.")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Procesador Excel PREDWEEM", layout="centered")
 
-# Cargador de múltiples archivos
-archivos_subidos = st.file_uploader(
-    "Selecciona los archivos CSV (ej: CLIMA... o datos LOLIUM...)", 
-    type=['csv'], 
-    accept_multiple_files=True
-)
+st.title("📂 Procesador Meteorológico de Excel")
+st.markdown("""
+Sube tu archivo `CLIMA 2017-2022.xlsx`. El sistema convertirá cada hoja en un 
+archivo `.csv` estandarizado con el formato: `Fecha, TMAX, TMIN, Prec`.
+""")
 
-if archivos_subidos:
-    # Buffer en memoria para el archivo ZIP
-    buf_zip = io.BytesIO()
-    
-    with zipfile.ZipFile(buf_zip, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        for f in archivos_subidos:
-            try:
-                df = pd.read_csv(f)
-                # Limpiar nombres de columnas (quitar espacios)
+# 1. CARGADOR DE ARCHIVO EXCEL
+f_excel = st.file_uploader("Subir archivo Excel (.xlsx)", type=['xlsx'])
+
+if f_excel:
+    try:
+        # Leer todas las hojas del Excel
+        # sheet_name=None devuelve un diccionario {nombre_hoja: dataframe}
+        excel_data = pd.read_excel(f_excel, sheet_name=None)
+        
+        st.info(f"Hojas detectadas: {', '.join(excel_data.keys())}")
+        
+        # Buffer para el archivo ZIP
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+            for nombre_hoja, df in excel_data.items():
+                # Limpiar nombres de columnas (quitar espacios en blanco)
                 df.columns = [str(c).strip() for c in df.columns]
-                
-                # Mapeo inteligente de columnas según el formato detectado
-                mapeo = {}
                 cols_low = [c.lower() for c in df.columns]
                 
-                # Identificar Fecha (primera columna o columna 'fecha')
+                # Mapeo inteligente de columnas
+                mapeo = {}
+                
+                # Buscar Fecha
                 if 'fecha' in cols_low:
-                    idx = cols_low.index('fecha')
-                    mapeo[df.columns[idx]] = 'Fecha'
+                    mapeo[df.columns[cols_low.index('fecha')]] = 'Fecha'
                 else:
-                    mapeo[df.columns[0]] = 'Fecha'
+                    mapeo[df.columns[0]] = 'Fecha' # Asumir primera columna
                 
-                # Identificar TMAX y TMIN (independiente del orden original)
-                idx_tmax = cols_low.index('tmax')
-                idx_tmin = cols_low.index('tmin')
-                mapeo[df.columns[idx_tmax]] = 'TMAX'
-                mapeo[df.columns[idx_tmin]] = 'TMIN'
+                # Buscar Temperaturas (independiente de mayúsculas/minúsculas)
+                if 'tmax' in cols_low:
+                    mapeo[df.columns[cols_low.index('tmax')]] = 'TMAX'
+                if 'tmin' in cols_low:
+                    mapeo[df.columns[cols_low.index('tmin')]] = 'TMIN'
                 
-                # Identificar Precipitacion
+                # Buscar Precipitación
                 if 'prec' in cols_low:
-                    idx_p = cols_low.index('prec')
-                    mapeo[df.columns[idx_p]] = 'Prec'
-                
-                # Aplicar cambios y seleccionar solo lo necesario
-                df_std = df.rename(columns=mapeo)
-                df_final = df_std[['Fecha', 'TMAX', 'TMIN', 'Prec']].copy()
-                
-                # Asegurar formato de fecha limpio
-                df_final['Fecha'] = pd.to_datetime(df_final['Fecha']).dt.strftime('%Y-%m-%d')
-                
-                # Convertir a CSV y añadir al ZIP
-                csv_str = df_final.to_csv(index=False)
-                zip_file.writestr(f.name, csv_str)
-                
-            except Exception as e:
-                st.error(f"Error procesando {f.name}: {e}")
+                    mapeo[df.columns[cols_low.index('prec')]] = 'Prec'
+                elif 'precipitacion' in cols_low:
+                    mapeo[df.columns[cols_low.index('precipitacion')]] = 'Prec'
 
-    # Botón de descarga
-    st.success(f"¡{len(archivos_subidos)} archivos procesados con éxito!")
-    st.download_button(
-        label="📥 Descargar Serie Estandarizada (ZIP)",
-        data=buf_zip.getvalue(),
-        file_name="meteo_PREDWEEM_ajustado.zip",
-        mime="application/zip"
-    )
+                # Aplicar estandarización
+                df_std = df.rename(columns=mapeo)
+                
+                # Verificar si tenemos las columnas necesarias
+                columnas_necesarias = ['Fecha', 'TMAX', 'TMIN', 'Prec']
+                if all(col in df_std.columns for col in columnas_necesarias):
+                    df_final = df_std[columnas_necesarias].copy()
+                    
+                    # Limpiar formato de fecha (eliminar horas si existen)
+                    df_final['Fecha'] = pd.to_datetime(df_final['Fecha']).dt.strftime('%Y-%m-%d')
+                    
+                    # Convertir a CSV para el ZIP
+                    csv_data = df_final.to_csv(index=False).encode('utf-8')
+                    zip_file.writestr(f"meteo_{nombre_hoja}.csv", csv_data)
+                else:
+                    st.warning(f"⚠️ La hoja '{nombre_hoja}' no contiene todas las columnas necesarias.")
+
+        st.success(f"✅ Se han procesado {len(excel_data)} años correctamente.")
+        
+        # 2. BOTÓN DE DESCARGA
+        st.download_button(
+            label="📥 Descargar Serie Histórica (ZIP)",
+            data=zip_buffer.getvalue(),
+            file_name="Serie_Meteo_PREDWEEM.zip",
+            mime="application/zip"
+        )
+
+    except Exception as e:
+        st.error(f"Error al procesar el Excel: {e}")
+
+st.divider()
+st.info("""
+**Nota técnica:** Este procesador asegura que la columna `TMAX` siempre preceda a `TMIN` 
+y que los nombres coincidan exactamente con lo que espera el motor de la Red Neuronal.
+""")
