@@ -98,7 +98,7 @@ if f_meteo and f_valida:
                 
                 # Visualización
                 p_final = run_ann(X_mat, res.x)
-                p_final[(df_m['Prec_sum'] < 10) | (df_m['Julian_days'] <= 5)] = 0.0
+                p_final[(df_m['Prec_sum'] < 10) | (df_m['Julian_days'] <= 25)] = 0.0
                 
                 fig, ax = plt.subplots(figsize=(10, 4))
                 ax.plot(df_m['Fecha'], p_final, label='Modelo Calibrado', color='blue', lw=2)
