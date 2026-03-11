@@ -81,7 +81,7 @@ if f_meteo and f_valida:
                 def objective(p):
                     preds = run_ann(X_mat, p)
                     # Filtros dinámicos (Clave para el sitio 2)
-                    preds[(df_m['Prec_sum'] < 10) | (df_m['Julian_days'] <= 5)] = 0.0
+                    preds[(df_m['Prec_sum'] < 10) | (df_m['Julian_days'] <= 25)] = 0.0
                     
                     y_p_adj = []
                     for f_o in df_c['FECHA']:
