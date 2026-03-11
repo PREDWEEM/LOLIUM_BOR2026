@@ -86,7 +86,7 @@ if f_meteo and f_valida:
         # APLICACIÓN DEL UMBRAL HÍDRICO DINÁMICO
         df_clima['Prec_sum'] = df_clima['Prec'].rolling(window=21, min_periods=1).sum()
         # Filtro: Si la lluvia acumulada es menor al umbral del slider, la emergencia es 0
-        df_clima.loc[(df_clima['Prec_sum'] < umbral_h) | (df_clima['Julian_days'] <= 10), 'EMERREL'] = 0.0
+        df_clima.loc[(df_clima['Prec_sum'] < umbral_h) | (df_clima['Julian_days'] <= 25), 'EMERREL'] = 0.0
 
         # Lógica de Ventana de Tolerancia
         df_campo['ER_obs'] = df_campo['PLM2'] / df_campo['PLM2'].max()
