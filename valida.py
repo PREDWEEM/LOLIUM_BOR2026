@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
@@ -44,9 +43,9 @@ def calcular_metricas_completas(df_v):
     gamma = (np.std(pred)/np.mean(pred)) / (np.std(obs)/np.mean(obs)) if (np.mean(pred) > 0 and np.mean(obs) > 0) else 0
     kge = 1 - np.sqrt((r - 1)**2 + (beta - 1)**2 + (gamma - 1)**2)
     
-    # 4. Error de Fase (Sincronía del Pico)
-    fecha_pico_obs = df_v.loc[df_v['Obs'].idxmax(), 'Fecha']
-    fecha_pico_pred = df_v.loc[df_v['Pred'].idxmax(), 'Fecha']
+    # 4. Error de Fase (Sincronía del Pico) - ACTUALIZADO PARA VENTANA DE MATCH
+    fecha_pico_obs = df_v.loc[df_v['Obs'].idxmax(), 'Fecha_Conteo']
+    fecha_pico_pred = df_v.loc[df_v['Pred'].idxmax(), 'Fecha_Match']
     desfase_dias = (fecha_pico_pred - fecha_pico_obs).days
     
     # 5. Accuracy por Categoría
@@ -89,7 +88,7 @@ st.title("🌾 PREDWEEM: Análisis de Sincronía y Validación")
 
 st.sidebar.header("⚙️ Parámetros de Calibración")
 umbral_h = st.sidebar.slider("Umbral Hídrico (mm)", 0, 60, 20)
-ventana_dias = st.sidebar.slider("Ventana de Tolerancia (Días)", 1, 14, 7)
+ventana_dias = st.sidebar.slider("Ventana de Tolerancia (± Días)", 0, 7, 3, help="Margen temporal para buscar el pico simulado alrededor del conteo.")
 
 f_meteo = st.sidebar.file_uploader("Subir meteo_daily.csv", type=['csv'])
 f_valida = st.sidebar.file_uploader("Subir VALIDA.xlsx", type=['xlsx'])
@@ -127,16 +126,32 @@ if f_meteo and f_valida:
         if max_emer > 0:
             df_clima['EMERREL'] = df_clima['EMERREL'] / max_emer
 
-        # --- Sincronización para métricas ---
+        # --- Sincronización con ventana de +/- días ---
         df_campo['ER_obs'] = df_campo['PLM2'] / df_campo['PLM2'].max()
         resultados = []
-        radio = ventana_dias // 2
 
         for _, row in df_campo.iterrows():
-            mask = (df_clima['Fecha'] >= row['FECHA'] - pd.Timedelta(days=radio)) & \
-                   (df_clima['Fecha'] <= row['FECHA'] + pd.Timedelta(days=radio))
-            max_p = df_clima.loc[mask, 'EMERREL'].max() if not df_clima[mask].empty else 0
-            resultados.append({'Fecha': row['FECHA'], 'Obs': row['ER_obs'], 'Pred': max_p})
+            fecha_conteo = row['FECHA']
+            inicio_ventana = fecha_conteo - pd.Timedelta(days=ventana_dias)
+            fin_ventana = fecha_conteo + pd.Timedelta(days=ventana_dias)
+            
+            mask = (df_clima['Fecha'] >= inicio_ventana) & (df_clima['Fecha'] <= fin_ventana)
+            
+            if not df_clima[mask].empty:
+                # Buscar el pico máximo de emergencia dentro de la ventana de tolerancia
+                idx_max = df_clima.loc[mask, 'EMERREL'].idxmax()
+                max_p = df_clima.loc[idx_max, 'EMERREL']
+                fecha_match = df_clima.loc[idx_max, 'Fecha']
+            else:
+                max_p = 0
+                fecha_match = fecha_conteo
+            
+            resultados.append({
+                'Fecha_Conteo': fecha_conteo, 
+                'Fecha_Match': fecha_match,
+                'Obs': row['ER_obs'], 
+                'Pred': max_p
+            })
 
         df_v = pd.DataFrame(resultados)
         nse, kge, pbias, acc_cat, desfase, c_obs, c_pred = calcular_metricas_completas(df_v)
@@ -159,14 +174,20 @@ if f_meteo and f_valida:
         # Curva continua del modelo
         ax.plot(df_clima['Fecha'], df_clima['EMERREL'], color='#166534', lw=2, label='Modelo (Diario)')
         
-        # Puntos observados en campo
-        ax.scatter(df_v['Fecha'], df_v['Obs'], color='black', s=60, zorder=5, label='Campo (Observado)')
+        # Visualización de la ventana de tolerancia (+/- días)
+        ax.hlines(y=df_v['Obs'], 
+                  xmin=df_v['Fecha_Conteo'] - pd.Timedelta(days=ventana_dias), 
+                  xmax=df_v['Fecha_Conteo'] + pd.Timedelta(days=ventana_dias), 
+                  color='gray', linestyle='-', zorder=3, alpha=0.5, linewidth=2)
         
-        # Puntos capturados por la ventana de tolerancia
-        ax.scatter(df_v['Fecha'], df_v['Pred'], color='orange', marker='X', s=80, zorder=6, label=f'Modelo (Ventana ±{radio}d)')
+        # Puntos observados en campo
+        ax.scatter(df_v['Fecha_Conteo'], df_v['Obs'], color='black', s=60, zorder=5, label=f'Conteo (±{ventana_dias}d)')
+        
+        # Puntos capturados por la ventana de tolerancia (Match del modelo)
+        ax.scatter(df_v['Fecha_Match'], df_v['Pred'], color='orange', marker='X', s=80, zorder=6, label='Match del Modelo')
         
         ax.set_ylabel("Tasa Relativa de Emergencia")
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=5, frameon=False)
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=6, frameon=False, fontsize='small')
         ax.grid(True, linestyle='--', alpha=0.5)
         st.pyplot(fig)
 
@@ -176,7 +197,7 @@ if f_meteo and f_valida:
             cm = confusion_matrix(c_obs, c_pred, labels=labels)
             fig_cm, ax_cm = plt.subplots(figsize=(6,4))
             sns.heatmap(cm, annot=True, fmt='d', xticklabels=labels, yticklabels=labels, cmap='Greens', ax=ax_cm)
-            ax_cm.set_xlabel('Predicción del Modelo')
+            ax_cm.set_xlabel('Predicción del Modelo (Match)')
             ax_cm.set_ylabel('Realidad del Campo')
             st.pyplot(fig_cm)
             st.info("Esta matriz clasifica el riesgo. Un valor alto en la diagonal indica que el modelo clasifica correctamente el nivel de alerta.")
