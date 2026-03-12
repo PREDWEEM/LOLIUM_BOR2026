@@ -169,7 +169,7 @@ if f_meteo and f_valida:
         st.subheader("Comparativa: Dinámica Simulada vs Observaciones de Campo")
         fig, ax = plt.subplots(figsize=(12, 5))
         ax.axhspan(0.5, 1.1, color='red', alpha=0.07, label='Riesgo Alto (>= 0.5)')
-        ax.axhspan(0.15, 0.5, color='orange', alpha=0.07, label='Riesgo Medio (0.25 - 0.5)')
+        ax.axhspan(0.25, 0.5, color='orange', alpha=0.07, label='Riesgo Medio (0.25 - 0.5)')
         
         # Curva continua del modelo
         ax.plot(df_clima['Fecha'], df_clima['EMERREL'], color='#166534', lw=2, label='Modelo (Diario)')
