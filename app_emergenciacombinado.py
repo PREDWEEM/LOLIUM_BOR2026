@@ -160,7 +160,7 @@ def get_data(file_input):
             else:
                 df = pd.read_excel(file_input, parse_dates=["Fecha"])
         else:
-            # Conexión directa a GitHub (Asumo que sigue siendo loliumTA_2026 por ahora)
+            # Conexión directa a GitHub
             github_url = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BORDE2026/main/meteo_daily.csv"
             try:
                 df = pd.read_csv(github_url, parse_dates=["Fecha"])
@@ -246,7 +246,7 @@ if df is not None and modelo_ann is not None:
     max_emer = df["EMERREL"].max()
     if max_emer > 0:
         df["EMERREL"] = df["EMERREL"] / max_emer
-       
+        
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     # Cálculo de Grados Día (DG) usando la función fisiológica con T_base, T_opt y T_crit
