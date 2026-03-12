@@ -246,8 +246,7 @@ if df is not None and modelo_ann is not None:
     max_emer = df["EMERREL"].max()
     if max_emer > 0:
         df["EMERREL"] = df["EMERREL"] / max_emer
-    # ---------------------------------------------------------
-    
+       
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     # Cálculo de Grados Día (DG) usando la función fisiológica con T_base, T_opt y T_crit
