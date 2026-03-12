@@ -238,13 +238,15 @@ if df is not None and modelo_ann is not None:
     df.loc[df["Prec_sum_15d"] < 20, "EMERREL"] = df["EMERREL"].clip(upper=0)
     
     # Restricción histórica: Anulamos emergencia antes de Marzo (Julian Day 59)
-    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0 
-
-    
-    # NUEVO: REESCALADO DE EMERREL (Máximo = 1)
-    max_emer = df["EMERREL"].max()
-    if max_emer > 0:
-        df["EMERREL"] = df["EMERREL"] / max_emer
+    df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
+    
+    # ---------------------------------------------------------
+    # NUEVO: REESCALADO DE EMERREL (Máximo = 1)
+    # ---------------------------------------------------------
+    max_emer = df["EMERREL"].max()
+    if max_emer > 0:
+        df["EMERREL"] = df["EMERREL"] / max_emer
+    # ---------------------------------------------------------
     
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
