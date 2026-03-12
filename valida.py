@@ -19,7 +19,7 @@ BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 def categorizar_emergencia(valor):
     if valor >= 0.5:
         return "ALTA"
-    elif 0.25 <= valor < 0.5:
+    elif 0.20 <= valor < 0.5:
         return "INTERMEDIA"
     else:
         return "BAJA/NULA"
