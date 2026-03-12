@@ -288,7 +288,7 @@ if df is not None and modelo_ann is not None:
     st.title("🌾 PREDWEEM LOLIUM-BORDENAVE 2026")
 
     # --- GRÁFICO DE CALOR (HEATMAP) ---
-    colorscale_hard = [[0.0, "green"], [0.02, "green"], [0.021, "yellow"], [0.05, "yellow"], [0.051, "red"], [1.0, "red"]]
+    colorscale_hard = [[0.0, "green"], [0.04, "green"], [0.041, "yellow"], [0.05, "yellow"], [0.051, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
         colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False
