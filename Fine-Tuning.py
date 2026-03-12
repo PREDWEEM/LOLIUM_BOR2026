@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import differential_evolution
 import io
+import zipfile  # <-- Agregado para empaquetar en ZIP
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="PREDWEEM - Optimizador Robusto", layout="wide")
@@ -107,17 +108,34 @@ if f_meteo and f_valida:
                 ax.legend()
                 st.pyplot(fig)
 
-                # Descarga de archivos optimizados
-                ptr = 0
+                # --- NUEVA SECCIÓN DE DESCARGA EN ZIP ---
                 st.subheader("💾 Descargar Pesos Finales")
-                c_d = st.columns(4)
-                def d_btn(l, d, n):
-                    buf = io.BytesIO(); np.save(buf, d); return st.download_button(l, buf.getvalue(), n)
                 
-                with c_d[0]: d_btn("IW.npy", res.x[ptr:ptr+220].reshape(4, 55), "IW_opt.npy"); ptr += 220
-                with c_d[1]: d_btn("bIW.npy", res.x[ptr:ptr+55], "bIW_opt.npy"); ptr += 55
-                with c_d[2]: d_btn("LW.npy", res.x[ptr:ptr+55].reshape(1, 55), "LW_opt.npy"); ptr += 55
-                with c_d[3]: d_btn("bOut.npy", res.x[ptr], "bOut_opt.npy")
+                # Crear un buffer en memoria para el ZIP
+                zip_buffer = io.BytesIO()
+                
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    ptr = 0
+                    
+                    # Función auxiliar para guardar arrays como .npy dentro del ZIP
+                    def add_to_zip(name, data):
+                        buf = io.BytesIO()
+                        np.save(buf, data)
+                        zip_file.writestr(name, buf.getvalue())
+
+                    # Extraer parámetros optimizados y empaquetarlos
+                    add_to_zip("IW_opt.npy", res.x[ptr:ptr+220].reshape(4, 55)); ptr += 220
+                    add_to_zip("bIW_opt.npy", res.x[ptr:ptr+55]); ptr += 55
+                    add_to_zip("LW_opt.npy", res.x[ptr:ptr+55].reshape(1, 55)); ptr += 55
+                    add_to_zip("bOut_opt.npy", np.array(res.x[ptr])) # Se guarda como array por seguridad
+                
+                # Botón único de descarga del archivo ZIP
+                st.download_button(
+                    label="📦 Descargar todos los Pesos y Desvíos (.zip)",
+                    data=zip_buffer.getvalue(),
+                    file_name="pesos_optimizados_predweem.zip",
+                    mime="application/zip"
+                )
 
     except Exception as e:
         st.error(f"Error en el proceso: {e}")
