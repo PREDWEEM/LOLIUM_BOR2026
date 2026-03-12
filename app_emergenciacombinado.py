@@ -194,7 +194,7 @@ df = get_data(archivo_usuario)
 
 st.sidebar.divider()
 st.sidebar.markdown("**Parámetros de Emergencia**")
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.02, 0.80, 0.02)
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.10, 0.80, 0.15)
 
 st.sidebar.divider()
 st.sidebar.markdown("🌡️ **Fisiología Térmica (Bio-Limit)**")
