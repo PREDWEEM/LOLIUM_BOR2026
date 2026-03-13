@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM LARTIGAU 2026
-# Actualización: Sincronía (Pearson) por Intervalos de Monitoreo
+# 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM BORDENAVE 2026
+# Actualización: PEC calculado estrictamente hasta el día de control
 # ===============================================================
 
 import streamlit as st
@@ -17,7 +17,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM LARTIGAU vK4.4", 
+    page_title="PREDWEEM BORDENAVE vK4.4", 
     layout="wide",
     page_icon="🌾"
 )
@@ -79,7 +79,7 @@ def create_mock_files_if_missing():
 create_mock_files_if_missing()
 
 # ---------------------------------------------------------
-# 3. LÓGICA TÉCNICA (ANN ORIGINAL + BIO)
+# 3. LÓGICA TÉCNICA (ANN + BIO)
 # ---------------------------------------------------------
 def dtw_distance(a, b):
     na, nb = len(a), len(b)
@@ -108,15 +108,11 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
-        emer = []
-        for x in Xn:
-            z1 = self.IW.T @ x + self.bIW
-            a1 = np.tanh(z1)
-            z2 = self.LW @ a1 + self.bLW
-            emer.append(np.tanh(z2))
-        emer = (np.array(emer).flatten() + 1) / 2
-        emer_ac = np.cumsum(emer)
-        emerrel = np.diff(emer_ac, prepend=0)
+        z1 = Xn @ self.IW + self.bIW
+        a1 = np.tanh(z1)
+        z2 = (a1 @ self.LW.T).flatten() + self.bLW
+        emerrel = (np.tanh(z2) + 1) / 2
+        emer_ac = np.cumsum(emerrel)
         return emerrel, emer_ac
 
 @st.cache_resource
@@ -146,11 +142,11 @@ modelo_ann, cluster_model = load_models()
 
 st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png", use_container_width=True)
 st.sidebar.markdown("## 📂 1. Datos del Lote")
-archivo_meteo = st.sidebar.file_uploader("1. Clima (Lartigau)", type=["xlsx", "csv"])
-archivo_campo = st.sidebar.file_uploader("2. Campo (Validación Lartigau)", type=["xlsx", "csv"])
+archivo_meteo = st.sidebar.file_uploader("1. Clima (bordenave)", type=["xlsx", "csv"])
+archivo_campo = st.sidebar.file_uploader("2. Campo (Validación)", type=["xlsx", "csv"])
 
-df_meteo_raw = load_data(archivo_meteo, "lartigau")
-df_campo_raw = load_data(archivo_campo, "lartigau_campo")
+df_meteo_raw = load_data(archivo_meteo, "bordenave")
+df_campo_raw = load_data(archivo_campo, "bordenave_campo")
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
@@ -164,11 +160,11 @@ with col_t2: t_opt_max = st.number_input("T Óptima Max", value=20.0, step=1.0)
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
-dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=250, step=10, help="Grados-día a acumular desde el primer pico.")
-dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=400, step=10)
+dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10, help="Grados-día a acumular desde el primer pico.")
+dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO
+# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.4)
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
     
@@ -187,22 +183,21 @@ if df_meteo_raw is not None and modelo_ann is not None:
         col_fecha = 'FECHA' if 'FECHA' in df_campo.columns else df_campo.columns[0]
         col_plm2 = 'PLM2' if 'PLM2' in df_campo.columns else df_campo.columns[1]
         df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
-        # Ordenamos cronológicamente para el cálculo por intervalos
-        df_campo = df_campo.sort_values(col_fecha).reset_index(drop=True)
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
-    # --- PREDICCIÓN NEURAL ORIGINAL (SIN SHIFT) ---
-    X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
+    # --- PREDICCIÓN NEURAL (SHIFT +60D) ---
+    df["JD_Shifted"] = (df["Julian_days"] + 60).clip(1, 300)
+    X = df[["JD_Shifted", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
     
-    # --- RESTRICCIÓN HÍDRICA (LÓGICA ORIGINAL) ---
+    # --- RESTRICCIÓN HÍDRICA Y RELAJACIÓN ---
     df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
     df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 15)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
     
-    jd_thresholds = np.where(df["Prec_sum_21d"] > 50, 0, 25)
+    jd_thresholds = np.where(df["Prec_sum_21d"] > 50, 0, 15)
     df.loc[df["Julian_days"] <= jd_thresholds, "EMERREL"] = 0.0
 
     # --- BIO-TÉRMICO Y VENTANA DE CONTROL ---
@@ -228,40 +223,24 @@ if df_meteo_raw is not None and modelo_ann is not None:
         
         dga_hoy = df.loc[(df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy), "DG"].sum()
         idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
+        dga_7dias = dga_hoy + df.iloc[idx_hoy + 1 : idx_hoy + 8]["DG"].sum()
         
-        if idx_hoy + 8 <= len(df):
-            dga_7dias = dga_hoy + df.iloc[idx_hoy + 1 : idx_hoy + 8]["DG"].sum()
-        else:
-            dga_7dias = dga_hoy
-            
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
         dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
         
     # --- MÉTRICAS DE VALIDACIÓN SOBRE DATOS REALES DE CAMPO ---
     if df_campo is not None:
+        df_cruce = pd.merge(df[['Fecha', 'EMERREL']], df_campo[[col_fecha, col_plm2, 'Campo_Normalizado']], left_on='Fecha', right_on=col_fecha, how='inner')
+        y_sim = df_cruce['EMERREL']
+        y_obs = df_cruce['Campo_Normalizado']
         
-        # 1. CORRECCIÓN DE SINCRONÍA (PEARSON): Integración por intervalos de monitoreo
-        sim_intervals = []
-        # Asumimos que la cuenta empieza a acumularse desde el inicio del dataset de clima
-        last_date = df['Fecha'].min() - pd.Timedelta(days=1)
-        
-        for idx, row in df_campo.iterrows():
-            current_date = row[col_fecha]
-            # Sumamos la emergencia diaria predicha entre la última visita y la visita actual
-            mask_intervalo = (df['Fecha'] > last_date) & (df['Fecha'] <= current_date)
-            suma_simulada = df.loc[mask_intervalo, 'EMERREL'].sum()
-            sim_intervals.append(suma_simulada)
-            last_date = current_date
-            
-        df_campo['Sim_Intervalo'] = sim_intervals
-        
-        # Pearson compara lo que nació en el campo vs lo que sumó el modelo en esos mismos lapsos
-        pearson_r = df_campo[col_plm2].corr(df_campo['Sim_Intervalo'])
-        if pd.isna(pearson_r): pearson_r = 0.0
+        pearson_r = y_sim.corr(y_obs) if not y_sim.empty else 0
+        rmse = np.sqrt(np.mean((y_sim - y_obs)**2)) if not y_sim.empty else 0
 
         pec, peak_lag, lead_time = 0, 0, 0
         
         if fecha_control:
+            fin_residualidad = fecha_control + timedelta(days=residualidad)
             malezas_totales_campo = df_campo[col_plm2].sum()
             
             # CÁLCULO DE PEC: Proporción de plantas controladas HASTA EL DÍA DE CONTROL respecto al total
@@ -280,11 +259,11 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM - LARTIGAU 2026")
+    st.title("🌾 PREDWEEM LOLIUM - BORDENAVE 2026")
 
     colorscale_hard = [[0.0, "green"], [0.14, "green"], [0.15, "yellow"], [0.34, "yellow"], [0.35, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False))
-    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Intensidad de Riesgo (Lartigau)")
+    fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Intensidad (Shifted +60d)")
     st.plotly_chart(fig_risk, use_container_width=True)
 
     tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "🌧️ PRECIPITACIONES", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
@@ -296,14 +275,14 @@ if df_meteo_raw is not None and modelo_ann is not None:
             k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de aplicación", delta_color="normal")
             k2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo", delta_color="off")
             k3.metric("Anticipación", f"{lead_time} días", "Lead Time Logístico", delta_color="normal")
-            k4.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía por Intervalos")
+            k4.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía")
             st.markdown("---")
 
         col_main, col_gauge = st.columns([2, 1])
 
         with col_main:
             fig_emer = go.Figure()
-            fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria Simulada', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
+            fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
             fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
             
             if df_campo is not None:
@@ -346,7 +325,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         st.plotly_chart(fig_prec, use_container_width=True)
                     
     with tab3:
-        st.header("🔍 Clasificación DTW (Lartigau)")
+        st.header("🔍 Clasificación DTW")
         fecha_corte = pd.Timestamp("2026-05-01")
         df_obs = df[df["Fecha"] < fecha_corte].copy()
         if not df_obs.empty and df_obs["EMERREL"].sum() > 0:
@@ -391,7 +370,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                            'Valor': [pec, peak_lag, lead_time, pearson_r]}
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
     
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Lartigau.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
