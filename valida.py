@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 📊 PREDWEEM — DASHBOARD DE VALIDACIÓN AGRONÓMICA A CAMPO
-# Localidad: Bordenave | Lógica: vK4.4 (Shift +60d) | Margen: 7 días
+# Localidad: Bordenave | Lógica: vK4.4 (Shift +60d) | Multipeak > 0.5
 # ===============================================================
 
 import streamlit as st
@@ -27,6 +27,13 @@ st.markdown("""
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     .metric-header { color: #1e293b; font-weight: bold; margin-bottom: -10px; }
+    .peak-box {
+        background-color: #fffbeb;
+        border-left: 4px solid #f59e0b;
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -49,7 +56,6 @@ class PracticalANNModel:
         z1 = Xn @ self.IW + self.bIW
         a1 = np.tanh(z1)
         z2 = (a1 @ self.LW.T).flatten() + self.bLW
-        # Salida matemática pura entre 0 y 1
         emerrel = (np.tanh(z2) + 1) / 2
         return emerrel
 
@@ -70,28 +76,22 @@ def load_model():
 # ---------------------------------------------------------
 st.sidebar.header("📂 Carga de Datos")
 
-# Actualizamos los tipos permitidos para incluir Excel
 file_meteo = st.sidebar.file_uploader("1. Clima (bordenave)", type=["csv", "xlsx", "xls"])
 file_campo = st.sidebar.file_uploader("2. Campo (bordenave_campo)", type=["csv", "xlsx", "xls"])
 
 def load_data(file_uploader, default_base_name):
-    # Si el usuario sube un archivo
     if file_uploader:
         if file_uploader.name.endswith(('.xlsx', '.xls')):
             return pd.read_excel(file_uploader)
         else:
             return pd.read_csv(file_uploader)
-    
-    # Si no sube nada, buscamos los archivos locales por defecto
     else:
         if (BASE / f"{default_base_name}.csv").exists():
             return pd.read_csv(BASE / f"{default_base_name}.csv")
         elif (BASE / f"{default_base_name}.xlsx").exists():
             return pd.read_excel(BASE / f"{default_base_name}.xlsx")
-            
     return None
 
-# Usamos el nombre base sin extensión para buscar los archivos locales
 df_meteo_raw = load_data(file_meteo, "bordenave")
 df_campo_raw = load_data(file_campo, "bordenave_campo") 
 
@@ -129,7 +129,7 @@ if df_meteo_raw is not None and df_campo_raw is not None and modelo is not None:
     jd_thresholds = np.where(df_meteo["Prec_sum_21d"] > 50, 0, 15)
     df_meteo.loc[df_meteo["Julian_days"] <= jd_thresholds, "EMERREL"] = 0.0
 
-    # Cruzar datos
+    # Cruzar datos para métricas globales
     df_cruce = pd.merge(df_meteo[['Fecha', 'EMERREL']], 
                         df_campo[[col_fecha, col_plm2, 'Campo_Normalizado']], 
                         left_on='Fecha', right_on=col_fecha, how='inner')
@@ -137,24 +137,49 @@ if df_meteo_raw is not None and df_campo_raw is not None and modelo is not None:
     y_sim = df_cruce['EMERREL']
     y_obs = df_cruce['Campo_Normalizado']
 
-    # --- CÁLCULOS ESTADÍSTICOS ---
+    # --- CÁLCULOS ESTADÍSTICOS GLOBALES ---
     pearson_r = y_sim.corr(y_obs)
     rmse = np.sqrt(np.mean((y_sim - y_obs)**2))
     num = np.sum((y_sim - y_obs)**2)
     den = np.sum((np.abs(y_sim - np.mean(y_obs)) + np.abs(y_obs - np.mean(y_obs)))**2)
     willmott_d = 1 - (num / den) if den != 0 else 0
 
-    # --- CÁLCULOS AGRONÓMICOS ---
-    fecha_pico_modelo = df_meteo.loc[df_meteo['EMERREL'].idxmax(), 'Fecha']
-    fecha_pico_campo = df_campo.loc[df_campo[col_plm2].idxmax(), col_fecha]
-    peak_lag_dias = (fecha_pico_modelo - fecha_pico_campo).days
-
-    # Simulación de decisión (Margen logístico ajustado a 7 días)
+    # --- CÁLCULOS AGRONÓMICOS (MULTIPEAK > 0.5) ---
     margen_dias = st.sidebar.number_input("Margen Operativo (Días post-alerta)", min_value=0, max_value=20, value=7)
-    fecha_aplicacion_teorica = fecha_pico_modelo + timedelta(days=margen_dias)
-    malezas_controladas = df_campo.loc[df_campo[col_fecha] <= fecha_aplicacion_teorica, col_plm2].sum()
+    
+    # Detección de picos locales > 0.5
+    # Condición: EMERREL > 0.5 Y es mayor que el día anterior Y mayor que el día siguiente
+    es_pico = (
+        (df_meteo['EMERREL'] > 0.5) & 
+        (df_meteo['EMERREL'] > df_meteo['EMERREL'].shift(1)) & 
+        (df_meteo['EMERREL'] > df_meteo['EMERREL'].shift(-1))
+    )
+    
+    picos_detectados = df_meteo[es_pico].copy()
+    
+    # Si por alguna razón la curva es plana o no hay picos > 0.5, tomamos el máximo absoluto por seguridad
+    if picos_detectados.empty:
+        idx_max = df_meteo['EMERREL'].idxmax()
+        picos_detectados = df_meteo.loc[[idx_max]]
+
     malezas_totales = df_campo[col_plm2].sum()
-    pec = (malezas_controladas / malezas_totales) * 100 if malezas_totales > 0 else 0
+    resultados_aplicaciones = []
+
+    for index, row in picos_detectados.iterrows():
+        fecha_pico = row['Fecha']
+        tasa_pico = row['EMERREL']
+        fecha_app = fecha_pico + timedelta(days=margen_dias)
+        
+        # Calcular malezas controladas acumuladas hasta esa fecha de aplicación
+        malezas_ctrl = df_campo.loc[df_campo[col_fecha] <= fecha_app, col_plm2].sum()
+        pec = (malezas_ctrl / malezas_totales) * 100 if malezas_totales > 0 else 0
+        
+        resultados_aplicaciones.append({
+            'fecha_pico': fecha_pico,
+            'tasa': tasa_pico,
+            'fecha_app': fecha_app,
+            'pec': pec
+        })
 
     # ---------------------------------------------------------
     # 5. INTERFAZ GRÁFICA (DASHBOARD)
@@ -162,22 +187,28 @@ if df_meteo_raw is not None and df_campo_raw is not None and modelo is not None:
     st.title("📊 Validación de Factibilidad - PREDWEEM")
     st.markdown("Evaluación del modelo frente a observaciones reales de *Lolium spp.*")
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1, 1.2])
 
     with col1:
-        st.markdown("<p class='metric-header'>📈 MÉTRICAS ESTADÍSTICAS (Ajuste Matemático)</p>", unsafe_allow_html=True)
-        st.info("Evalúan qué tan bien la curva del modelo replica la curva de campo.")
+        st.markdown("<p class='metric-header'>📈 MÉTRICAS ESTADÍSTICAS GLOBALES</p>", unsafe_allow_html=True)
+        st.info("Evalúan la similitud matemática entre la curva simulada y la real.")
         c1, c2, c3 = st.columns(3)
-        c1.metric("Pearson (r)", f"{pearson_r:.3f}", "Óptimo > 0.7" if pearson_r > 0.7 else "Bajo")
-        c2.metric("RMSE", f"{rmse:.3f}", "Error absoluto", delta_color="inverse")
-        c3.metric("Willmott (d)", f"{willmott_d:.3f}", "Óptimo > 0.8" if willmott_d > 0.8 else "Regular")
+        c1.metric("Pearson (r)", f"{pearson_r:.3f}")
+        c2.metric("RMSE", f"{rmse:.3f}")
+        c3.metric("Willmott (d)", f"{willmott_d:.3f}")
 
     with col2:
-        st.markdown("<p class='metric-header'>🚜 MÉTRICAS AGRONÓMICAS (Toma de Decisión)</p>", unsafe_allow_html=True)
-        st.success(f"Día de Aplicación Simulado: **{fecha_aplicacion_teorica.strftime('%d/%m/%Y')}**")
-        c4, c5 = st.columns(2)
-        c4.metric("Desfase de Pico (Lag)", f"{peak_lag_dias} días", "Modelo vs Realidad", delta_color="off")
-        c5.metric("Eficiencia de Control (PEC)", f"{pec:.1f}%", f"Con margen de {margen_dias} días")
+        st.markdown(f"<p class='metric-header'>🚜 EFICIENCIA POR PICOS DE ALERTA (> 0.5)</p>", unsafe_allow_html=True)
+        st.caption(f"Margen logístico simulado: {margen_dias} días después de cada alerta.")
+        
+        # Mostrar los resultados de cada pico detectado
+        for i, app in enumerate(resultados_aplicaciones):
+            st.markdown(f"""
+            <div class="peak-box">
+                <b>Pulso #{i+1}</b> detectado el <b>{app['fecha_pico'].strftime('%d/%m/%Y')}</b> (Tasa: {app['tasa']:.2f})<br>
+                ➔ Aplicación el {app['fecha_app'].strftime('%d/%m/%Y')} ➔ <b>Control Acumulado (PEC): {app['pec']:.1f}%</b>
+            </div>
+            """, unsafe_allow_html=True)
 
     # --- GRÁFICO INTERACTIVO ---
     st.markdown("---")
@@ -193,23 +224,35 @@ if df_meteo_raw is not None and df_campo_raw is not None and modelo is not None:
     # Puntos de Campo
     fig.add_trace(go.Scatter(
         x=df_campo[col_fecha], y=df_campo['Campo_Normalizado'], 
-        mode='markers', name='Datos Reales (Normalizados)', 
-        marker=dict(color='#dc2626', size=12, symbol='circle', line=dict(color='white', width=2))
+        mode='markers+lines', name='Datos Reales (Normalizados)', 
+        marker=dict(color='#dc2626', size=10, symbol='circle', line=dict(color='white', width=2)),
+        line=dict(color='rgba(220, 38, 38, 0.3)', width=2, dash='dot')
     ))
 
-    # Línea de Decisión
-    fig.add_vline(
-        x=fecha_aplicacion_teorica.timestamp() * 1000, 
-        line_dash="dash", line_color="orange", line_width=2,
-        annotation_text=f"Aplicación ({pec:.0f}% Control)", annotation_position="top right"
-    )
+    # Líneas de Decisión para CADA pico
+    colores_lineas = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899']
+    
+    for i, app in enumerate(resultados_aplicaciones):
+        color = colores_lineas[i % len(colores_lineas)]
+        fig.add_vline(
+            x=app['fecha_app'].timestamp() * 1000, 
+            line_dash="dash", line_color=color, line_width=2.5,
+            annotation_text=f"App #{i+1} ({app['pec']:.0f}%)", annotation_position="top left"
+        )
+        # Marcar también el pico que disparó la alerta
+        fig.add_trace(go.Scatter(
+            x=[app['fecha_pico']], y=[app['tasa']],
+            mode='markers', showlegend=False,
+            marker=dict(color=color, size=12, symbol='star', line=dict(color='black', width=1)),
+            hoverinfo='text', hovertext=f"Alerta #{i+1}"
+        ))
 
     fig.update_layout(
-        title="Dinámica Poblacional vs. Predicción",
+        title="Dinámica Poblacional y Oportunidades de Control Múltiple",
         xaxis_title="Fecha",
         yaxis_title="Tasa Relativa",
         hovermode="x unified",
-        height=500,
+        height=550,
         template="plotly_white",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
