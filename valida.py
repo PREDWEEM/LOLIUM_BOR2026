@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM BORDENAVE 2026
-# Actualización: Control por TT (°Cd) + PEC Real sobre Campo
+# Actualización: PEC Estricto a la Fecha de Control
 # ===============================================================
 
 import streamlit as st
@@ -240,25 +240,27 @@ if df_meteo_raw is not None and modelo_ann is not None:
         pec, peak_lag, lead_time, tasa_escapes = 0, 0, 0, 0
         
         if fecha_control:
-            fin_residualidad = fecha_control + timedelta(days=residualidad)
             malezas_totales_campo = df_campo[col_plm2].sum()
             
-            # 1. Identificar escapes reales en el campo (nacidas en bajo riesgo antes de aplicar)
+            # 1. Identificar escapes incontrolables (nacieron en bajo riesgo y crecieron demasiado)
             fechas_bajo_riesgo = df[df['EMERREL'] < 0.10]['Fecha'].values
             escapes_reales = df_campo[(df_campo[col_fecha].isin(fechas_bajo_riesgo)) & (df_campo[col_fecha] <= fecha_control)][col_plm2].sum()
             tasa_escapes = (escapes_reales / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0
             
-            # 2. Plantas reales alcanzadas por la ventana de aplicación (hasta fin de residualidad)
-            alcanzadas_por_ventana = df_campo.loc[df_campo[col_fecha] <= fin_residualidad, col_plm2].sum()
+            # 2. Plantas contadas a campo HASTA la fecha exacta del control
+            emergidas_a_la_fecha = df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum()
             
-            # 3. PEC Real: Alcanzadas menos las que ya estaban incontrolables (escapes)
-            malezas_controladas_real = alcanzadas_por_ventana - escapes_reales
-            pec = (malezas_controladas_real / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0
+            # 3. PEC: Proporción efectivamente controlada a esa fecha (descontando escapes)
+            malezas_controladas_efectivamente = emergidas_a_la_fecha - escapes_reales
+            pec = (malezas_controladas_efectivamente / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0
             
             # Logística
-            fecha_pico_campo = df_campo.loc[df_campo[col_plm2].idxmax(), col_fecha]
+            idx_pico_campo = df_campo[col_plm2].idxmax()
+            fecha_pico_campo = df_campo.loc[idx_pico_campo, col_fecha]
             peak_lag = (fecha_control - fecha_pico_campo).days
-            fecha_primera_alerta = df[df['EMERREL'] >= umbral_er]['Fecha'].iloc[0] if not df[df['EMERREL'] >= umbral_er].empty else fecha_inicio_ventana
+            
+            df_alertas = df[df['EMERREL'] >= umbral_er]
+            fecha_primera_alerta = df_alertas['Fecha'].iloc[0] if not df_alertas.empty else fecha_inicio_ventana
             lead_time = (fecha_control - fecha_primera_alerta).days
 
     # -----------------------------------------------------
@@ -277,7 +279,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         if df_campo is not None and fecha_control:
             st.markdown("<p class='metric-header'>🚜 DIAGNÓSTICO DE CONTROL A CAMPO (Recuentos Reales)</p>", unsafe_allow_html=True)
             k1, k2, k3, k4, k5 = st.columns(5)
-            k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "Alcanzadas - Escapes", delta_color="normal")
+            k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de control", delta_color="normal")
             k2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo", delta_color="off")
             k3.metric("Escapes Incontrolables", f"{tasa_escapes:.1f}%", "Reales a Campo", delta_color="inverse")
             k4.metric("Anticipación", f"{lead_time} días", "Lead Time Logístico", delta_color="normal")
@@ -297,7 +299,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             if fecha_control:
                 fig_emer.add_vline(x=fecha_control.timestamp() * 1000, line_dash="dot", line_color="red", line_width=3, annotation_text=f"Control ({dga_optimo}°Cd)", annotation_position="top left", annotation_font=dict(color="red", size=12, weight="bold"))
                 fin_res = fecha_control + timedelta(days=residualidad)
-                fig_emer.add_vrect(x0=fecha_control.timestamp() * 1000, x1=fin_res.timestamp() * 1000, fillcolor="blue", opacity=0.1, layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)" if df_campo is None else f"PEC: {pec:.0f}%", annotation_position="top left")
+                fig_emer.add_vrect(x0=fecha_control.timestamp() * 1000, x1=fin_res.timestamp() * 1000, fillcolor="blue", opacity=0.1, layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)", annotation_position="top left")
             
             fig_emer.update_layout(title="Dinámica de Emergencia y Momento Crítico", height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_emer, use_container_width=True)
