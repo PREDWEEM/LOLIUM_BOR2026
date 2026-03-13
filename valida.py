@@ -1,16 +1,40 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 📊 PREDWEEM — SCRIPT DE VALIDACIÓN AGRONÓMICA A CAMPO
+# 📊 PREDWEEM — DASHBOARD DE VALIDACIÓN AGRONÓMICA A CAMPO
 # Localidad: Bordenave | Lógica: vK4.4 (Shift +60d)
 # ===============================================================
 
-import pandas as pd
+import streamlit as st
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
+import plotly.graph_objects as go
 from datetime import timedelta
+from pathlib import Path
+import os
 
 # ---------------------------------------------------------
-# 1. CLASE DEL MODELO (Arquitectura Corregida)
+# 1. CONFIGURACIÓN Y ESTILOS
+# ---------------------------------------------------------
+st.set_page_config(page_title="PREDWEEM Validación", layout="wide", page_icon="📊")
+
+st.markdown("""
+<style>
+    .main { background-color: #f8fafc; }
+    .stMetric { 
+        background-color: #ffffff; 
+        padding: 15px; 
+        border-radius: 10px; 
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .metric-header { color: #1e293b; font-weight: bold; margin-bottom: -10px; }
+</style>
+""", unsafe_allow_html=True)
+
+BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
+
+# ---------------------------------------------------------
+# 2. CLASE DEL MODELO (Arquitectura Corregida)
 # ---------------------------------------------------------
 class PracticalANNModel:
     def __init__(self, IW, bIW, LW, bLW):
@@ -30,114 +54,155 @@ class PracticalANNModel:
         emerrel = (np.tanh(z2) + 1) / 2
         return emerrel
 
-# ---------------------------------------------------------
-# 2. CARGA DE DATOS Y PESOS
-# ---------------------------------------------------------
-print("Cargando pesos de la red neuronal...")
-IW = np.load('IW.npy')
-bIW = np.load('bias_IW.npy')
-LW = np.load('LW.npy')
-bLW = np.load('bias_out.npy')
-modelo = PracticalANNModel(IW, bIW, LW, bLW)
-
-print("Procesando datos meteorológicos y de campo...")
-# Datos Climáticos
-df_meteo = pd.read_csv('bordenave.csv')
-df_meteo['Fecha'] = pd.to_datetime(df_meteo['Fecha'])
-df_meteo = df_meteo.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
-df_meteo['Julian_days'] = df_meteo['Fecha'].dt.dayofyear
-
-# Datos de Campo
-df_campo = pd.read_csv('bordenave_campo.xlsx - Hoja1.csv')
-df_campo['FECHA'] = pd.to_datetime(df_campo['FECHA'])
-# Normalizamos el campo de 0 a 1 para poder compararlo con el modelo
-max_plm2 = df_campo['PLM2'].max()
-df_campo['Campo_Normalizado'] = df_campo['PLM2'] / max_plm2 if max_plm2 > 0 else 0
+@st.cache_resource
+def load_model():
+    try:
+        ann = PracticalANNModel(
+            np.load(BASE/"IW.npy"), np.load(BASE/"bias_IW.npy"),
+            np.load(BASE/"LW.npy"), np.load(BASE/"bias_out.npy")
+        )
+        return ann
+    except Exception as e:
+        st.error(f"Error cargando pesos de la red: {e}")
+        return None
 
 # ---------------------------------------------------------
-# 3. EJECUCIÓN DEL MODELO (Lógica Bordenave vK4.4)
+# 3. CARGA DE DATOS (Auto-load o Manual)
 # ---------------------------------------------------------
-# Desfase Temporal
-df_meteo["JD_Shifted"] = (df_meteo["Julian_days"] + 60).clip(1, 300)
+st.sidebar.header("📂 Carga de Datos")
+file_meteo = st.sidebar.file_uploader("1. Clima (bordenave.csv)", type=["csv"])
+file_campo = st.sidebar.file_uploader("2. Campo (bordenave_campo.csv)", type=["csv"])
 
-# Predicción ANN
-X = df_meteo[["JD_Shifted", "TMAX", "TMIN", "Prec"]].to_numpy(float)
-df_meteo["EMERREL"] = np.maximum(modelo.predict(X), 0.0)
+def load_data(file_uploader, default_filename):
+    if file_uploader:
+        return pd.read_csv(file_uploader)
+    elif (BASE / default_filename).exists():
+        return pd.read_csv(BASE / default_filename)
+    return None
 
-# Restricción Hídrica Sigmoide
-df_meteo["Prec_sum_21d"] = df_meteo["Prec"].rolling(window=21, min_periods=1).sum()
-df_meteo["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df_meteo["Prec_sum_21d"] - 15)))
-df_meteo["EMERREL"] = df_meteo["EMERREL"] * df_meteo["Hydric_Factor"]
-
-# Relajación Dinámica
-jd_thresholds = np.where(df_meteo["Prec_sum_21d"] > 50, 0, 15)
-df_meteo.loc[df_meteo["Julian_days"] <= jd_thresholds, "EMERREL"] = 0.0
+df_meteo_raw = load_data(file_meteo, "bordenave.csv")
+df_campo_raw = load_data(file_campo, "bordenave_campo.xlsx - Hoja1.csv") # O el nombre exacto de tu CSV
 
 # ---------------------------------------------------------
-# 4. CÁLCULO DE MÉTRICAS DE VALIDACIÓN
+# 4. PROCESAMIENTO Y VALIDACIÓN
 # ---------------------------------------------------------
-# Cruzamos los datos exactamente en las fechas donde hubo conteos de campo
-df_cruce = pd.merge(df_meteo[['Fecha', 'EMERREL']], 
-                    df_campo[['FECHA', 'PLM2', 'Campo_Normalizado']], 
-                    left_on='Fecha', right_on='FECHA', how='inner')
+modelo = load_model()
 
-y_sim = df_cruce['EMERREL']
-y_obs = df_cruce['Campo_Normalizado']
+if df_meteo_raw is not None and df_campo_raw is not None and modelo is not None:
+    
+    # Preparar Clima
+    df_meteo = df_meteo_raw.copy()
+    df_meteo['Fecha'] = pd.to_datetime(df_meteo['Fecha'])
+    df_meteo = df_meteo.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
+    df_meteo['Julian_days'] = df_meteo['Fecha'].dt.dayofyear
 
-# -- A. Estadísticas Tradicionales --
-pearson_r = y_sim.corr(y_obs)
-rmse = np.sqrt(np.mean((y_sim - y_obs)**2))
+    # Preparar Campo
+    df_campo = df_campo_raw.copy()
+    col_fecha = 'FECHA' if 'FECHA' in df_campo.columns else df_campo.columns[0]
+    col_plm2 = 'PLM2' if 'PLM2' in df_campo.columns else df_campo.columns[1]
+    
+    df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
+    max_plm2 = df_campo[col_plm2].max()
+    df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
-# Índice de Willmott (d)
-num = np.sum((y_sim - y_obs)**2)
-den = np.sum((np.abs(y_sim - np.mean(y_obs)) + np.abs(y_obs - np.mean(y_obs)))**2)
-willmott_d = 1 - (num / den)
+    # Ejecutar Modelo (Lógica Bordenave vK4.4)
+    df_meteo["JD_Shifted"] = (df_meteo["Julian_days"] + 60).clip(1, 300)
+    X = df_meteo[["JD_Shifted", "TMAX", "TMIN", "Prec"]].to_numpy(float)
+    df_meteo["EMERREL"] = np.maximum(modelo.predict(X), 0.0)
+    
+    df_meteo["Prec_sum_21d"] = df_meteo["Prec"].rolling(window=21, min_periods=1).sum()
+    df_meteo["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df_meteo["Prec_sum_21d"] - 15)))
+    df_meteo["EMERREL"] = df_meteo["EMERREL"] * df_meteo["Hydric_Factor"]
+    
+    jd_thresholds = np.where(df_meteo["Prec_sum_21d"] > 50, 0, 15)
+    df_meteo.loc[df_meteo["Julian_days"] <= jd_thresholds, "EMERREL"] = 0.0
 
-# -- B. Métricas Agronómicas (Factibilidad a Campo) --
-# 1. Peak Lag (Desfase del pico principal)
-fecha_pico_modelo = df_meteo.loc[df_meteo['EMERREL'].idxmax(), 'Fecha']
-fecha_pico_campo = df_campo.loc[df_campo['PLM2'].idxmax(), 'FECHA']
-peak_lag_dias = (fecha_pico_modelo - fecha_pico_campo).days
+    # Cruzar datos
+    df_cruce = pd.merge(df_meteo[['Fecha', 'EMERREL']], 
+                        df_campo[[col_fecha, col_plm2, 'Campo_Normalizado']], 
+                        left_on='Fecha', right_on=col_fecha, how='inner')
 
-# 2. PEC (Proporción de Emergencia Controlada)
-# Asumimos que el productor aplica el día del pico del modelo + 3 días de margen logístico
-fecha_aplicacion_teorica = fecha_pico_modelo + timedelta(days=3)
-malezas_controladas = df_campo.loc[df_campo['FECHA'] <= fecha_aplicacion_teorica, 'PLM2'].sum()
-malezas_totales = df_campo['PLM2'].sum()
-pec = (malezas_controladas / malezas_totales) * 100
+    y_sim = df_cruce['EMERREL']
+    y_obs = df_cruce['Campo_Normalizado']
 
-# ---------------------------------------------------------
-# 5. REPORTE Y VISUALIZACIÓN
-# ---------------------------------------------------------
-print("\n" + "="*50)
-print("🌾 REPORTE DE VALIDACIÓN: PREDWEEM EN BORDENAVE")
-print("="*50)
-print(f"📈 INDICADORES ESTADÍSTICOS")
-print(f" - Correlación Pearson (r) : {pearson_r:.3f} (Óptimo > 0.7)")
-print(f" - RMSE                    : {rmse:.3f} (Menor es mejor)")
-print(f" - Índice de Willmott (d)  : {willmott_d:.3f} (Cercano a 1 es mejor)")
-print("\n🚜 MÉTRICAS DE DECISIÓN A CAMPO")
-print(f" - Fecha Pico Real         : {fecha_pico_campo.strftime('%d-%m-%Y')}")
-print(f" - Fecha Alerta Modelo     : {fecha_pico_modelo.strftime('%d-%m-%Y')}")
-print(f" - Desfase del Pico        : {peak_lag_dias} días")
-print(f" - Fecha Aplicación (Pico+3): {fecha_aplicacion_teorica.strftime('%d-%m-%Y')}")
-print(f" - P.E.C. (Malezas ctrl.)  : {pec:.1f}% de la cohorte total")
-print("="*50 + "\n")
+    # --- CÁLCULOS ESTADÍSTICOS ---
+    pearson_r = y_sim.corr(y_obs)
+    rmse = np.sqrt(np.mean((y_sim - y_obs)**2))
+    num = np.sum((y_sim - y_obs)**2)
+    den = np.sum((np.abs(y_sim - np.mean(y_obs)) + np.abs(y_obs - np.mean(y_obs)))**2)
+    willmott_d = 1 - (num / den) if den != 0 else 0
 
-# Gráfico de Validación
-plt.figure(figsize=(12, 6))
-plt.plot(df_meteo['Fecha'], df_meteo['EMERREL'], label='Predicción Modelo (0-1)', color='#166534', linewidth=2.5)
-plt.scatter(df_campo['FECHA'], df_campo['Campo_Normalizado'], color='#dc2626', s=100, label='Observado a Campo (Normalizado)', zorder=5)
+    # --- CÁLCULOS AGRONÓMICOS ---
+    fecha_pico_modelo = df_meteo.loc[df_meteo['EMERREL'].idxmax(), 'Fecha']
+    fecha_pico_campo = df_campo.loc[df_campo[col_plm2].idxmax(), col_fecha]
+    peak_lag_dias = (fecha_pico_modelo - fecha_pico_campo).days
 
-# Marcar el momento de aplicación
-plt.axvline(x=fecha_aplicacion_teorica, color='orange', linestyle='--', linewidth=2, label=f'Decisión de Control ({pec:.0f}% PEC)')
+    # Simulación de decisión (Margen de 3 días)
+    margen_dias = st.sidebar.number_input("Margen Operativo (Días post-alerta)", min_value=0, max_value=15, value=3)
+    fecha_aplicacion_teorica = fecha_pico_modelo + timedelta(days=margen_dias)
+    malezas_controladas = df_campo.loc[df_campo[col_fecha] <= fecha_aplicacion_teorica, col_plm2].sum()
+    malezas_totales = df_campo[col_plm2].sum()
+    pec = (malezas_controladas / malezas_totales) * 100 if malezas_totales > 0 else 0
 
-plt.title('Validación de Dinámica Poblacional - Lolium spp. (Bordenave 2026)', fontsize=14)
-plt.ylabel('Tasa Relativa de Emergencia', fontsize=12)
-plt.xlabel('Fecha', fontsize=12)
-plt.legend(fontsize=11)
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
+    # ---------------------------------------------------------
+    # 5. INTERFAZ GRÁFICA (DASHBOARD)
+    # ---------------------------------------------------------
+    st.title("📊 Validación de Factibilidad - PREDWEEM")
+    st.markdown("Evaluación del modelo frente a observaciones reales de *Lolium spp.*")
 
-plt.savefig('validacion_agronomica_bordenave.png', dpi=300)
-print("Gráfico de validación guardado como 'validacion_agronomica_bordenave.png'.")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("<p class='metric-header'>📈 MÉTRICAS ESTADÍSTICAS (Ajuste Matemático)</p>", unsafe_allow_html=True)
+        st.info("Evalúan qué tan bien la curva del modelo replica la curva de campo.")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Pearson (r)", f"{pearson_r:.3f}", "Óptimo > 0.7" if pearson_r > 0.7 else "Bajo")
+        c2.metric("RMSE", f"{rmse:.3f}", "Error absoluto", delta_color="inverse")
+        c3.metric("Willmott (d)", f"{willmott_d:.3f}", "Óptimo > 0.8" if willmott_d > 0.8 else "Regular")
+
+    with col2:
+        st.markdown("<p class='metric-header'>🚜 MÉTRICAS AGRONÓMICAS (Toma de Decisión)</p>", unsafe_allow_html=True)
+        st.success(f"Día de Aplicación Simulado: **{fecha_aplicacion_teorica.strftime('%d/%m/%Y')}**")
+        c4, c5 = st.columns(2)
+        c4.metric("Desfase de Pico (Lag)", f"{peak_lag_dias} días", "Modelo vs Realidad", delta_color="off")
+        c5.metric("Eficiencia de Control (PEC)", f"{pec:.1f}%", f"Con margen de {margen_dias} días")
+
+    # --- GRÁFICO INTERACTIVO ---
+    st.markdown("---")
+    fig = go.Figure()
+
+    # Curva del Modelo
+    fig.add_trace(go.Scatter(
+        x=df_meteo['Fecha'], y=df_meteo['EMERREL'], 
+        mode='lines', name='Predicción Modelo (0-1)', 
+        line=dict(color='#166534', width=3), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
+    ))
+
+    # Puntos de Campo
+    fig.add_trace(go.Scatter(
+        x=df_campo[col_fecha], y=df_campo['Campo_Normalizado'], 
+        mode='markers', name='Datos Reales (Normalizados)', 
+        marker=dict(color='#dc2626', size=12, symbol='circle', line=dict(color='white', width=2))
+    ))
+
+    # Línea de Decisión
+    fig.add_vline(
+        x=fecha_aplicacion_teorica.timestamp() * 1000, 
+        line_dash="dash", line_color="orange", line_width=2,
+        annotation_text=f"Aplicación ({pec:.0f}% Control)", annotation_position="top right"
+    )
+
+    fig.update_layout(
+        title="Dinámica Poblacional vs. Predicción",
+        xaxis_title="Fecha",
+        yaxis_title="Tasa Relativa",
+        hovermode="x unified",
+        height=500,
+        template="plotly_white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+else:
+    st.warning("⚠️ Faltan datos o los archivos de la red neuronal. Asegúrate de cargar el clima y los datos de campo en el panel lateral.")
