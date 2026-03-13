@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM BORDENAVE 2026
-# Actualización: PEC asumiendo Control Total de Cohortes Precedentes
+# Actualización: PEC calculado estrictamente hasta el día de control
 # ===============================================================
 
 import streamlit as st
@@ -243,9 +243,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
             fin_residualidad = fecha_control + timedelta(days=residualidad)
             malezas_totales_campo = df_campo[col_plm2].sum()
             
-            # CÁLCULO DE PEC (ASUMIENDO CONTROL TOTAL DE COHORTES PRECEDENTES)
-            # Sumamos todas las plantas contadas a campo hasta la fecha de control + el periodo de residualidad
-            malezas_controladas_efectivamente = df_campo.loc[df_campo[col_fecha] <= fin_residualidad, col_plm2].sum()
+            # CÁLCULO DE PEC: Proporción de plantas controladas HASTA EL DÍA DE CONTROL respecto al total
+            malezas_controladas_efectivamente = df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum()
             pec = (malezas_controladas_efectivamente / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0
             
             # Logística
@@ -273,7 +272,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         if df_campo is not None and fecha_control:
             st.markdown("<p class='metric-header'>🚜 DIAGNÓSTICO DE CONTROL A CAMPO (Recuentos Reales)</p>", unsafe_allow_html=True)
             k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "Asumiendo 100% pre-control", delta_color="normal")
+            k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de aplicación", delta_color="normal")
             k2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo", delta_color="off")
             k3.metric("Anticipación", f"{lead_time} días", "Lead Time Logístico", delta_color="normal")
             k4.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía")
