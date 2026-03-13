@@ -1,8 +1,7 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM BORDENAVE 2026
-# Adaptación: Desfase Temporal (+60d) + Restricción Sigmoide
+# Corrección: Optimización Matemática de Salida (Sin Truncación)
 # ===============================================================
 
 import streamlit as st
@@ -116,15 +115,17 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
-        emer = []
-        for x in Xn:
-            z1 = self.IW.T @ x + self.bIW
-            a1 = np.tanh(z1)
-            z2 = self.LW @ a1 + self.bLW
-            emer.append(np.tanh(z2))
-        emer = (np.array(emer).flatten() + 1) / 2
-        emer_ac = np.cumsum(emer)
-        emerrel = np.diff(emer_ac, prepend=0)
+        # Capa oculta
+        z1 = Xn @ self.IW + self.bIW
+        a1 = np.tanh(z1)
+        # Capa de salida
+        z2 = (a1 @ self.LW.T).flatten() + self.bLW
+        
+        # Corrección: Salida directa escalada entre 0 y 1 (Sin distorsión de diff/cumsum)
+        emerrel = (np.tanh(z2) + 1) / 2
+        
+        # El emer_ac original no se usaba para la visualización diaria, pero se retorna por compatibilidad de la firma
+        emer_ac = np.cumsum(emerrel)
         return emerrel, emer_ac
 
 @st.cache_resource
@@ -213,8 +214,6 @@ if df is not None and modelo_ann is not None:
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
     # --- B. PREDICCIÓN NEURAL CON DESFASE (SHIFT +60D) ---
-    # Se aplica un desfase de 60 días para que el modelo interprete febrero como abril,
-    # superando el sesgo estacional y permitiendo detectar la emergencia temprana.
     df["JD_Shifted"] = (df["Julian_days"] + 60).clip(1, 300)
     X = df[["JD_Shifted", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
@@ -227,9 +226,8 @@ if df is not None and modelo_ann is not None:
     df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 15)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
     
-    # Relajación dinámica: En Bordenave la emergencia es temprana, por lo que se elimina 
-    # el bloqueo estacional rígido si las lluvias acompañan (>50mm).
-    jd_thresholds = np.where(df["Prec_sum_21d"] > 50, 0, 15) # Umbral relajado para Bordenave
+    # Relajación dinámica: En Bordenave la emergencia es temprana
+    jd_thresholds = np.where(df["Prec_sum_21d"] > 50, 0, 15)
     df.loc[df["Julian_days"] <= jd_thresholds, "EMERREL"] = 0.0
 
     # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
