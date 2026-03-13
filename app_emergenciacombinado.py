@@ -149,7 +149,7 @@ def get_data(file_input):
             else:
                 df = pd.read_excel(file_input, parse_dates=["Fecha"])
         else:
-            github_url = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/meteo_daily.csv"
+            github_url = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/meteo_daily.csv"
             try:
                 df = pd.read_csv(github_url, parse_dates=["Fecha"])
             except Exception:
@@ -176,7 +176,7 @@ def get_data(file_input):
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
-LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/loliumTA_2026/main/logo.png"
+LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.sidebar.markdown("## ⚙️ Configuración")
