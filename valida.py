@@ -1,8 +1,7 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM BORDENAVE 2026
-# Actualización: Momento Crítico de Control por Grados-Día Post-Pico
+# Actualización: Control Móvil por TT Post-Pico + Fix Plotly
 # ===============================================================
 
 import streamlit as st
@@ -122,9 +121,8 @@ class PracticalANNModel:
         # Capa de salida
         z2 = (a1 @ self.LW.T).flatten() + self.bLW
         
-        # Corrección: Salida directa escalada entre 0 y 1 (Sin distorsión de diff/cumsum)
+        # Corrección: Salida directa escalada entre 0 y 1
         emerrel = (np.tanh(z2) + 1) / 2
-        
         emer_ac = np.cumsum(emerrel)
         return emerrel, emer_ac
 
@@ -145,10 +143,10 @@ def load_models():
 def get_data(file_input):
     try:
         if file_input:
-            if file_input.name.endswith('.csv'):
-                df = pd.read_csv(file_input, parse_dates=["Fecha"])
-            else:
+            if file_input.name.endswith(('.xlsx', '.xls')):
                 df = pd.read_excel(file_input, parse_dates=["Fecha"])
+            else:
+                df = pd.read_csv(file_input, parse_dates=["Fecha"])
         else:
             github_url = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/meteo_daily.csv"
             try:
@@ -201,7 +199,6 @@ with col_t2:
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
-# El objetivo de control es ahora el número variable de Grados-Día de crecimiento post-emergencia
 dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=250, step=10, help="Grados-día a acumular desde el primer pico para determinar el momento óptimo de aplicación.")
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=400, step=10)
 
@@ -222,12 +219,9 @@ if df is not None and modelo_ann is not None:
     
     # --- C. RESTRICCIÓN HÍDRICA (LÓGICA SIGMOIDE vK4.4) ---
     df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
-    
-    # Sigmoide centrada en 15mm para una respuesta hídrica natural
     df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 15)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
     
-    # Relajación dinámica: En Bordenave la emergencia es temprana
     jd_thresholds = np.where(df["Prec_sum_21d"] > 50, 0, 15)
     df.loc[df["Julian_days"] <= jd_thresholds, "EMERREL"] = 0.0
 
@@ -235,7 +229,7 @@ if df is not None and modelo_ann is not None:
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
     
-    # --- E. DETECCIÓN DE VENTANA, ACUMULADOS Y MOMENTO DE CONTROL ---
+    # --- E. DETECCIÓN DE VENTANA Y MOMENTO DE CONTROL ---
     fecha_hoy = pd.Timestamp.now().normalize() 
     if fecha_hoy not in df['Fecha'].values:
         fecha_hoy = df['Fecha'].max()
@@ -245,7 +239,7 @@ if df is not None and modelo_ann is not None:
     dga_hoy = 0.0
     dga_7dias = 0.0
     fecha_inicio_ventana = None
-    fecha_control = None # Variable para almacenar la fecha de control detectada
+    fecha_control = None
     msg_estado = "Esperando pico de emergencia..."
 
     if indices_pulso:
@@ -255,7 +249,7 @@ if df is not None and modelo_ann is not None:
         df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
         df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
         
-        # LÓGICA DE CONTROL: Encontrar la fecha donde se supera el TT variable
+        # LÓGICA DE CONTROL DINÁMICO
         df_control = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_optimo]
         if not df_control.empty:
             fecha_control = df_control.iloc[0]["Fecha"]
@@ -287,18 +281,7 @@ if df is not None and modelo_ann is not None:
 
     with tab1:
         col_main, col_gauge = st.columns([2, 1])
-        if indices_pulso:
-            first_peak_index = indices_pulso[0]
-            fecha_inicio_ventana = df.loc[first_peak_index, "Fecha"]
         
-        dga_actual = 0.0
-        dias_stress = 0
-        if fecha_inicio_ventana:
-            df_ventana = df[df["Fecha"] >= fecha_inicio_ventana].copy()
-            df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
-            dga_actual = df_ventana["DGA_cum"].iloc[-1] if not df_ventana.empty else 0.0
-            dias_stress = len(df_ventana[df_ventana["Tmedia"] > t_opt_max])
-
         with col_main:
             fig_emer = go.Figure()
             fig_emer.add_trace(go.Scatter(
@@ -307,10 +290,10 @@ if df is not None and modelo_ann is not None:
             ))
             fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Pico ({umbral_er})")
             
-            # GRAFICAR MOMENTO CRÍTICO DE CONTROL
+            # FIX: Convertir a timestamp * 1000 para Plotly
             if fecha_control:
                 fig_emer.add_vline(
-                    x=fecha_control, 
+                    x=fecha_control.timestamp() * 1000, 
                     line_dash="dot", 
                     line_color="red", 
                     line_width=3,
@@ -319,17 +302,16 @@ if df is not None and modelo_ann is not None:
                     annotation_font=dict(color="red", size=12, weight="bold")
                 )
             
-            fig_emer.update_layout(title="Dinámica de Emergencia (Ajustado para Bordenave)", height=350)
+            fig_emer.update_layout(title="Dinámica de Emergencia y Momento Crítico", height=350)
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
                 st.success(f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Primer pico detectado)")
                 
-                # ALERTAS DE CONTROL
                 if fecha_control:
-                    st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se alcanzaron los **{dga_optimo} °Cd** de crecimiento desde la emergencia de la cohorte principal.")
+                    st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se alcanzaron los **{dga_optimo} °Cd** post-emergencia.")
                 else:
-                    st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd requeridos para el control post-emergente.")
+                    st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd requeridos.")
                 
                 if dias_stress > 0:
                     st.markdown(f"""<div class="bio-alert">🔥 <b>Estrés Térmico:</b> {dias_stress} días con T > {t_opt_max}°C desde el inicio.</div>""", unsafe_allow_html=True)
@@ -378,7 +360,7 @@ if df is not None and modelo_ann is not None:
         st.plotly_chart(fig_prec, use_container_width=True)
                     
     with tab3:
-        st.header("🔍 Clasificación DTW (Localidad: Bordenave)")
+        st.header("🔍 Clasificación DTW")
         fecha_corte = pd.Timestamp("2026-05-01")
         df_obs = df[df["Fecha"] < fecha_corte].copy()
         if not df_obs.empty and df_obs["EMERREL"].sum() > 0:
