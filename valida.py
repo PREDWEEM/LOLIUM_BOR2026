@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM BORDENAVE 2026
-# Actualización: PEC Estricto a la Fecha de Control
+# Actualización: PEC asumiendo Control Total de Cohortes Precedentes
 # ===============================================================
 
 import streamlit as st
@@ -237,21 +237,15 @@ if df_meteo_raw is not None and modelo_ann is not None:
         pearson_r = y_sim.corr(y_obs) if not y_sim.empty else 0
         rmse = np.sqrt(np.mean((y_sim - y_obs)**2)) if not y_sim.empty else 0
 
-        pec, peak_lag, lead_time, tasa_escapes = 0, 0, 0, 0
+        pec, peak_lag, lead_time = 0, 0, 0
         
         if fecha_control:
+            fin_residualidad = fecha_control + timedelta(days=residualidad)
             malezas_totales_campo = df_campo[col_plm2].sum()
             
-            # 1. Identificar escapes incontrolables (nacieron en bajo riesgo y crecieron demasiado)
-            fechas_bajo_riesgo = df[df['EMERREL'] < 0.10]['Fecha'].values
-            escapes_reales = df_campo[(df_campo[col_fecha].isin(fechas_bajo_riesgo)) & (df_campo[col_fecha] <= fecha_control)][col_plm2].sum()
-            tasa_escapes = (escapes_reales / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0
-            
-            # 2. Plantas contadas a campo HASTA la fecha exacta del control
-            emergidas_a_la_fecha = df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum()
-            
-            # 3. PEC: Proporción efectivamente controlada a esa fecha (descontando escapes)
-            malezas_controladas_efectivamente = emergidas_a_la_fecha - escapes_reales
+            # CÁLCULO DE PEC (ASUMIENDO CONTROL TOTAL DE COHORTES PRECEDENTES)
+            # Sumamos todas las plantas contadas a campo hasta la fecha de control + el periodo de residualidad
+            malezas_controladas_efectivamente = df_campo.loc[df_campo[col_fecha] <= fin_residualidad, col_plm2].sum()
             pec = (malezas_controladas_efectivamente / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0
             
             # Logística
@@ -278,12 +272,11 @@ if df_meteo_raw is not None and modelo_ann is not None:
     with tab1:
         if df_campo is not None and fecha_control:
             st.markdown("<p class='metric-header'>🚜 DIAGNÓSTICO DE CONTROL A CAMPO (Recuentos Reales)</p>", unsafe_allow_html=True)
-            k1, k2, k3, k4, k5 = st.columns(5)
-            k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de control", delta_color="normal")
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "Asumiendo 100% pre-control", delta_color="normal")
             k2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo", delta_color="off")
-            k3.metric("Escapes Incontrolables", f"{tasa_escapes:.1f}%", "Reales a Campo", delta_color="inverse")
-            k4.metric("Anticipación", f"{lead_time} días", "Lead Time Logístico", delta_color="normal")
-            k5.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía")
+            k3.metric("Anticipación", f"{lead_time} días", "Lead Time Logístico", delta_color="normal")
+            k4.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía")
             st.markdown("---")
 
         col_main, col_gauge = st.columns([2, 1])
@@ -374,8 +367,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         if df_campo is not None and fecha_control:
-            resumen_val = {'Métrica': ['PEC (%)', 'Lag (días)', 'Lead Time (días)', 'Escapes Reales (%)', 'Pearson (r)'],
-                           'Valor': [pec, peak_lag, lead_time, tasa_escapes, pearson_r]}
+            resumen_val = {'Métrica': ['PEC (%)', 'Lag (días)', 'Lead Time (días)', 'Pearson (r)'],
+                           'Valor': [pec, peak_lag, lead_time, pearson_r]}
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
     
     st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave.xlsx")
