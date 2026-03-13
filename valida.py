@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM BORDENAVE 2026
-# Actualización: Control Móvil por TT Post-Pico + Fix Plotly
+# Actualización: Control por TT (°Cd) + Validación Agronómica a Campo
 # ===============================================================
 
 import streamlit as st
@@ -10,6 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import pickle
 import io
+from datetime import timedelta
 from pathlib import Path
 
 # ---------------------------------------------------------
@@ -47,6 +48,7 @@ st.markdown("""
         margin-bottom: 10px;
         font-size: 0.9em;
     }
+    .metric-header { color: #1e293b; font-weight: bold; margin-bottom: -10px; }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -115,13 +117,9 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
-        # Capa oculta
         z1 = Xn @ self.IW + self.bIW
         a1 = np.tanh(z1)
-        # Capa de salida
         z2 = (a1 @ self.LW.T).flatten() + self.bLW
-        
-        # Corrección: Salida directa escalada entre 0 y 1
         emerrel = (np.tanh(z2) + 1) / 2
         emer_ac = np.cumsum(emerrel)
         return emerrel, emer_ac
@@ -140,35 +138,14 @@ def load_models():
         st.error(f"Error cargando modelos: {e}")
         return None, None
 
-def get_data(file_input):
-    try:
-        if file_input:
-            if file_input.name.endswith(('.xlsx', '.xls')):
-                df = pd.read_excel(file_input, parse_dates=["Fecha"])
-            else:
-                df = pd.read_csv(file_input, parse_dates=["Fecha"])
-        else:
-            github_url = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/meteo_daily.csv"
-            try:
-                df = pd.read_csv(github_url, parse_dates=["Fecha"])
-            except Exception:
-                path = BASE / "meteo_daily.csv"
-                if path.exists():
-                    df = pd.read_csv(path, parse_dates=["Fecha"])
-                else:
-                    return None
-        
-        df.columns = [c.upper().strip() for c in df.columns]
-        mapeo = {
-            'FECHA': 'Fecha', 'DATE': 'Fecha', 
-            'TMAX': 'TMAX', 'TMIN': 'TMIN', 
-            'PREC': 'Prec', 'LLUVIA': 'Prec'
-        }
-        df = df.rename(columns=mapeo)
-        return df
-    except Exception as e:
-        st.error(f"Error leyendo datos: {e}")
-        return None
+def load_data(file_uploader, default_name):
+    if file_uploader:
+        return pd.read_excel(file_uploader) if file_uploader.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file_uploader)
+    elif (BASE / f"{default_name}.csv").exists():
+        return pd.read_csv(BASE / f"{default_name}.csv")
+    elif (BASE / f"{default_name}.xlsx").exists():
+        return pd.read_excel(BASE / f"{default_name}.xlsx")
+    return None
 
 # ---------------------------------------------------------
 # 4. INTERFAZ Y SIDEBAR
@@ -178,17 +155,17 @@ modelo_ann, cluster_model = load_models()
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
-st.sidebar.markdown("## ⚙️ Configuración")
-archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual", type=["xlsx", "csv"])
-df = get_data(archivo_usuario)
+st.sidebar.markdown("## 📂 1. Datos del Lote")
+archivo_meteo = st.sidebar.file_uploader("1. Clima (bordenave)", type=["xlsx", "csv"])
+archivo_campo = st.sidebar.file_uploader("2. Campo (Validación)", type=["xlsx", "csv"])
+
+df_meteo_raw = load_data(archivo_meteo, "bordenave")
+df_campo_raw = load_data(archivo_campo, "bordenave_campo")
 
 st.sidebar.divider()
-st.sidebar.markdown("**Parámetros de Emergencia**")
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.05, 0.80, 0.15)
-
-st.sidebar.divider()
-st.sidebar.markdown("🌡️ **Fisiología Térmica (Bio-Limit)**")
-st.sidebar.caption("Ajusta la respuesta biológica al calor.")
+st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.15)
+residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
 
 col_t1, col_t2 = st.sidebar.columns(2)
 with col_t1:
@@ -199,25 +176,39 @@ with col_t2:
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
-dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=250, step=10, help="Grados-día a acumular desde el primer pico para determinar el momento óptimo de aplicación.")
+dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=250, step=10, help="Grados-día a acumular desde el primer pico.")
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=400, step=10)
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (ADAPTADO BORDENAVE vK4.4)
+# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.4)
 # ---------------------------------------------------------
-if df is not None and modelo_ann is not None:
+if df_meteo_raw is not None and modelo_ann is not None:
     
-    # --- A. PREPROCESAMIENTO ---
+    # --- A. PREPROCESAMIENTO CLIMA ---
+    df = df_meteo_raw.copy()
+    df.columns = [c.upper().strip() for c in df.columns]
+    df = df.rename(columns={'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
+    df['Fecha'] = pd.to_datetime(df['Fecha'])
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
-    # --- B. PREDICCIÓN NEURAL CON DESFASE (SHIFT +60D) ---
+    # --- B. PREPROCESAMIENTO CAMPO (SI EXISTE) ---
+    df_campo = None
+    if df_campo_raw is not None:
+        df_campo = df_campo_raw.copy()
+        col_fecha = 'FECHA' if 'FECHA' in df_campo.columns else df_campo.columns[0]
+        col_plm2 = 'PLM2' if 'PLM2' in df_campo.columns else df_campo.columns[1]
+        df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
+        max_plm2 = df_campo[col_plm2].max()
+        df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
+
+    # --- C. PREDICCIÓN NEURAL CON DESFASE (SHIFT +60D) ---
     df["JD_Shifted"] = (df["Julian_days"] + 60).clip(1, 300)
     X = df[["JD_Shifted", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
     
-    # --- C. RESTRICCIÓN HÍDRICA (LÓGICA SIGMOIDE vK4.4) ---
+    # --- D. RESTRICCIÓN HÍDRICA (LÓGICA SIGMOIDE vK4.4) ---
     df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
     df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 15)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
@@ -225,11 +216,11 @@ if df is not None and modelo_ann is not None:
     jd_thresholds = np.where(df["Prec_sum_21d"] > 50, 0, 15)
     df.loc[df["Julian_days"] <= jd_thresholds, "EMERREL"] = 0.0
 
-    # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
+    # --- E. CÁLCULO BIO-TÉRMICO (TT) ---
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
     
-    # --- E. DETECCIÓN DE VENTANA Y MOMENTO DE CONTROL ---
+    # --- F. DETECCIÓN DE VENTANA Y MOMENTO DE CONTROL ---
     fecha_hoy = pd.Timestamp.now().normalize() 
     if fecha_hoy not in df['Fecha'].values:
         fecha_hoy = df['Fecha'].max()
@@ -249,7 +240,7 @@ if df is not None and modelo_ann is not None:
         df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
         df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
         
-        # LÓGICA DE CONTROL DINÁMICO
+        # LÓGICA DE CONTROL: Determinar fecha al alcanzar dga_optimo
         df_control = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_optimo]
         if not df_control.empty:
             fecha_control = df_control.iloc[0]["Fecha"]
@@ -263,7 +254,46 @@ if df is not None and modelo_ann is not None:
         
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
         dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
-    
+        
+    # --- G. CÁLCULO DE MÉTRICAS DE VALIDACIÓN (SI HAY DATOS DE CAMPO) ---
+    if df_campo is not None:
+        df_cruce = pd.merge(df[['Fecha', 'EMERREL']], df_campo[[col_fecha, col_plm2, 'Campo_Normalizado']], left_on='Fecha', right_on=col_fecha, how='inner')
+        y_sim = df_cruce['EMERREL']
+        y_obs = df_cruce['Campo_Normalizado']
+        
+        # Estadísticas puras
+        pearson_r = y_sim.corr(y_obs) if not y_sim.empty else 0
+        rmse = np.sqrt(np.mean((y_sim - y_obs)**2)) if not y_sim.empty else 0
+        num = np.sum((y_sim - y_obs)**2)
+        den = np.sum((np.abs(y_sim - np.mean(y_obs)) + np.abs(y_obs - np.mean(y_obs)))**2)
+        willmott_d = 1 - (num / den) if den != 0 else 0
+
+        # Métricas de Decisión (Dependientes de que exista fecha_control)
+        pec, peak_lag, lead_time, tasa_escapes = 0, 0, 0, 0
+        
+        if fecha_control:
+            fin_residualidad = fecha_control + timedelta(days=residualidad)
+            malezas_totales = df_campo[col_plm2].sum()
+            
+            # PEC
+            malezas_controladas = df_campo.loc[df_campo[col_fecha] <= fin_residualidad, col_plm2].sum()
+            pec = (malezas_controladas / malezas_totales) * 100 if malezas_totales > 0 else 0
+            
+            # Lag (Desfase vs Pico Real de Campo)
+            idx_pico_campo = df_campo[col_plm2].idxmax()
+            fecha_pico_campo = df_campo.loc[idx_pico_campo, col_fecha]
+            peak_lag = (fecha_control - fecha_pico_campo).days
+            
+            # Lead Time (Tiempo desde la primera alerta)
+            alertas = df[df['EMERREL'] >= umbral_er]
+            fecha_primera_alerta = alertas['Fecha'].iloc[0] if not alertas.empty else fecha_inicio_ventana
+            lead_time = (fecha_control - fecha_primera_alerta).days
+            
+            # Escapes Previos (Falsos Negativos)
+            fechas_bajo_riesgo = df[df['EMERREL'] < 0.10]['Fecha'].values
+            escapes_antes_app = df_campo[(df_campo[col_fecha].isin(fechas_bajo_riesgo)) & (df_campo[col_fecha] <= fecha_control)][col_plm2].sum()
+            tasa_escapes = (escapes_antes_app / malezas_totales) * 100 if malezas_totales > 0 else 0
+
     # -----------------------------------------------------
     # VISUALIZACIÓN
     # -----------------------------------------------------
@@ -280,43 +310,70 @@ if df is not None and modelo_ann is not None:
     tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "🌧️ PRECIPITACIONES", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
 
     with tab1:
+        # Si hay datos de campo, mostramos el panel de Validación Agronómica en la cabecera
+        if df_campo is not None and fecha_control:
+            st.markdown("<p class='metric-header'>🚜 DIAGNÓSTICO DE VALIDACIÓN A CAMPO</p>", unsafe_allow_html=True)
+            k1, k2, k3, k4, k5 = st.columns(5)
+            k1.metric("Control (PEC)", f"{pec:.1f}%", "Meta: >80%", delta_color="normal")
+            k2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo", delta_color="off")
+            k3.metric("Escapes Previos", f"{tasa_escapes:.1f}%", "Nacidas sin alerta", delta_color="inverse")
+            k4.metric("Anticipación", f"{lead_time} días", "Lead Time", delta_color="normal")
+            k5.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía")
+            st.markdown("---")
+
         col_main, col_gauge = st.columns([2, 1])
-        
+
         with col_main:
             fig_emer = go.Figure()
+            
+            # Curva de Modelo
             fig_emer.add_trace(go.Scatter(
                 x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria',
                 line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
             ))
-            fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Pico ({umbral_er})")
+            fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
             
-            # FIX: Convertir a timestamp * 1000 para Plotly
+            # Datos de Campo (Si existen)
+            if df_campo is not None:
+                fig_emer.add_trace(go.Scatter(
+                    x=df_campo[col_fecha], y=df_campo['Campo_Normalizado'], 
+                    mode='markers+lines', name='Recuentos a Campo', 
+                    marker=dict(color='#dc2626', size=10, symbol='diamond'),
+                    line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')
+                ))
+            
+            # FIX: Convertir fecha a timestamp * 1000 para Plotly
             if fecha_control:
                 fig_emer.add_vline(
                     x=fecha_control.timestamp() * 1000, 
                     line_dash="dot", 
                     line_color="red", 
                     line_width=3,
-                    annotation_text=f"Control Óptimo ({dga_optimo}°Cd)", 
+                    annotation_text=f"Control ({dga_optimo}°Cd)", 
                     annotation_position="top left",
                     annotation_font=dict(color="red", size=12, weight="bold")
                 )
+                # Sombra de Residualidad
+                fin_res = fecha_control + timedelta(days=residualidad)
+                fig_emer.add_vrect(
+                    x0=fecha_control.timestamp() * 1000, x1=fin_res.timestamp() * 1000,
+                    fillcolor="blue", opacity=0.1, layer="below", line_width=0,
+                    annotation_text=f"Protección ({residualidad}d)" if df_campo is None else f"PEC: {pec:.0f}%", 
+                    annotation_position="top left"
+                )
             
-            fig_emer.update_layout(title="Dinámica de Emergencia y Momento Crítico", height=350)
+            fig_emer.update_layout(title="Dinámica de Emergencia y Momento Crítico", height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
                 st.success(f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Primer pico detectado)")
                 
                 if fecha_control:
-                    st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se alcanzaron los **{dga_optimo} °Cd** post-emergencia.")
+                    st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se acumularon **{dga_optimo} °Cd** post-emergencia.")
                 else:
-                    st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd requeridos.")
-                
-                if dias_stress > 0:
-                    st.markdown(f"""<div class="bio-alert">🔥 <b>Estrés Térmico:</b> {dias_stress} días con T > {t_opt_max}°C desde el inicio.</div>""", unsafe_allow_html=True)
+                    st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd requeridos para el control.")
             else:
-                st.warning(f"⏳ Esperando el primer pico de emergencia (Tasa diaria >= {umbral_er}).")
+                st.warning(f"⏳ Esperando primera alerta (Tasa diaria >= {umbral_er}).")
 
         with col_gauge:
             max_axis = dga_critico * 1.2
@@ -401,7 +458,13 @@ if df is not None and modelo_ann is not None:
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica'], 'Valor': [t_base_val, t_opt_max, t_critica]}).to_excel(writer, sheet_name='Bio_Params', index=False)
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Bordenave_Report.xlsx")
+        # Exportar validación si existe
+        if df_campo is not None and fecha_control:
+            resumen_val = {'Métrica': ['PEC (%)', 'Lag (días)', 'Lead Time (días)', 'Escapes (%)', 'Pearson (r)', 'RMSE', 'Willmott (d)'],
+                           'Valor': [pec, peak_lag, lead_time, tasa_escapes, pearson_r, rmse, willmott_d]}
+            pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
+    
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave.xlsx")
 
 else:
-    st.info("👋 Bienvenido a PREDWEEM Bordenave. Cargue datos meteorológicos para comenzar.")
+    st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
