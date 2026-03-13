@@ -1,8 +1,7 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 📊 PREDWEEM — DASHBOARD DE VALIDACIÓN AGRONÓMICA A CAMPO
-# Localidad: Bordenave | Lógica: vK4.4 (Shift +60d) | Soporte Excel
+# Localidad: Bordenave | Lógica: vK4.4 (Shift +60d) | Margen: 5 días
 # ===============================================================
 
 import streamlit as st
@@ -150,8 +149,8 @@ if df_meteo_raw is not None and df_campo_raw is not None and modelo is not None:
     fecha_pico_campo = df_campo.loc[df_campo[col_plm2].idxmax(), col_fecha]
     peak_lag_dias = (fecha_pico_modelo - fecha_pico_campo).days
 
-    # Simulación de decisión (Margen logístico)
-    margen_dias = st.sidebar.number_input("Margen Operativo (Días post-alerta)", min_value=0, max_value=15, value=3)
+    # Simulación de decisión (Margen logístico: Ajustado por defecto a 5 días)
+    margen_dias = st.sidebar.number_input("Margen Operativo (Días post-alerta)", min_value=0, max_value=15, value=5)
     fecha_aplicacion_teorica = fecha_pico_modelo + timedelta(days=margen_dias)
     malezas_controladas = df_campo.loc[df_campo[col_fecha] <= fecha_aplicacion_teorica, col_plm2].sum()
     malezas_totales = df_campo[col_plm2].sum()
