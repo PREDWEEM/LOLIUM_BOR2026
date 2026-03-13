@@ -160,8 +160,8 @@ with col_t2: t_opt_max = st.number_input("T Óptima Max", value=20.0, step=1.0)
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
-dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=250, step=10, help="Grados-día a acumular desde el primer pico.")
-dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=400, step=10)
+dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10, help="Grados-día a acumular desde el primer pico.")
+dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (BORDENAVE vK4.4)
