@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM BORDENAVE 2026
-# Actualización: PEC calculado estrictamente hasta el día de control
+# Actualización: Sincronía (Pearson) por Intervalos de Monitoreo
 # ===============================================================
 
 import streamlit as st
@@ -183,6 +183,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         col_fecha = 'FECHA' if 'FECHA' in df_campo.columns else df_campo.columns[0]
         col_plm2 = 'PLM2' if 'PLM2' in df_campo.columns else df_campo.columns[1]
         df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
+        df_campo = df_campo.sort_values(col_fecha).reset_index(drop=True) # IMPORTANTE PARA INTERVALOS
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
@@ -228,22 +229,29 @@ if df_meteo_raw is not None and modelo_ann is not None:
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
         dias_stress = len(df_desde_pico[df_desde_pico["Tmedia"] > t_opt_max])
         
-    # --- MÉTRICAS DE VALIDACIÓN SOBRE DATOS REALES DE CAMPO ---
+    # --- MÉTRICAS DE VALIDACIÓN ---
     if df_campo is not None:
-        df_cruce = pd.merge(df[['Fecha', 'EMERREL']], df_campo[[col_fecha, col_plm2, 'Campo_Normalizado']], left_on='Fecha', right_on=col_fecha, how='inner')
-        y_sim = df_cruce['EMERREL']
-        y_obs = df_cruce['Campo_Normalizado']
         
-        pearson_r = y_sim.corr(y_obs) if not y_sim.empty else 0
-        rmse = np.sqrt(np.mean((y_sim - y_obs)**2)) if not y_sim.empty else 0
+        # AJUSTE DE SINCRONÍA: Cálculo por intervalos de monitoreo
+        sim_intervals = []
+        last_date = df['Fecha'].min() - pd.Timedelta(days=1)
+        
+        for idx, row in df_campo.iterrows():
+            current_date = row[col_fecha]
+            mask_intervalo = (df['Fecha'] > last_date) & (df['Fecha'] <= current_date)
+            sim_intervals.append(df.loc[mask_intervalo, 'EMERREL'].sum())
+            last_date = current_date
+            
+        df_campo['Sim_Intervalo'] = sim_intervals
+        pearson_r = df_campo[col_plm2].corr(df_campo['Sim_Intervalo'])
+        if pd.isna(pearson_r): pearson_r = 0.0
 
         pec, peak_lag, lead_time = 0, 0, 0
         
         if fecha_control:
-            fin_residualidad = fecha_control + timedelta(days=residualidad)
             malezas_totales_campo = df_campo[col_plm2].sum()
             
-            # CÁLCULO DE PEC: Proporción de plantas controladas HASTA EL DÍA DE CONTROL respecto al total
+            # PEC: Plantas controladas hasta el día de control
             malezas_controladas_efectivamente = df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum()
             pec = (malezas_controladas_efectivamente / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0
             
@@ -275,7 +283,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             k1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de aplicación", delta_color="normal")
             k2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo", delta_color="off")
             k3.metric("Anticipación", f"{lead_time} días", "Lead Time Logístico", delta_color="normal")
-            k4.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía")
+            k4.metric("Pearson (r)", f"{pearson_r:.3f}", "Sincronía por Intervalos")
             st.markdown("---")
 
         col_main, col_gauge = st.columns([2, 1])
