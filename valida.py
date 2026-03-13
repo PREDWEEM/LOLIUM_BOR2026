@@ -1,7 +1,8 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 📊 PREDWEEM — DASHBOARD DE VALIDACIÓN AGRONÓMICA A CAMPO
-# Localidad: Bordenave | Lógica: vK4.4 (Shift +60d)
+# Localidad: Bordenave | Lógica: vK4.4 (Shift +60d) | Soporte Excel
 # ===============================================================
 
 import streamlit as st
@@ -10,7 +11,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import timedelta
 from pathlib import Path
-import os
 
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN Y ESTILOS
@@ -67,21 +67,34 @@ def load_model():
         return None
 
 # ---------------------------------------------------------
-# 3. CARGA DE DATOS (Auto-load o Manual)
+# 3. CARGA DE DATOS (Soporte CSV y Excel)
 # ---------------------------------------------------------
 st.sidebar.header("📂 Carga de Datos")
-file_meteo = st.sidebar.file_uploader("1. Clima (bordenave.csv)", type=["csv"])
-file_campo = st.sidebar.file_uploader("2. Campo (bordenave_campo.csv)", type=["csv"])
 
-def load_data(file_uploader, default_filename):
+# Actualizamos los tipos permitidos para incluir Excel
+file_meteo = st.sidebar.file_uploader("1. Clima (bordenave)", type=["csv", "xlsx", "xls"])
+file_campo = st.sidebar.file_uploader("2. Campo (bordenave_campo)", type=["csv", "xlsx", "xls"])
+
+def load_data(file_uploader, default_base_name):
+    # Si el usuario sube un archivo
     if file_uploader:
-        return pd.read_csv(file_uploader)
-    elif (BASE / default_filename).exists():
-        return pd.read_csv(BASE / default_filename)
+        if file_uploader.name.endswith(('.xlsx', '.xls')):
+            return pd.read_excel(file_uploader)
+        else:
+            return pd.read_csv(file_uploader)
+    
+    # Si no sube nada, buscamos los archivos locales por defecto
+    else:
+        if (BASE / f"{default_base_name}.csv").exists():
+            return pd.read_csv(BASE / f"{default_base_name}.csv")
+        elif (BASE / f"{default_base_name}.xlsx").exists():
+            return pd.read_excel(BASE / f"{default_base_name}.xlsx")
+            
     return None
 
-df_meteo_raw = load_data(file_meteo, "bordenave.csv")
-df_campo_raw = load_data(file_campo, "bordenave_campo.xlsx - Hoja1.csv") # O el nombre exacto de tu CSV
+# Usamos el nombre base sin extensión para buscar los archivos locales
+df_meteo_raw = load_data(file_meteo, "bordenave")
+df_campo_raw = load_data(file_campo, "bordenave_campo") 
 
 # ---------------------------------------------------------
 # 4. PROCESAMIENTO Y VALIDACIÓN
@@ -137,7 +150,7 @@ if df_meteo_raw is not None and df_campo_raw is not None and modelo is not None:
     fecha_pico_campo = df_campo.loc[df_campo[col_plm2].idxmax(), col_fecha]
     peak_lag_dias = (fecha_pico_modelo - fecha_pico_campo).days
 
-    # Simulación de decisión (Margen de 3 días)
+    # Simulación de decisión (Margen logístico)
     margen_dias = st.sidebar.number_input("Margen Operativo (Días post-alerta)", min_value=0, max_value=15, value=3)
     fecha_aplicacion_teorica = fecha_pico_modelo + timedelta(days=margen_dias)
     malezas_controladas = df_campo.loc[df_campo[col_fecha] <= fecha_aplicacion_teorica, col_plm2].sum()
