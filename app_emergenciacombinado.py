@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.4 — LOLIUM BORDENAVE 2026
-# Actualización: Momento Crítico de Control por Grados-Día Post-Pico
+# Corrección: Optimización Matemática de Salida (Sin Truncación)
 # ===============================================================
 
 import streamlit as st
@@ -124,6 +124,7 @@ class PracticalANNModel:
         # Corrección: Salida directa escalada entre 0 y 1 (Sin distorsión de diff/cumsum)
         emerrel = (np.tanh(z2) + 1) / 2
         
+        # El emer_ac original no se usaba para la visualización diaria, pero se retorna por compatibilidad de la firma
         emer_ac = np.cumsum(emerrel)
         return emerrel, emer_ac
 
@@ -200,9 +201,8 @@ with col_t2:
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
-# El objetivo de control es ahora el número variable de Grados-Día de crecimiento post-emergencia
-dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=250, step=10, help="Grados-día a acumular desde el primer pico para determinar el momento óptimo de aplicación.")
-dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=400, step=10)
+dga_optimo = st.sidebar.number_input("Objetivo Control", value=600, step=50)
+dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (ADAPTADO BORDENAVE vK4.4)
@@ -234,7 +234,7 @@ if df is not None and modelo_ann is not None:
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
     
-    # --- E. DETECCIÓN DE VENTANA, ACUMULADOS Y MOMENTO DE CONTROL ---
+    # --- E. DETECCIÓN DE VENTANA Y ACUMULADOS ---
     fecha_hoy = pd.Timestamp.now().normalize() 
     if fecha_hoy not in df['Fecha'].values:
         fecha_hoy = df['Fecha'].max()
@@ -244,7 +244,6 @@ if df is not None and modelo_ann is not None:
     dga_hoy = 0.0
     dga_7dias = 0.0
     fecha_inicio_ventana = None
-    fecha_control = None # Variable para almacenar la fecha de control detectada
     msg_estado = "Esperando pico de emergencia..."
 
     if indices_pulso:
@@ -253,11 +252,6 @@ if df is not None and modelo_ann is not None:
         
         df_desde_pico = df[df["Fecha"] >= fecha_inicio_ventana].copy()
         df_desde_pico["DGA_cum"] = df_desde_pico["DG"].cumsum()
-        
-        # LÓGICA DE CONTROL: Encontrar la fecha donde se supera el TT variable
-        df_control = df_desde_pico[df_desde_pico["DGA_cum"] >= dga_optimo]
-        if not df_control.empty:
-            fecha_control = df_control.iloc[0]["Fecha"]
         
         mask_hoy = (df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy)
         dga_hoy = df.loc[mask_hoy, "DG"].sum()
@@ -305,31 +299,11 @@ if df is not None and modelo_ann is not None:
                 line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
             ))
             fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Pico ({umbral_er})")
-            
-            # GRAFICAR MOMENTO CRÍTICO DE CONTROL
-            if fecha_control:
-                fig_emer.add_vline(
-                    x=fecha_control, 
-                    line_dash="dot", 
-                    line_color="red", 
-                    line_width=3,
-                    annotation_text=f"Control Óptimo ({dga_optimo}°Cd)", 
-                    annotation_position="top left",
-                    annotation_font=dict(color="red", size=12, weight="bold")
-                )
-            
             fig_emer.update_layout(title="Dinámica de Emergencia (Ajustado para Bordenave)", height=350)
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
                 st.success(f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Primer pico detectado)")
-                
-                # ALERTAS DE CONTROL
-                if fecha_control:
-                    st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se alcanzaron los **{dga_optimo} °Cd** de crecimiento desde la emergencia de la cohorte principal.")
-                else:
-                    st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd requeridos para el control post-emergente.")
-                
                 if dias_stress > 0:
                     st.markdown(f"""<div class="bio-alert">🔥 <b>Estrés Térmico:</b> {dias_stress} días con T > {t_opt_max}°C desde el inicio.</div>""", unsafe_allow_html=True)
             else:
