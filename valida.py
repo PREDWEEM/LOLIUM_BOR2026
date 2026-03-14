@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.1 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Desfase temporal automático admisible hasta ±10 días
 # - Trazado visual de Verdaderos Positivos (TP), FP y FN
-# - [NUEVO] Ventana Asimétrica Inteligente para Detección de Cohortes
-#   (Soporta anticipación del modelo sin penalizar si el campo se lee después)
+# - Ventana Asimétrica Inteligente para Detección de Cohortes
+# - [AJUSTE] Tolerancia de anticipo predeterminada ajustada a +7 días
 # ===============================================================
 
 import streamlit as st
@@ -23,7 +23,7 @@ from scipy.signal import find_peaks
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.9",
+    page_title="PREDWEEM BORDENAVE vK4.9.1",
     layout="wide",
     page_icon="🌾"
 )
@@ -194,7 +194,8 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
     return best
 
-def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=5, tol_retraso=2):
+# --- MODIFICADO: tol_anticipo predeterminado a 7 días ---
+def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2):
     """
     Detecta pulsos usando análisis de señales con ventana asimétrica.
     tol_anticipo: Días que el modelo predice ANTES de que el campo lo registre.
@@ -308,12 +309,13 @@ max_desfase_validacion = st.sidebar.slider(
 st.sidebar.markdown("**Tolerancia Cohortes (Días)**")
 col_v1, col_v2 = st.sidebar.columns(2)
 with col_v1:
-    tol_anticipo = st.number_input("Anticipo (+)", value=5, step=1, help="Modelo predice ANTES de registrarse a campo.")
+    # --- MODIFICADO: value=7 para Anticipo ---
+    tol_anticipo = st.number_input("Anticipo (+)", value=7, step=1, help="Modelo predice ANTES de registrarse a campo.")
 with col_v2:
     tol_retraso = st.number_input("Retraso (-)", value=2, step=1, help="Modelo predice DESPUÉS de registrarse a campo.")
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.9)
+# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.9.1)
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
@@ -387,7 +389,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
         pearson_r = best_val["pearson_r"]
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
         
-        # --- NUEVO: Búsqueda con parámetros asimétricos desde la UI ---
         cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso)
 
         if fecha_control:
@@ -535,7 +536,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_1.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
