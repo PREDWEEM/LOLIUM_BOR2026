@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.2 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.3 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
-# - Ventana Asimétrica Inteligente para Detección de Cohortes
-# - [CORRECCIÓN] Detección de picos en los bordes de la serie (Padding)
-#   Permite detectar correctamente el primer y último monitoreo a campo.
+# - Corrección de Detección de picos en los bordes (Padding)
+# - [NUEVO] Emparejamiento robusto "Best-Match-First" para evitar 
+#   el robo cronológico de picos cuando la ventana es muy amplia.
 # ===============================================================
 
 import streamlit as st
@@ -22,7 +22,7 @@ from scipy.signal import find_peaks
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.9.2",
+    page_title="PREDWEEM BORDENAVE vK4.9.3",
     layout="wide",
     page_icon="🌾"
 )
@@ -195,8 +195,8 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
 def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2):
     """
-    Detecta pulsos usando análisis de señales con ventana asimétrica y
-    Padding para permitir la detección de picos en los extremos (índice 0 y final).
+    Detecta pulsos mediante análisis de señales y algoritmo "Best-Match-First"
+    para evitar el robo cronológico de picos.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
@@ -204,8 +204,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     obs_vals = df_campo[col_plm2].values
     obs_vals_norm = df_campo['Campo_Normalizado'].values
     
-    # --- CORRECCIÓN DE BORDES (PADDING) ---
-    # Envolvemos las series con un 0 al inicio y al final.
+    # --- PADDING (Para detectar picos en los extremos de la serie) ---
     sim_vals_padded = np.pad(sim_vals, (1, 1), 'constant', constant_values=(0, 0))
     obs_vals_padded = np.pad(obs_vals, (1, 1), 'constant', constant_values=(0, 0))
 
@@ -213,49 +212,53 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     min_h_sim = np.max(sim_vals) * 0.1 if np.max(sim_vals) > 0 else 0.01
     min_h_obs = np.max(obs_vals) * 0.1 if np.max(obs_vals) > 0 else 0.01
 
-    # Detección sobre arrays con padding
     peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=min_h_sim, distance=7)
     peaks_obs_padded, _ = find_peaks(obs_vals_padded, height=min_h_obs, distance=1)
     
-    # Deshacemos el padding restando 1 a los índices encontrados
     peaks_sim = peaks_sim_padded - 1
     peaks_obs = peaks_obs_padded - 1
     
-    # Filtramos por si accidentalmente detectó el padding (índice -1 o len(array))
     peaks_sim = peaks_sim[(peaks_sim >= 0) & (peaks_sim < len(sim_vals))]
     peaks_obs = peaks_obs[(peaks_obs >= 0) & (peaks_obs < len(obs_vals))]
 
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
+    # --- ALGORITMO BEST-MATCH-FIRST ---
+    valid_pairs = []
+    # 1. Calculamos todas las combinaciones viables dentro de las tolerancias
+    for i, sim_date in enumerate(sim_peak_dates):
+        for j, obs_date in enumerate(obs_peak_dates):
+            days_diff = (obs_date - sim_date).days
+            if -tol_retraso <= days_diff <= tol_anticipo:
+                # Guardamos: (idx_sim, idx_obs, dif_real, dif_absoluta)
+                valid_pairs.append((i, j, days_diff, abs(days_diff)))
+                
+    # 2. Ordenamos por la coincidencia más exacta primero (distancia absoluta cercana a 0)
+    valid_pairs.sort(key=lambda x: x[3])
+    
     tp_points = []
     fp_points = []
     fn_points = []
+    matched_sim = set()
     matched_obs = set()
     
-    for i, sim_date in enumerate(sim_peak_dates):
-        if len(obs_peak_dates) > 0:
-            days_diff = (obs_peak_dates - sim_date).days
+    # 3. Asignar los emparejamientos exactos primero
+    for sim_idx, obs_idx, diff, abs_diff in valid_pairs:
+        if sim_idx not in matched_sim and obs_idx not in matched_obs:
+            matched_sim.add(sim_idx)
+            matched_obs.add(obs_idx)
+            tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
             
-            # Filtramos estrictamente por nuestra ventana asimétrica
-            valid_mask = (days_diff >= -tol_retraso) & (days_diff <= tol_anticipo)
-            valid_indices = np.where(valid_mask)[0]
+    # 4. Los simulados que sobraron son Inventos (Falsos Positivos)
+    for i in range(len(sim_peak_dates)):
+        if i not in matched_sim:
+            fp_points.append((sim_peak_dates[i], sim_vals[peaks_sim[i]]))
             
-            # Removemos los picos de campo que ya fueron "consumidos"
-            available_indices = [idx for idx in valid_indices if idx not in matched_obs]
-            
-            if len(available_indices) > 0:
-                closest_idx = available_indices[np.argmin(np.abs(days_diff[available_indices]))]
-                tp_points.append((sim_date, sim_vals[peaks_sim[i]]))
-                matched_obs.add(closest_idx)
-            else:
-                fp_points.append((sim_date, sim_vals[peaks_sim[i]]))
-        else:
-            fp_points.append((sim_date, sim_vals[peaks_sim[i]]))
-            
-    for j, obs_date in enumerate(obs_peak_dates):
+    # 5. Los observados a campo que sobraron son Omisiones (Falsos Negativos)
+    for j in range(len(obs_peak_dates)):
         if j not in matched_obs:
-            fn_points.append((obs_date, obs_vals_norm[peaks_obs[j]]))
+            fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
             
     tp = len(tp_points)
     fp = len(fp_points)
@@ -320,7 +323,7 @@ with col_v2:
     tol_retraso = st.number_input("Retraso (-)", value=2, step=1, help="Modelo predice DESPUÉS de registrarse a campo.")
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.9.2)
+# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.9.3)
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
@@ -541,7 +544,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_2.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_3.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
