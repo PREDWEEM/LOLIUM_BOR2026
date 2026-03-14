@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.8 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.8.1 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Desfase temporal automático admisible hasta ±10 días
 # - Detección de Cohortes y F1-Score (scipy.signal)
-# - [NUEVO] Trazado visual de Verdaderos Positivos (TP), 
-#   Falsos Positivos (FP) y Falsos Negativos (FN) en el gráfico.
+# - Trazado visual de Verdaderos Positivos (TP), FP y FN
+# - [NUEVO] Tolerancia fija de ±5 días para emparejamiento de picos
 # ===============================================================
 
 import streamlit as st
@@ -194,9 +194,11 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
     return best
 
-def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tolerance_days=10):
+# --- MODIFICADO: Tolerancia predeterminada en 5 días ---
+def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tolerance_days=5):
     """
     Detecta pulsos usando análisis de señales, calcula F1-Score y guarda las coordenadas de los picos.
+    Admite un desfase de +/- tolerance_days por la discrepancia de fechas de monitoreo.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
@@ -234,7 +236,6 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tolerance_d
             
     for j, obs_date in enumerate(obs_peak_dates):
         if j not in matched_obs:
-            # Para los Falsos Negativos, guardamos el valor normalizado para plotearlo en la misma escala
             fn_points.append((obs_date, obs_vals_norm[peaks_obs[j]]))
             
     tp = len(tp_points)
@@ -287,13 +288,13 @@ dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=
 
 st.sidebar.markdown("## 🧪 3. Validación")
 max_desfase_validacion = st.sidebar.slider(
-    "Desfase máximo admisible (días)",
+    "Desfase máximo admisible Pearson (días)",
     min_value=0, max_value=10, value=10,
-    help="Permite buscar automáticamente el mejor corrimiento temporal entre simulación y campo."
+    help="Permite buscar automáticamente el mejor corrimiento temporal para la tendencia general."
 )
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.8)
+# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.8.1)
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
@@ -367,7 +368,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
         pearson_r = best_val["pearson_r"]
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
         
-        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, max_desfase_validacion)
+        # --- MODIFICADO: Tolerancia fija de ±5 días solicitada ---
+        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tolerance_days=5)
 
         if fecha_control:
             malezas_totales_campo = df_campo[col_plm2].sum()
@@ -399,7 +401,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
             k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric("Pearson (r)", f"{pearson_r:.3f}", "Tendencia General")
             k2.metric("Shift Óptimo", f"{best_shift_days:+d} d", "Ajuste Sim-Campo")
-            k3.metric("F1-Score Cohortes", f"{cohort_metrics['f1_score']:.2f}", "Sincronía de Pulsos", delta_color="normal")
+            # --- MODIFICADO: Aclaración de ventana de ±5d ---
+            k3.metric("F1-Score Cohortes", f"{cohort_metrics['f1_score']:.2f}", "Picos coinciden en ±5d", delta_color="normal")
             k4.metric("TP (Picos Coincidentes)", f"{cohort_metrics['tp']}", "Detectados a tiempo", delta_color="off")
             k5.metric("Errores (FP / FN)", f"{cohort_metrics['fp']} / {cohort_metrics['fn']}", "Sobrestimados / Omitidos", delta_color="inverse")
             
@@ -421,7 +424,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
             if df_campo is not None:
                 fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado'], mode='markers+lines', name='Recuentos a Campo', marker=dict(color='#dc2626', size=8, symbol='circle'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
                 
-                # --- AGREGADO: MARCADORES DE COHORTES (TP, FP, FN) ---
                 if cohort_metrics['tp_points']:
                     tp_x = [p[0] for p in cohort_metrics['tp_points']]
                     tp_y = [p[1] for p in cohort_metrics['tp_points']]
@@ -515,7 +517,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_8.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_8_1.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
