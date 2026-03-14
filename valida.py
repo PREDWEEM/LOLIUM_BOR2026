@@ -6,6 +6,7 @@
 # - Desfase temporal automático admisible hasta ±10 días
 # - PEC calculado estrictamente hasta el día de control
 # - [NUEVO] Detección de Cohortes y F1-Score (scipy.signal)
+# - [CORRECCIÓN] Sintaxis de f-string en clasificación DTW
 # ===============================================================
 
 import streamlit as st
@@ -472,8 +473,11 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 fp.add_trace(go.Scatter(x=jd_grid, y=obs_norm * cluster_model["curves_interp"][pred].max(), name="2026", line=dict(color='black', width=3)))
                 st.plotly_chart(fp, use_container_width=True)
             with c2:
-                st.success(f"### {{0: '🌾 Bimodal', 1: '🌱 Temprano', 2: '🍂 Tardío'}}.get(pred, 'Desconocido')}")
+                # ====== CORRECCIÓN AQUÍ ======
+                nombres_clusters = {0: '🌾 Bimodal', 1: '🌱 Temprano', 2: '🍂 Tardío'}
+                st.success(f"### {nombres_clusters.get(pred, 'Desconocido')}")
                 st.metric("DTW Score", f"{min(dists):.2f}")
+                # =============================
         else:
             st.info("Datos insuficientes para clasificación DTW.")
 
