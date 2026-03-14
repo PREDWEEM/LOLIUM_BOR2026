@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.8.1 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Desfase temporal automático admisible hasta ±10 días
-# - Detección de Cohortes y F1-Score (scipy.signal)
 # - Trazado visual de Verdaderos Positivos (TP), FP y FN
-# - [NUEVO] Tolerancia fija de ±5 días para emparejamiento de picos
+# - [NUEVO] Ventana Asimétrica Inteligente para Detección de Cohortes
+#   (Soporta anticipación del modelo sin penalizar si el campo se lee después)
 # ===============================================================
 
 import streamlit as st
@@ -23,7 +23,7 @@ from scipy.signal import find_peaks
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.8",
+    page_title="PREDWEEM BORDENAVE vK4.9",
     layout="wide",
     page_icon="🌾"
 )
@@ -194,11 +194,11 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
     return best
 
-# --- MODIFICADO: Tolerancia predeterminada en 5 días ---
-def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tolerance_days=5):
+def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=5, tol_retraso=2):
     """
-    Detecta pulsos usando análisis de señales, calcula F1-Score y guarda las coordenadas de los picos.
-    Admite un desfase de +/- tolerance_days por la discrepancia de fechas de monitoreo.
+    Detecta pulsos usando análisis de señales con ventana asimétrica.
+    tol_anticipo: Días que el modelo predice ANTES de que el campo lo registre.
+    tol_retraso: Días que el modelo predice DESPUÉS de que el campo lo registró.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
@@ -223,17 +223,29 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tolerance_d
     
     for i, sim_date in enumerate(sim_peak_dates):
         if len(obs_peak_dates) > 0:
-            diffs = np.abs((obs_peak_dates - sim_date).days)
-            min_diff_idx = np.argmin(diffs)
+            # Si obs_date > sim_date, la diferencia es positiva (el modelo se ANTICIPÓ)
+            # Si obs_date < sim_date, la diferencia es negativa (el modelo se RETRASÓ)
+            days_diff = (obs_peak_dates - sim_date).days
             
-            if diffs[min_diff_idx] <= tolerance_days and min_diff_idx not in matched_obs:
+            # Filtramos estrictamente por nuestra ventana asimétrica
+            valid_mask = (days_diff >= -tol_retraso) & (days_diff <= tol_anticipo)
+            valid_indices = np.where(valid_mask)[0]
+            
+            # Removemos los picos de campo que ya fueron "consumidos" por otra predicción
+            available_indices = [idx for idx in valid_indices if idx not in matched_obs]
+            
+            if len(available_indices) > 0:
+                # Nos quedamos con el más cercano entre los disponibles y válidos
+                closest_idx = available_indices[np.argmin(np.abs(days_diff[available_indices]))]
                 tp_points.append((sim_date, sim_vals[peaks_sim[i]]))
-                matched_obs.add(min_diff_idx)
+                matched_obs.add(closest_idx)
             else:
+                # Cayó fuera de la ventana o todos los picos cercanos ya estaban emparejados
                 fp_points.append((sim_date, sim_vals[peaks_sim[i]]))
         else:
             fp_points.append((sim_date, sim_vals[peaks_sim[i]]))
             
+    # Todo pico observado que no fue emparejado, es un Falso Negativo (se lo comió el modelo)
     for j, obs_date in enumerate(obs_peak_dates):
         if j not in matched_obs:
             fn_points.append((obs_date, obs_vals_norm[peaks_obs[j]]))
@@ -290,11 +302,18 @@ st.sidebar.markdown("## 🧪 3. Validación")
 max_desfase_validacion = st.sidebar.slider(
     "Desfase máximo admisible Pearson (días)",
     min_value=0, max_value=10, value=10,
-    help="Permite buscar automáticamente el mejor corrimiento temporal para la tendencia general."
+    help="Desfase general de la curva para el cálculo de Pearson."
 )
 
+st.sidebar.markdown("**Tolerancia Cohortes (Días)**")
+col_v1, col_v2 = st.sidebar.columns(2)
+with col_v1:
+    tol_anticipo = st.number_input("Anticipo (+)", value=5, step=1, help="Modelo predice ANTES de registrarse a campo.")
+with col_v2:
+    tol_retraso = st.number_input("Retraso (-)", value=2, step=1, help="Modelo predice DESPUÉS de registrarse a campo.")
+
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.8.1)
+# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.9)
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
@@ -368,8 +387,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
         pearson_r = best_val["pearson_r"]
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
         
-        # --- MODIFICADO: Tolerancia fija de ±5 días solicitada ---
-        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tolerance_days=5)
+        # --- NUEVO: Búsqueda con parámetros asimétricos desde la UI ---
+        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso)
 
         if fecha_control:
             malezas_totales_campo = df_campo[col_plm2].sum()
@@ -401,8 +420,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric("Pearson (r)", f"{pearson_r:.3f}", "Tendencia General")
             k2.metric("Shift Óptimo", f"{best_shift_days:+d} d", "Ajuste Sim-Campo")
-            # --- MODIFICADO: Aclaración de ventana de ±5d ---
-            k3.metric("F1-Score Cohortes", f"{cohort_metrics['f1_score']:.2f}", "Picos coinciden en ±5d", delta_color="normal")
+            k3.metric("F1-Score Cohortes", f"{cohort_metrics['f1_score']:.2f}", f"Ventana (+{tol_anticipo} / -{tol_retraso} d)", delta_color="normal")
             k4.metric("TP (Picos Coincidentes)", f"{cohort_metrics['tp']}", "Detectados a tiempo", delta_color="off")
             k5.metric("Errores (FP / FN)", f"{cohort_metrics['fp']} / {cohort_metrics['fn']}", "Sobrestimados / Omitidos", delta_color="inverse")
             
@@ -517,7 +535,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_8_1.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
