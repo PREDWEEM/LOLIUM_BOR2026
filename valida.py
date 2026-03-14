@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.3 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.4 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Corrección de Detección de picos en los bordes (Padding)
-# - [NUEVO] Emparejamiento robusto "Best-Match-First" para evitar 
-#   el robo cronológico de picos cuando la ventana es muy amplia.
+# - Emparejamiento robusto "Best-Match-First"
+# - [NUEVO] Control UI de "Separación mínima entre flushes" para 
+#   fusionar micro-picos simulados y evitar robos de emparejamiento.
 # ===============================================================
 
 import streamlit as st
@@ -22,7 +23,7 @@ from scipy.signal import find_peaks
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.9.3",
+    page_title="PREDWEEM BORDENAVE vK4.9.4",
     layout="wide",
     page_icon="🌾"
 )
@@ -193,10 +194,11 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
     return best
 
-def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2):
+# --- MODIFICADO: Agregamos min_dist_picos como parámetro ---
+def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=14):
     """
     Detecta pulsos mediante análisis de señales y algoritmo "Best-Match-First"
-    para evitar el robo cronológico de picos.
+    para evitar el robo cronológico de picos. Usa min_dist_picos para fusionar micro-picos.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
@@ -212,7 +214,8 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     min_h_sim = np.max(sim_vals) * 0.1 if np.max(sim_vals) > 0 else 0.01
     min_h_obs = np.max(obs_vals) * 0.1 if np.max(obs_vals) > 0 else 0.01
 
-    peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=min_h_sim, distance=7)
+    # Aplicamos la distancia mínima solicitada por UI a la simulación
+    peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=min_h_sim, distance=min_dist_picos)
     peaks_obs_padded, _ = find_peaks(obs_vals_padded, height=min_h_obs, distance=1)
     
     peaks_sim = peaks_sim_padded - 1
@@ -318,12 +321,19 @@ max_desfase_validacion = st.sidebar.slider(
 st.sidebar.markdown("**Tolerancia Cohortes (Días)**")
 col_v1, col_v2 = st.sidebar.columns(2)
 with col_v1:
-    tol_anticipo = st.number_input("Anticipo (+)", value=7, step=1, help="Modelo predice ANTES de registrarse a campo.")
+    tol_anticipo = st.number_input("Anticipo (+)", value=7, step=1, help="Modelo predice ANTES del registro a campo.")
 with col_v2:
-    tol_retraso = st.number_input("Retraso (-)", value=2, step=1, help="Modelo predice DESPUÉS de registrarse a campo.")
+    tol_retraso = st.number_input("Retraso (-)", value=2, step=1, help="Modelo predice DESPUÉS del registro a campo.")
+
+# --- NUEVO CONTROL: Separación de Flushes ---
+min_dist_picos = st.sidebar.number_input(
+    "Separación Mín. Flushes (días)", 
+    value=14, step=1, 
+    help="Agrupa los repiques cercanos en una sola cohorte biológica."
+)
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.9.3)
+# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.9.4)
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
@@ -397,7 +407,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
         pearson_r = best_val["pearson_r"]
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
         
-        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso)
+        # Pasamos min_dist_picos a la función
+        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos)
 
         if fecha_control:
             malezas_totales_campo = df_campo[col_plm2].sum()
@@ -544,7 +555,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_3.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_4.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
