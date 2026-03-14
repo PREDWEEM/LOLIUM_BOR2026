@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.7 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.8 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Desfase temporal automático admisible hasta ±10 días
-# - PEC calculado estrictamente hasta el día de control
-# - [NUEVO] Detección de Cohortes y F1-Score (scipy.signal)
-# - [CORRECCIÓN] Sintaxis de f-string en clasificación DTW
+# - Detección de Cohortes y F1-Score (scipy.signal)
+# - [NUEVO] Trazado visual de Verdaderos Positivos (TP), 
+#   Falsos Positivos (FP) y Falsos Negativos (FN) en el gráfico.
 # ===============================================================
 
 import streamlit as st
@@ -23,7 +23,7 @@ from scipy.signal import find_peaks
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.7",
+    page_title="PREDWEEM BORDENAVE vK4.8",
     layout="wide",
     page_icon="🌾"
 )
@@ -196,41 +196,50 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
 def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tolerance_days=10):
     """
-    Detecta pulsos (cohortes) usando análisis de señales y calcula F1-Score.
+    Detecta pulsos usando análisis de señales, calcula F1-Score y guarda las coordenadas de los picos.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
     obs_dates = df_campo[col_fecha].values
     obs_vals = df_campo[col_plm2].values
+    obs_vals_norm = df_campo['Campo_Normalizado'].values
     
-    # Filtro de ruido: ignorar picos menores al 10% del máximo histórico
+    # Filtro de ruido
     min_h_sim = np.max(sim_vals) * 0.1 if np.max(sim_vals) > 0 else 0.01
-    peaks_sim, _ = find_peaks(sim_vals, height=min_h_sim, distance=7) # Al menos 7 días entre picos
+    peaks_sim, _ = find_peaks(sim_vals, height=min_h_sim, distance=7)
     
     min_h_obs = np.max(obs_vals) * 0.1 if np.max(obs_vals) > 0 else 0.01
-    peaks_obs, _ = find_peaks(obs_vals, height=min_h_obs, distance=1) # A campo los monitoreos son espaciados
+    peaks_obs, _ = find_peaks(obs_vals, height=min_h_obs, distance=1)
     
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
-    tp, fp = 0, 0
+    tp_points = []
+    fp_points = []
+    fn_points = []
     matched_obs = set()
     
-    for sim_date in sim_peak_dates:
+    for i, sim_date in enumerate(sim_peak_dates):
         if len(obs_peak_dates) > 0:
             diffs = np.abs((obs_peak_dates - sim_date).days)
             min_diff_idx = np.argmin(diffs)
             
-            # Si el pico simulado cae dentro de la ventana del pico real
             if diffs[min_diff_idx] <= tolerance_days and min_diff_idx not in matched_obs:
-                tp += 1
+                tp_points.append((sim_date, sim_vals[peaks_sim[i]]))
                 matched_obs.add(min_diff_idx)
             else:
-                fp += 1
+                fp_points.append((sim_date, sim_vals[peaks_sim[i]]))
         else:
-            fp += 1
+            fp_points.append((sim_date, sim_vals[peaks_sim[i]]))
             
-    fn = len(obs_peak_dates) - len(matched_obs)
+    for j, obs_date in enumerate(obs_peak_dates):
+        if j not in matched_obs:
+            # Para los Falsos Negativos, guardamos el valor normalizado para plotearlo en la misma escala
+            fn_points.append((obs_date, obs_vals_norm[peaks_obs[j]]))
+            
+    tp = len(tp_points)
+    fp = len(fp_points)
+    fn = len(fn_points)
     
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0
@@ -240,9 +249,10 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tolerance_d
         "f1_score": f1,
         "precision": precision,
         "recall": recall,
-        "tp": tp,
-        "fp": fp,
-        "fn": fn
+        "tp": tp, "fp": fp, "fn": fn,
+        "tp_points": tp_points,
+        "fp_points": fp_points,
+        "fn_points": fn_points
     }
 
 # ---------------------------------------------------------
@@ -272,25 +282,18 @@ with col_t2:
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
-dga_optimo = st.sidebar.number_input(
-    "TT Control Post-emergente (°Cd)",
-    value=600,
-    step=10,
-    help="Grados-día a acumular desde el primer pico."
-)
+dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10)
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 st.sidebar.markdown("## 🧪 3. Validación")
 max_desfase_validacion = st.sidebar.slider(
     "Desfase máximo admisible (días)",
-    min_value=0,
-    max_value=10,
-    value=10,
+    min_value=0, max_value=10, value=10,
     help="Permite buscar automáticamente el mejor corrimiento temporal entre simulación y campo."
 )
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.7)
+# 5. MOTOR DE CÁLCULO (BORDENAVE vK4.8)
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
@@ -314,7 +317,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
-    # --- PREDICCIÓN NEURAL (SHIFT +60D) ---
+    # --- PREDICCIÓN NEURAL ---
     df["JD_Shifted"] = (df["Julian_days"] + 60).clip(1, 300)
     X = df[["JD_Shifted", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
@@ -356,7 +359,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # --- MÉTRICAS DE VALIDACIÓN ---
     pearson_r, best_shift_days = 0.0, 0
     pec, peak_lag, lead_time = 0.0, 0, 0
-    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0}
+    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "tp_points": [], "fp_points": [], "fn_points": []}
 
     if df_campo is not None:
         best_val = evaluate_shifted_validation(df, df_campo, col_fecha, col_plm2, max_desfase_validacion)
@@ -364,7 +367,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
         pearson_r = best_val["pearson_r"]
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
         
-        # Nueva métrica de cohortes
         cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, max_desfase_validacion)
 
         if fecha_control:
@@ -413,18 +415,34 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
         with col_main:
             fig_emer = go.Figure()
-            fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
+            fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL"], mode='lines', name='Tasa Diaria (Simulada)', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
             fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
 
             if df_campo is not None:
-                fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado'], mode='markers+lines', name='Recuentos a Campo', marker=dict(color='#dc2626', size=10, symbol='diamond'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
+                fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado'], mode='markers+lines', name='Recuentos a Campo', marker=dict(color='#dc2626', size=8, symbol='circle'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
+                
+                # --- AGREGADO: MARCADORES DE COHORTES (TP, FP, FN) ---
+                if cohort_metrics['tp_points']:
+                    tp_x = [p[0] for p in cohort_metrics['tp_points']]
+                    tp_y = [p[1] for p in cohort_metrics['tp_points']]
+                    fig_emer.add_trace(go.Scatter(x=tp_x, y=tp_y, mode='markers', name='✅ TP (Detectado)', marker=dict(color='#10b981', size=14, symbol='star', line=dict(width=1, color='DarkSlateGrey'))))
+                
+                if cohort_metrics['fp_points']:
+                    fp_x = [p[0] for p in cohort_metrics['fp_points']]
+                    fp_y = [p[1] for p in cohort_metrics['fp_points']]
+                    fig_emer.add_trace(go.Scatter(x=fp_x, y=fp_y, mode='markers', name='❌ FP (Inventado)', marker=dict(color='#ef4444', size=12, symbol='x', line=dict(width=2, color='DarkRed'))))
+                
+                if cohort_metrics['fn_points']:
+                    fn_x = [p[0] for p in cohort_metrics['fn_points']]
+                    fn_y = [p[1] for p in cohort_metrics['fn_points']]
+                    fig_emer.add_trace(go.Scatter(x=fn_x, y=fn_y, mode='markers', name='⚠️ FN (Omitido)', marker=dict(color='#f97316', size=12, symbol='triangle-up', line=dict(width=1, color='Black'))))
 
             if fecha_control:
                 fig_emer.add_vline(x=fecha_control.timestamp() * 1000, line_dash="dot", line_color="red", line_width=3, annotation_text=f"Control ({dga_optimo}°Cd)", annotation_position="top left")
                 fin_res = fecha_control + timedelta(days=residualidad)
                 fig_emer.add_vrect(x0=fecha_control.timestamp() * 1000, x1=fin_res.timestamp() * 1000, fillcolor="blue", opacity=0.1, layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)")
 
-            fig_emer.update_layout(title="Dinámica de Emergencia y Momento Crítico", height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_emer.update_layout(title="Dinámica de Emergencia y Momento Crítico", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
@@ -473,11 +491,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 fp.add_trace(go.Scatter(x=jd_grid, y=obs_norm * cluster_model["curves_interp"][pred].max(), name="2026", line=dict(color='black', width=3)))
                 st.plotly_chart(fp, use_container_width=True)
             with c2:
-                # ====== CORRECCIÓN AQUÍ ======
                 nombres_clusters = {0: '🌾 Bimodal', 1: '🌱 Temprano', 2: '🍂 Tardío'}
                 st.success(f"### {nombres_clusters.get(pred, 'Desconocido')}")
                 st.metric("DTW Score", f"{min(dists):.2f}")
-                # =============================
         else:
             st.info("Datos insuficientes para clasificación DTW.")
 
@@ -499,7 +515,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_7.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_8.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
