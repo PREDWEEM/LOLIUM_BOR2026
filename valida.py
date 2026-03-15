@@ -5,9 +5,10 @@
 # - Pearson por intervalos de monitoreo
 # - Corrección de Detección de picos en los bordes (Padding)
 # - Emparejamiento robusto "Best-Match-First"
-# - [NUEVO] Cálculo de Desfase Global Poblacional (T50)
-# - [NUEVO] Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
-# - UI Rediseñada para agrupar métricas Globales vs Cohortes
+# - Cálculo de Desfase Global Poblacional (T50)
+# - Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
+# - Filtro estricto para omitir picos simulados < 0.4
+# - [NUEVO] Recorte de evaluación de Falsos Positivos post-monitoreo
 # ===============================================================
 
 import streamlit as st
@@ -195,10 +196,11 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
     return best
 
-def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=14):
+def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=14, umbral_min_pico=0.4):
     """
     Detecta pulsos mediante análisis de señales y algoritmo "Best-Match-First".
     Retorna métricas de cohortes y el Sesgo Medio de Picos (mean_offset).
+    Solo evalúa Falsos Positivos dentro del período con datos de campo.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
@@ -206,11 +208,13 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     obs_vals = df_campo[col_plm2].values
     obs_vals_norm = df_campo['Campo_Normalizado'].values
     
+    max_obs_date = pd.to_datetime(obs_dates.max())
+    
     # --- PADDING ---
     sim_vals_padded = np.pad(sim_vals, (1, 1), 'constant', constant_values=(0, 0))
     obs_vals_padded = np.pad(obs_vals, (1, 1), 'constant', constant_values=(0, 0))
 
-    min_h_sim = np.max(sim_vals) * 0.1 if np.max(sim_vals) > 0 else 0.01
+    min_h_sim = umbral_min_pico
     min_h_obs = np.max(obs_vals) * 0.1 if np.max(obs_vals) > 0 else 0.01
 
     peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=min_h_sim, distance=min_dist_picos)
@@ -252,10 +256,13 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
             offset_val = (sim_peak_dates[sim_idx] - obs_peak_dates[obs_idx]).days
             offsets.append(offset_val)
             
+    # --- CÁLCULO DE FALSOS POSITIVOS (Inventos) ---
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim:
-            fp_points.append((sim_peak_dates[i], sim_vals[peaks_sim[i]]))
+            if sim_peak_dates[i] <= max_obs_date:
+                fp_points.append((sim_peak_dates[i], sim_vals[peaks_sim[i]]))
             
+    # --- CÁLCULO DE FALSOS NEGATIVOS (Omisiones) ---
     for j in range(len(obs_peak_dates)):
         if j not in matched_obs:
             fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
@@ -324,11 +331,11 @@ with col_v1:
 with col_v2:
     tol_retraso = st.number_input("Retraso (-)", value=2, step=1)
 
-min_dist_picos = st.sidebar.number_input(
-    "Separación Mín. Flushes (días)", 
-    value=14, step=1, 
-    help="Agrupa los repiques cercanos en una sola cohorte biológica."
-)
+col_p1, col_p2 = st.sidebar.columns(2)
+with col_p1:
+    min_dist_picos = st.number_input("Separación Flushes (días)", value=14, step=1)
+with col_p2:
+    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.40, step=0.05)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (BORDENAVE vK4.9.5)
@@ -406,7 +413,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         pearson_r = best_val["pearson_r"]
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
         
-        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos)
+        cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos, umbral_pico_sim)
 
         # CÁLCULO DE DESFASE GLOBAL (T50)
         tot_plm2 = df_campo[col_plm2].sum()
