@@ -1,14 +1,13 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.5 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Emparejamiento por Proximidad con Regla Anti-Cruce
-# - CORRECCIÓN: Eliminación total del análisis para picos secundarios (Ecos)
-# - NUEVO: Selección del pico principal por MAGNITUD dentro de la ventana de 7 días.
-# - Lógica TN asimétrico: Match de Campo < 0.05 con Simulación < 0.30
+# - CORRECCIÓN: Evitar "efecto cadena" en el filtro contiguo de 7 días
+# - NUEVO: TN asimétrico. Match de Campo < 0.05 con Simulación < 0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
+# - Las estrellas TP siempre se grafican en la altura original del pico
 # - Mantenimiento de la Arquitectura ANN y Shifts específicos de Bordenave
 # ===============================================================
 
@@ -221,7 +220,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     peaks_obs = np.where(obs_vals >= min_h_obs)[0]
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
-    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS (ELIMINACIÓN DE ECOS) ---
+    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS ---
     ventana_contigua = min_dist_picos 
     skip_indices = set()
 
@@ -231,27 +230,38 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
 
         grupo_contiguos = [i]
         for j in range(i + 1, len(sim_peak_dates)):
-            # Distancia evaluada siempre contra el primer pico del grupo
             if (sim_peak_dates[j] - sim_peak_dates[grupo_contiguos[0]]).days <= ventana_contigua:
                 grupo_contiguos.append(j)
             else:
                 break
 
         if len(grupo_contiguos) > 1:
-            # Nos quedamos estrictamente con el pico de MAYOR magnitud simulada (Flush Principal)
-            mejor_idx = max(grupo_contiguos, key=lambda idx: sim_vals[peaks_sim[idx]])
+            mejor_idx = grupo_contiguos[0]
+            min_distancia_global = float('inf')
+
+            for idx in grupo_contiguos:
+                if len(obs_peak_dates) > 0:
+                    distancias = [abs((obs_date - sim_peak_dates[idx]).days) for obs_date in obs_peak_dates]
+                    dist_minima_local = min(distancias)
+                else:
+                    dist_minima_local = 0
+
+                if dist_minima_local < min_distancia_global:
+                    min_distancia_global = dist_minima_local
+                    mejor_idx = idx
 
             for idx in grupo_contiguos:
                 if idx != mejor_idx:
                     skip_indices.add(idx)
 
+    zeroed_indices = []
+    for idx in skip_indices:
+        sim_vals_peaks[peaks_sim[idx]] = 0.0
+        zeroed_indices.append(peaks_sim[idx])
+
     # --- BEST-MATCH-FIRST POR PROXIMIDAD PURA + ANTI-CRUCE CRONOLÓGICO ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
-        # Si el pico es un eco secundario, SE ELIMINA completamente del análisis de matching
-        if i in skip_indices:
-            continue 
-            
         for j, obs_date in enumerate(obs_peak_dates):
             days_diff = (obs_date - sim_date).days
             if -tol_retraso <= days_diff <= tol_anticipo:
@@ -285,9 +295,8 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                 tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
                 offsets.append(diff)
             
-    # Cálculo de FP omitiendo también los repeticiones filtradas (skip_indices)
     for i in range(len(sim_peak_dates)):
-        if i not in matched_sim and i not in skip_indices:
+        if i not in matched_sim:
             if sim_peak_dates[i] <= max_obs_date:
                 fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
@@ -306,12 +315,14 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
             if not es_tn_encubierto:
                 fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
 
-    # --- CÁLCULO DE TRUE NEGATIVES (Match de Campo < 0.05 y Sim < 0.30) ---
+    # --- NUEVO: CÁLCULO DE TRUE NEGATIVES (Match de Campo < 0.05 y Sim < 0.30) ---
     for j, obs_date in enumerate(obs_dates):
         if obs_vals_norm[j] < 0.05:
+            # Buscamos la fecha exacta en la simulación
             sim_idx_arr = np.where(sim_dates == obs_date)[0]
             if len(sim_idx_arr) > 0:
                 sim_idx = sim_idx_arr[0]
+                # Si en el día que el campo dio < 0.05, el modelo dio < 0.30, es un match TN
                 if sim_vals[sim_idx] < umbral_min_pico:
                     tn_points.append((pd.to_datetime(obs_date), sim_vals[sim_idx]))
             
@@ -334,7 +345,8 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
         "tp_points": tp_points,
         "fp_points": fp_points,
         "fn_points": fn_points,
-        "tn_points": tn_points
+        "tn_points": tn_points,
+        "zeroed_indices": zeroed_indices
     }
 
 # ---------------------------------------------------------
@@ -453,7 +465,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     pearson_r, best_shift_days = 0.0, 0
     pec, peak_lag, lead_time = 0.0, 0, 0
     desfase_t50 = 0
-    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "tn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": [], "tn_points": []}
+    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "tn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": [], "tn_points": [], "zeroed_indices": []}
 
     if df_campo is not None:
         best_val = evaluate_shifted_validation(df, df_campo, col_fecha, col_plm2, max_desfase_validacion)
@@ -462,6 +474,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
         
         cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos, umbral_pico_sim)
+        
+        if cohort_metrics.get("zeroed_indices"):
+            df.loc[cohort_metrics["zeroed_indices"], "EMERREL"] = 0.0
 
         tot_plm2 = df_campo[col_plm2].sum()
         if tot_plm2 > 0:
