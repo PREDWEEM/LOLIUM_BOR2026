@@ -5,10 +5,10 @@
 # - Pearson por intervalos de monitoreo
 # - Corrección de Detección de picos en los bordes (Padding)
 # - Matching Cronológico con PENALIDAD BIOLÓGICA (Fuerza orden)
-# - Filtro de Flushes Contiguos: Asigna VALOR 0 al pico redundante
+# - Filtro de Flushes Contiguos: Asigna VALOR 0 pero PERMITE MATCHING
 # - Cálculo de Desfase Global Poblacional (T50)
 # - Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
-# - Recorte de evaluación de Falsos Positivos post-monitoreo
+# - Actualización visual para mostrar caída a 0 en la gráfica simulada
 # ===============================================================
 
 import streamlit as st
@@ -198,7 +198,7 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
 def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=7, umbral_min_pico=0.4):
     """
-    Detecta pulsos, ASIGNA VALOR 0 a los flushes contiguos redundantes y empareja respetando el orden.
+    Detecta pulsos, ASIGNA VALOR 0 a los flushes contiguos redundantes y los empareja respetando el orden.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
@@ -206,7 +206,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     obs_vals = df_campo[col_plm2].values
     obs_vals_norm = df_campo['Campo_Normalizado'].values
     
-    # Creamos una copia para manipular las magnitudes de los picos sin arruinar la curva gráfica principal
+    # Copia para manipular las magnitudes sin alterar la original temporalmente
     sim_vals_peaks = sim_vals.copy()
     
     max_obs_date = pd.to_datetime(obs_dates.max())
@@ -218,7 +218,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     min_h_sim = umbral_min_pico
     min_h_obs = np.max(obs_vals) * 0.1 if np.max(obs_vals) > 0 else 0.01
 
-    # Distance 1 obliga a SciPy a capturar TODOS los picos, nosotros los filtramos manualmente después
+    # Distance 1 obliga a SciPy a capturar TODOS los picos
     peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=min_h_sim, distance=1)
     peaks_obs_padded, _ = find_peaks(obs_vals_padded, height=min_h_obs, distance=1)
     
@@ -261,22 +261,22 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                     min_distancia_global = dist_minima_local
                     mejor_idx = idx
 
-            # Registramos los picos que perdieron la validación
+            # Registramos los picos "perdedores" de la contigüidad
             for idx in grupo_contiguos:
                 if idx != mejor_idx:
                     skip_indices.add(idx)
 
-    # NUEVO: A los picos contiguos descartados les asignamos valor 0.0
+    # A los picos contiguos descartados les asignamos valor 0.0
+    zeroed_indices = []
     for idx in skip_indices:
         sim_vals_peaks[peaks_sim[idx]] = 0.0
+        zeroed_indices.append(peaks_sim[idx])
 
     # --- MATCHING CRONOLÓGICO CON PENALIDAD BIOLÓGICA ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
-        # Si el pico fue neutralizado (vale 0), lo omitimos del proceso de emparejamiento (Match)
-        if sim_vals_peaks[peaks_sim[i]] == 0.0:
-            continue
-            
+        # NOTA CLAVE: Ya NO saltamos los picos con valor 0.0. 
+        # Los dejamos participar para que puedan matchear (por ejemplo con el 2 de marzo)
         for j, obs_date in enumerate(obs_peak_dates):
             days_diff = (obs_date - sim_date).days
             if -tol_retraso <= days_diff <= tol_anticipo:
@@ -297,20 +297,19 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
         if sim_idx not in matched_sim and obs_idx not in matched_obs:
             matched_sim.add(sim_idx)
             matched_obs.add(obs_idx)
-            # Guardamos el TP con su valor real
+            # Guardamos el TP. Si era un pico neutralizado, se guardará con y=0.0
             tp_points.append((sim_peak_dates[sim_idx], sim_vals_peaks[peaks_sim[sim_idx]]))
             
             offset_val = (sim_peak_dates[sim_idx] - obs_peak_dates[obs_idx]).days
             offsets.append(offset_val)
             
-    # --- CÁLCULO DE FALSOS POSITIVOS (Inventos y Neutralizados) ---
+    # --- CÁLCULO DE FALSOS POSITIVOS ---
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim:
             if sim_peak_dates[i] <= max_obs_date:
-                # Los picos neutralizados se agregarán aquí, pero con valor 0.0
                 fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
-    # --- CÁLCULO DE FALSOS NEGATIVOS (Omisiones) ---
+    # --- CÁLCULO DE FALSOS NEGATIVOS ---
     for j in range(len(obs_peak_dates)):
         if j not in matched_obs:
             fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
@@ -332,7 +331,8 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
         "mean_offset": mean_offset,
         "tp_points": tp_points,
         "fp_points": fp_points,
-        "fn_points": fn_points
+        "fn_points": fn_points,
+        "zeroed_indices": zeroed_indices
     }
 
 # ---------------------------------------------------------
@@ -453,7 +453,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     pearson_r, best_shift_days = 0.0, 0
     pec, peak_lag, lead_time = 0.0, 0, 0
     desfase_t50 = 0
-    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": []}
+    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": [], "zeroed_indices": []}
 
     if df_campo is not None:
         best_val = evaluate_shifted_validation(df, df_campo, col_fecha, col_plm2, max_desfase_validacion)
@@ -462,6 +462,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df_campo["Sim_Intervalo"] = best_val["sim_intervalo"]
         
         cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos, umbral_pico_sim)
+        
+        # IMPACTO VISUAL: Si hay picos neutralizados, forzamos la caída de la curva a 0.0 en el gráfico
+        if cohort_metrics.get("zeroed_indices"):
+            df.loc[cohort_metrics["zeroed_indices"], "EMERREL"] = 0.0
 
         # CÁLCULO DE DESFASE GLOBAL (T50)
         tot_plm2 = df_campo[col_plm2].sum()
@@ -609,44 +613,4 @@ if df_meteo_raw is not None and modelo_ann is not None:
             with c1:
                 fp = go.Figure()
                 fp.add_trace(go.Scatter(x=JD_COM, y=cluster_model["curves_interp"][pred], name="Patrón", line=dict(dash='dash', color={0: "#0284c7", 1: "#16a34a", 2: "#ea580c"}.get(pred))))
-                fp.add_trace(go.Scatter(x=jd_grid, y=obs_norm * cluster_model["curves_interp"][pred].max(), name="2026", line=dict(color='black', width=3)))
-                st.plotly_chart(fp, use_container_width=True)
-            with c2:
-                nombres_clusters = {0: '🌾 Bimodal', 1: '🌱 Temprano', 2: '🍂 Tardío'}
-                st.success(f"### {nombres_clusters.get(pred, 'Desconocido')}")
-                st.metric("DTW Score", f"{min(dists):.2f}")
-        else:
-            st.info("Datos insuficientes para clasificación DTW.")
-
-    with tab4:
-        st.subheader("🧪 Curva de Respuesta Fisiológica")
-        x_temps = np.linspace(0, 45, 200)
-        y_tt = [calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps]
-        fig_bio = go.Figure(data=[go.Scatter(x=x_temps, y=y_tt, mode='lines', line=dict(color='#2563eb', width=4), fill='tozeroy')])
-        st.plotly_chart(fig_bio, use_container_width=True)
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Data_Diaria')
-        if df_campo is not None:
-            df_campo.to_excel(writer, index=False, sheet_name='Campo_Validacion')
-            resumen_val = {
-                'Métrica': [
-                    'PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 
-                    'Pearson (r)', 'Shift Óptimo Max Pearson (días)', 'Desfase T50 Global (días)',
-                    'F1-Score Cohortes', 'Picos Coincidentes (TP)', 
-                    'Falsos Positivos (FP)', 'Falsos Negativos (FN)', 'Sesgo Medio Picos (días)'
-                ],
-                'Valor': [
-                    pec, peak_lag, lead_time, 
-                    pearson_r, best_shift_days, desfase_t50,
-                    cohort_metrics['f1_score'], cohort_metrics['tp'], 
-                    cohort_metrics['fp'], cohort_metrics['fn'], cohort_metrics['mean_offset']
-                ]
-            }
-            pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
-
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_5.xlsx")
-
-else:
-    st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
+                fp.add_trace(go.Scatter(x=jd_grid, y=
