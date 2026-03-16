@@ -4,10 +4,10 @@
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Emparejamiento por Proximidad con Regla Anti-Cruce
-# - CORRECCIÓN: Evitar "efecto cadena" en el filtro contiguo de 7 días
-# - NUEVO: TN asimétrico. Match de Campo < 0.05 con Simulación < 0.30
+# - CORRECCIÓN RESTAURADA: Eliminación total de picos secundarios (Ecos)
+# - NUEVO: Selección del pico principal por MAGNITUD en ventana de 7 días.
+# - TN asimétrico: Match de Campo < 0.05 con Simulación < 0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
-# - Las estrellas TP siempre se grafican en la altura original del pico
 # - Mantenimiento de la Arquitectura ANN y Shifts específicos de Bordenave
 # ===============================================================
 
@@ -220,7 +220,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     peaks_obs = np.where(obs_vals >= min_h_obs)[0]
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
-    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS ---
+    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS (ELIMINACIÓN DE ECOS) ---
     ventana_contigua = min_dist_picos 
     skip_indices = set()
 
@@ -230,25 +230,15 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
 
         grupo_contiguos = [i]
         for j in range(i + 1, len(sim_peak_dates)):
+            # Distancia evaluada siempre contra el primer pico del grupo
             if (sim_peak_dates[j] - sim_peak_dates[grupo_contiguos[0]]).days <= ventana_contigua:
                 grupo_contiguos.append(j)
             else:
                 break
 
         if len(grupo_contiguos) > 1:
-            mejor_idx = grupo_contiguos[0]
-            min_distancia_global = float('inf')
-
-            for idx in grupo_contiguos:
-                if len(obs_peak_dates) > 0:
-                    distancias = [abs((obs_date - sim_peak_dates[idx]).days) for obs_date in obs_peak_dates]
-                    dist_minima_local = min(distancias)
-                else:
-                    dist_minima_local = 0
-
-                if dist_minima_local < min_distancia_global:
-                    min_distancia_global = dist_minima_local
-                    mejor_idx = idx
+            # Nos quedamos estrictamente con el pico de MAYOR magnitud simulada (Flush Principal)
+            mejor_idx = max(grupo_contiguos, key=lambda idx: sim_vals[peaks_sim[idx]])
 
             for idx in grupo_contiguos:
                 if idx != mejor_idx:
@@ -262,6 +252,10 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     # --- BEST-MATCH-FIRST POR PROXIMIDAD PURA + ANTI-CRUCE CRONOLÓGICO ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
+        # Si el pico es un eco secundario, SE ELIMINA completamente del análisis de matching
+        if i in skip_indices:
+            continue 
+            
         for j, obs_date in enumerate(obs_peak_dates):
             days_diff = (obs_date - sim_date).days
             if -tol_retraso <= days_diff <= tol_anticipo:
@@ -295,8 +289,9 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                 tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
                 offsets.append(diff)
             
+    # Cálculo de FP omitiendo también los repeticiones filtradas (skip_indices)
     for i in range(len(sim_peak_dates)):
-        if i not in matched_sim:
+        if i not in matched_sim and i not in skip_indices:
             if sim_peak_dates[i] <= max_obs_date:
                 fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
@@ -315,7 +310,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
             if not es_tn_encubierto:
                 fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
 
-    # --- NUEVO: CÁLCULO DE TRUE NEGATIVES (Match de Campo < 0.05 y Sim < 0.30) ---
+    # --- CÁLCULO DE TRUE NEGATIVES (Match de Campo < 0.05 y Sim < 0.30) ---
     for j, obs_date in enumerate(obs_dates):
         if obs_vals_norm[j] < 0.05:
             # Buscamos la fecha exacta en la simulación
