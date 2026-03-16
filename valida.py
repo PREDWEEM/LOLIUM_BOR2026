@@ -4,11 +4,11 @@
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Corrección de Detección de picos en los bordes (Padding)
-# - Emparejamiento robusto "Best-Match-First"
+# - Emparejamiento Cronológico Secuencial (Fuerza orden de cohortes)
 # - Cálculo de Desfase Global Poblacional (T50)
 # - Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
 # - Filtro estricto para omitir picos simulados < 0.4
-# - [NUEVO] Recorte de evaluación de Falsos Positivos post-monitoreo
+# - Recorte de evaluación de Falsos Positivos post-monitoreo
 # ===============================================================
 
 import streamlit as st
@@ -198,9 +198,8 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
 def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=14, umbral_min_pico=0.4):
     """
-    Detecta pulsos mediante análisis de señales y algoritmo "Best-Match-First".
-    Retorna métricas de cohortes y el Sesgo Medio de Picos (mean_offset).
-    Solo evalúa Falsos Positivos dentro del período con datos de campo.
+    Detecta pulsos mediante análisis de señales y algoritmo "Cronológico Secuencial".
+    Fuerza el emparejamiento respetando el orden de aparición biológico.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
@@ -229,7 +228,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
-    # --- BEST-MATCH-FIRST ---
+    # --- MATCHING CRONOLÓGICO SECUENCIAL ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
         for j, obs_date in enumerate(obs_peak_dates):
@@ -237,7 +236,9 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
             if -tol_retraso <= days_diff <= tol_anticipo:
                 valid_pairs.append((i, j, days_diff, abs(days_diff)))
                 
-    valid_pairs.sort(key=lambda x: x[3])
+    # Cambio Clave: Se ordena por aparición temporal (sim_idx, luego obs_idx)
+    # Esto asegura que las primeras cohortes simuladas se enlacen con las primeras del campo
+    valid_pairs.sort(key=lambda x: (x[0], x[1], x[3]))
     
     tp_points = []
     fp_points = []
