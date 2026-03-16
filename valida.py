@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.5 — LOLIUM BORDENAVE 2026
@@ -6,7 +5,7 @@
 # - Pearson por intervalos de monitoreo
 # - Emparejamiento por Proximidad con Regla Anti-Cruce
 # - CORRECCIÓN: Evitar "efecto cadena" en el filtro contiguo de 7 días
-# - CORRECCIÓN: Umbral por defecto bajado a 0.30 para capturar flushes medios
+# - NUEVO: Lógica de True Negatives (TN). Match de Campo=0 con Sim<0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
 # - Las estrellas TP siempre se grafican en la altura original del pico
 # - Mantenimiento de la Arquitectura ANN y Shifts específicos de Bordenave
@@ -231,7 +230,6 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
 
         grupo_contiguos = [i]
         for j in range(i + 1, len(sim_peak_dates)):
-            # CORRECCIÓN: Medimos la distancia contra el PRIMER pico del grupo [0] para evitar efecto cadena
             if (sim_peak_dates[j] - sim_peak_dates[grupo_contiguos[0]]).days <= ventana_contigua:
                 grupo_contiguos.append(j)
             else:
@@ -275,6 +273,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     tp_points = []
     fp_points = []
     fn_points = []
+    tn_points = []  # TRUE NEGATIVES (Ceros Coincidentes)
     matched_sim = set()
     matched_obs = set()
     matched_links = []
@@ -293,24 +292,33 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                 matched_obs.add(obs_idx)
                 matched_links.append((sim_idx, obs_idx))
                 
-                # CORRECCIÓN: Usamos sim_vals (valores originales) para asegurar que la estrella flota 
-                # a la altura real del pico simulado, incluso si fue castigado a 0.0 en el dataframe
                 tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
                 offsets.append(diff)
             
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim:
             if sim_peak_dates[i] <= max_obs_date:
-                # Los FP sí los mostramos en 0.0 si fueron neutralizados
                 fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
     for j in range(len(obs_peak_dates)):
         if j not in matched_obs:
             fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
+
+    # --- NUEVO: CÁLCULO DE TRUE NEGATIVES (Match de Campo=0 y Sim<Umbral) ---
+    for j, obs_date in enumerate(obs_dates):
+        if obs_vals[j] == 0:
+            # Buscamos la fecha exacta en la simulación
+            sim_idx_arr = np.where(sim_dates == obs_date)[0]
+            if len(sim_idx_arr) > 0:
+                sim_idx = sim_idx_arr[0]
+                # Si en el día que el campo dio 0, el modelo también dio < 0.30, es un match TN
+                if sim_vals[sim_idx] < umbral_min_pico:
+                    tn_points.append((pd.to_datetime(obs_date), sim_vals[sim_idx]))
             
     tp = len(tp_points)
     fp = len(fp_points)
     fn = len(fn_points)
+    tn = len(tn_points)
     
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0
@@ -321,11 +329,12 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
         "f1_score": f1,
         "precision": precision,
         "recall": recall,
-        "tp": tp, "fp": fp, "fn": fn,
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "mean_offset": mean_offset,
         "tp_points": tp_points,
         "fp_points": fp_points,
         "fn_points": fn_points,
+        "tn_points": tn_points,
         "zeroed_indices": zeroed_indices
     }
 
@@ -378,7 +387,6 @@ with col_p1:
     # Bloqueado en 7 días para estandarizar la ventana de flushes contiguos
     min_dist_picos = st.number_input("Separación Flushes (días)", value=7, disabled=True)
 with col_p2:
-    # Bajado a 0.30 para capturar picos de intensidad media
     umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
 
 # ---------------------------------------------------------
@@ -446,7 +454,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     pearson_r, best_shift_days = 0.0, 0
     pec, peak_lag, lead_time = 0.0, 0, 0
     desfase_t50 = 0
-    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": [], "zeroed_indices": []}
+    cohort_metrics = {"f1_score": 0, "tp": 0, "fp": 0, "fn": 0, "tn": 0, "mean_offset": 0, "tp_points": [], "fp_points": [], "fn_points": [], "tn_points": [], "zeroed_indices": []}
 
     if df_campo is not None:
         best_val = evaluate_shifted_validation(df, df_campo, col_fecha, col_plm2, max_desfase_validacion)
@@ -510,7 +518,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
             st.markdown("<p class='metric-header' style='margin-top:15px;'>🎯 SINCRONÍA DE COHORTES (PULSOS)</p>", unsafe_allow_html=True)
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("F1-Score", f"{cohort_metrics['f1_score']:.2f}", f"Ventana (+{tol_anticipo} / -{tol_retraso} d)", delta_color="normal")
-            k2.metric("Aciertos (TP)", f"{cohort_metrics['tp']}", "Picos coincidentes")
+            # AHORA MOSTRAMOS TP y TN JUNTOS COMO ACIERTOS TOTALES
+            k2.metric("Aciertos (TP | TN)", f"{cohort_metrics['tp']} | {cohort_metrics['tn']}", "Picos | Ceros Coincidentes")
             k3.metric("Errores (FP / FN)", f"{cohort_metrics['fp']} / {cohort_metrics['fn']}", "Inventados / Omitidos", delta_color="inverse")
             
             sesgo = cohort_metrics['mean_offset']
@@ -540,6 +549,12 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     tp_y = [p[1] for p in cohort_metrics['tp_points']]
                     fig_emer.add_trace(go.Scatter(x=tp_x, y=tp_y, mode='markers', name='✅ TP (Detectado)', marker=dict(color='#10b981', size=14, symbol='star', line=dict(width=1, color='DarkSlateGrey'))))
                 
+                # NUEVO: Ploteo de True Negatives
+                if cohort_metrics['tn_points']:
+                    tn_x = [p[0] for p in cohort_metrics['tn_points']]
+                    tn_y = [p[1] for p in cohort_metrics['tn_points']]
+                    fig_emer.add_trace(go.Scatter(x=tn_x, y=tn_y, mode='markers', name='✅ TN (Cero Coincidente)', marker=dict(color='#3b82f6', size=12, symbol='square', line=dict(width=1, color='DarkBlue'))))
+
                 if cohort_metrics['fp_points']:
                     fp_x = [p[0] for p in cohort_metrics['fp_points']]
                     fp_y = [p[1] for p in cohort_metrics['fp_points']]
@@ -598,7 +613,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
             dists = [dtw_distance(obs_norm, m[JD_COM <= jd_corte] / m[JD_COM <= jd_corte].max() if m[JD_COM <= jd_corte].max() > 0 else m[JD_COM <= jd_corte]) for m in cluster_model["curves_interp"]]
             pred = int(np.argmin(dists))
             
-            # --- SECCIÓN DE CÓDIGO CON MULTI-LÍNEAS PARA EVITAR TRUNCAMIENTO ---
             c1, c2 = st.columns([3, 1])
             with c1:
                 fp = go.Figure()
@@ -643,13 +657,13 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 'Métrica': [
                     'PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 
                     'Pearson (r)', 'Shift Óptimo Max Pearson (días)', 'Desfase T50 Global (días)',
-                    'F1-Score Cohortes', 'Picos Coincidentes (TP)', 
+                    'F1-Score Cohortes', 'Picos Coincidentes (TP)', 'Reposos Coincidentes (TN)',
                     'Falsos Positivos (FP)', 'Falsos Negativos (FN)', 'Sesgo Medio Picos (días)'
                 ],
                 'Valor': [
                     pec, peak_lag, lead_time, 
                     pearson_r, best_shift_days, desfase_t50,
-                    cohort_metrics['f1_score'], cohort_metrics['tp'], 
+                    cohort_metrics['f1_score'], cohort_metrics['tp'], cohort_metrics['tn'],
                     cohort_metrics['fp'], cohort_metrics['fn'], cohort_metrics['mean_offset']
                 ]
             }
