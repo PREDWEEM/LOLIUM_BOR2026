@@ -4,8 +4,8 @@
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Emparejamiento por Proximidad con Regla Anti-Cruce
-# - CORRECCIÓN RESTAURADA: Eliminación total de picos secundarios (Ecos)
-# - NUEVO: Selección del pico principal por MAGNITUD en ventana de 7 días.
+# - CORRECCIÓN DEFINITIVA: Eliminación total de réplicas (Ecos) del análisis.
+# - SELECCIÓN DE PICO: En flushes < 7 días, se prioriza el más cercano al dato de campo.
 # - TN asimétrico: Match de Campo < 0.05 con Simulación < 0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
 # - Mantenimiento de la Arquitectura ANN y Shifts específicos de Bordenave
@@ -237,13 +237,27 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                 break
 
         if len(grupo_contiguos) > 1:
-            # Nos quedamos estrictamente con el pico de MAYOR magnitud simulada (Flush Principal)
-            mejor_idx = max(grupo_contiguos, key=lambda idx: sim_vals[peaks_sim[idx]])
+            mejor_idx = grupo_contiguos[0]
+            min_distancia_global = float('inf')
 
+            # De los picos agrupados, conservamos EL MÁS CERCANO A LA REALIDAD
+            for idx in grupo_contiguos:
+                if len(obs_peak_dates) > 0:
+                    distancias = [abs((obs_date - sim_peak_dates[idx]).days) for obs_date in obs_peak_dates]
+                    dist_minima_local = min(distancias)
+                else:
+                    dist_minima_local = 0
+
+                if dist_minima_local < min_distancia_global:
+                    min_distancia_global = dist_minima_local
+                    mejor_idx = idx
+
+            # Los demás se marcan como réplicas/ecos
             for idx in grupo_contiguos:
                 if idx != mejor_idx:
                     skip_indices.add(idx)
 
+    # Castigamos en el gráfico y dataframe a los omitidos
     zeroed_indices = []
     for idx in skip_indices:
         sim_vals_peaks[peaks_sim[idx]] = 0.0
@@ -252,9 +266,9 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     # --- BEST-MATCH-FIRST POR PROXIMIDAD PURA + ANTI-CRUCE CRONOLÓGICO ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
-        # Si el pico es un eco secundario, SE ELIMINA completamente del análisis de matching
+        # ¡CORRECCIÓN! Si el pico es una réplica (ej. 3 de Marzo), lo OMITIMOS totalmente del match
         if i in skip_indices:
-            continue 
+            continue
             
         for j, obs_date in enumerate(obs_peak_dates):
             days_diff = (obs_date - sim_date).days
@@ -289,7 +303,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                 tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
                 offsets.append(diff)
             
-    # Cálculo de FP omitiendo también los repeticiones filtradas (skip_indices)
+    # ¡CORRECCIÓN! Para los Falsos Positivos, también omitimos por completo las réplicas (skip_indices)
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim and i not in skip_indices:
             if sim_peak_dates[i] <= max_obs_date:
