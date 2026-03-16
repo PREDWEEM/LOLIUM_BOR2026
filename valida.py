@@ -5,7 +5,7 @@
 # - Pearson por intervalos de monitoreo
 # - Corrección de Detección de picos en los bordes (Padding)
 # - Matching Cronológico con PENALIDAD BIOLÓGICA (Fuerza orden)
-# - Filtro de Flushes Contiguos basado en CALENDARIO (Bypass a SciPy)
+# - Filtro de Flushes Contiguos: Asigna VALOR 0 al pico redundante
 # - Cálculo de Desfase Global Poblacional (T50)
 # - Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
 # - Recorte de evaluación de Falsos Positivos post-monitoreo
@@ -198,13 +198,16 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
 def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=7, umbral_min_pico=0.4):
     """
-    Detecta pulsos, extrae TODOS (bypass SciPy) y filtra inteligentemente por contigüidad y distancia a campo.
+    Detecta pulsos, ASIGNA VALOR 0 a los flushes contiguos redundantes y empareja respetando el orden.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
     obs_dates = df_campo[col_fecha].values
     obs_vals = df_campo[col_plm2].values
     obs_vals_norm = df_campo['Campo_Normalizado'].values
+    
+    # Creamos una copia para manipular las magnitudes de los picos sin arruinar la curva gráfica principal
+    sim_vals_peaks = sim_vals.copy()
     
     max_obs_date = pd.to_datetime(obs_dates.max())
     
@@ -215,8 +218,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     min_h_sim = umbral_min_pico
     min_h_obs = np.max(obs_vals) * 0.1 if np.max(obs_vals) > 0 else 0.01
 
-    # CAMBIO CRÍTICO: distance=1 para obligar a SciPy a darnos todos los picos simulados
-    # y dejar que la "inteligencia" la aplique nuestro código después.
+    # Distance 1 obliga a SciPy a capturar TODOS los picos, nosotros los filtramos manualmente después
     peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=min_h_sim, distance=1)
     peaks_obs_padded, _ = find_peaks(obs_vals_padded, height=min_h_obs, distance=1)
     
@@ -229,10 +231,8 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
-    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS (BYPASS A SCIPY) ---
-    # Usamos el parámetro del sidebar "min_dist_picos" como la ventana biológica (ej: 7 días)
+    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS (ASIGNACIÓN DE VALOR 0) ---
     ventana_contigua = min_dist_picos 
-    sim_peaks_filtrados = []
     skip_indices = set()
 
     for i in range(len(sim_peak_dates)):
@@ -261,19 +261,22 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                     min_distancia_global = dist_minima_local
                     mejor_idx = idx
 
-            sim_peaks_filtrados.append(mejor_idx)
+            # Registramos los picos que perdieron la validación
             for idx in grupo_contiguos:
-                skip_indices.add(idx)
-        else:
-            sim_peaks_filtrados.append(i)
+                if idx != mejor_idx:
+                    skip_indices.add(idx)
 
-    # Actualizamos las listas solo con los picos que ganaron la validación de campo
-    sim_peak_dates = sim_peak_dates[sim_peaks_filtrados]
-    peaks_sim = peaks_sim[sim_peaks_filtrados]
+    # NUEVO: A los picos contiguos descartados les asignamos valor 0.0
+    for idx in skip_indices:
+        sim_vals_peaks[peaks_sim[idx]] = 0.0
 
     # --- MATCHING CRONOLÓGICO CON PENALIDAD BIOLÓGICA ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
+        # Si el pico fue neutralizado (vale 0), lo omitimos del proceso de emparejamiento (Match)
+        if sim_vals_peaks[peaks_sim[i]] == 0.0:
+            continue
+            
         for j, obs_date in enumerate(obs_peak_dates):
             days_diff = (obs_date - sim_date).days
             if -tol_retraso <= days_diff <= tol_anticipo:
@@ -294,16 +297,18 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
         if sim_idx not in matched_sim and obs_idx not in matched_obs:
             matched_sim.add(sim_idx)
             matched_obs.add(obs_idx)
-            tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
+            # Guardamos el TP con su valor real
+            tp_points.append((sim_peak_dates[sim_idx], sim_vals_peaks[peaks_sim[sim_idx]]))
             
             offset_val = (sim_peak_dates[sim_idx] - obs_peak_dates[obs_idx]).days
             offsets.append(offset_val)
             
-    # --- CÁLCULO DE FALSOS POSITIVOS (Inventos) ---
+    # --- CÁLCULO DE FALSOS POSITIVOS (Inventos y Neutralizados) ---
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim:
             if sim_peak_dates[i] <= max_obs_date:
-                fp_points.append((sim_peak_dates[i], sim_vals[peaks_sim[i]]))
+                # Los picos neutralizados se agregarán aquí, pero con valor 0.0
+                fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
     # --- CÁLCULO DE FALSOS NEGATIVOS (Omisiones) ---
     for j in range(len(obs_peak_dates)):
@@ -376,7 +381,7 @@ with col_v2:
 
 col_p1, col_p2 = st.sidebar.columns(2)
 with col_p1:
-    min_dist_picos = st.number_input("Separación Flushes (días)", value=7, step=1) # ACTUALIZADO A 7 DÍAS
+    min_dist_picos = st.number_input("Separación Flushes (días)", value=7, step=1)
 with col_p2:
     umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
 
