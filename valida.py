@@ -4,10 +4,10 @@
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Corrección de Detección de picos en los bordes (Padding)
-# - Matching Cronológico con PENALIDAD BIOLÓGICA (Fuerza orden 1-1, 2-2)
+# - Matching Cronológico con PENALIDAD BIOLÓGICA (Fuerza orden)
+# - Filtro de Eliminación de Flushes Simulados Contiguos (7 días)
 # - Cálculo de Desfase Global Poblacional (T50)
 # - Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
-# - Filtro estricto para omitir picos simulados ajustables
 # - Recorte de evaluación de Falsos Positivos post-monitoreo
 # ===============================================================
 
@@ -198,8 +198,7 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
 def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=14, umbral_min_pico=0.4):
     """
-    Detecta pulsos mediante análisis de señales y algoritmo "Best-Match" con penalidad biológica.
-    Esto fuerza el emparejamiento respetando el orden de aparición estricto (1 con 1, 2 con 2).
+    Detecta pulsos, elimina flushes simulados redundantes (contiguos) y empareja respetando el orden.
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
@@ -228,18 +227,62 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
+    # --- [NUEVO] FILTRO DE PICOS SIMULADOS CONTIGUOS ---
+    # Si hay dos (o más) picos simulados separados por <= 7 días, 
+    # se conserva solo el que esté más cerca de un dato de campo. Se elimina el resto.
+    ventana_contigua = 7 # Días
+    sim_peaks_filtrados = []
+    skip_indices = set()
+
+    for i in range(len(sim_peak_dates)):
+        if i in skip_indices:
+            continue
+
+        grupo_contiguos = [i]
+        for j in range(i + 1, len(sim_peak_dates)):
+            if (sim_peak_dates[j] - sim_peak_dates[grupo_contiguos[-1]]).days <= ventana_contigua:
+                grupo_contiguos.append(j)
+            else:
+                break
+
+        if len(grupo_contiguos) > 1:
+            mejor_idx = grupo_contiguos[0]
+            min_distancia_global = float('inf')
+
+            for idx in grupo_contiguos:
+                if len(obs_peak_dates) > 0:
+                    distancias = [abs((obs_date - sim_peak_dates[idx]).days) for obs_date in obs_peak_dates]
+                    dist_minima_local = min(distancias)
+                else:
+                    dist_minima_local = 0
+
+                if dist_minima_local < min_distancia_global:
+                    min_distancia_global = dist_minima_local
+                    mejor_idx = idx
+
+            sim_peaks_filtrados.append(mejor_idx)
+            for idx in grupo_contiguos:
+                skip_indices.add(idx)
+        else:
+            sim_peaks_filtrados.append(i)
+
+    # Actualizamos las listas con los picos "limpios"
+    sim_peak_dates = sim_peak_dates[sim_peaks_filtrados]
+    peaks_sim = peaks_sim[sim_peaks_filtrados]
+
+
     # --- MATCHING CRONOLÓGICO CON PENALIDAD BIOLÓGICA ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
         for j, obs_date in enumerate(obs_peak_dates):
             days_diff = (obs_date - sim_date).days
             if -tol_retraso <= days_diff <= tol_anticipo:
-                # Penalidad fuerte por saltar el orden natural de las cohortes (ej. Sim 2 con Obs 3)
+                # Penalidad fuerte por saltar el orden biológico natural (ej. Sim 1 con Obs 3)
                 order_penalty = abs(i - j) * 100
                 cost = abs(days_diff) + order_penalty
                 valid_pairs.append((i, j, days_diff, cost))
                 
-    # Ordenamos por el menor costo total (distancia matemática + orden biológico)
+    # Ordenamos por el menor costo (Distancia temporal + Penalidad de Orden)
     valid_pairs.sort(key=lambda x: x[3])
     
     tp_points = []
