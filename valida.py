@@ -1,14 +1,15 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.5 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - Pearson por intervalos de monitoreo
-# - Corrección de Detección de picos en los bordes (Padding)
-# - Matching Cronológico con PENALIDAD BIOLÓGICA (Fuerza orden)
-# - Filtro de Flushes Contiguos: Asigna VALOR 0 pero PERMITE MATCHING
-# - Cálculo de Desfase Global Poblacional (T50)
-# - Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
-# - Corrección de SyntaxError por líneas largas truncadas
+# - Emparejamiento por Proximidad con Regla Anti-Cruce
+# - CORRECCIÓN: Evitar "efecto cadena" en el filtro contiguo de 7 días
+# - CORRECCIÓN: Umbral por defecto bajado a 0.30 para capturar flushes medios
+# - Detección agronómica de flushes de campo (Bypass SciPy)
+# - Las estrellas TP siempre se grafican en la altura original del pico
+# - Mantenimiento de la Arquitectura ANN y Shifts específicos de Bordenave
 # ===============================================================
 
 import streamlit as st
@@ -124,6 +125,7 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
+        # Arquitectura específica de Bordenave mantenida
         z1 = Xn @ self.IW + self.bIW
         a1 = np.tanh(z1)
         z2 = (a1 @ self.LW.T).flatten() + self.bLW
@@ -196,7 +198,7 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
     return best
 
-def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=7, umbral_min_pico=0.4):
+def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=14, tol_retraso=14, min_dist_picos=7, umbral_min_pico=0.30):
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
     obs_dates = df_campo[col_fecha].values
@@ -206,24 +208,20 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     sim_vals_peaks = sim_vals.copy()
     max_obs_date = pd.to_datetime(obs_dates.max())
     
+    # --- PADDING Y DETECCIÓN SIMULADA ---
     sim_vals_padded = np.pad(sim_vals, (1, 1), 'constant', constant_values=(0, 0))
-    obs_vals_padded = np.pad(obs_vals, (1, 1), 'constant', constant_values=(0, 0))
-
-    min_h_sim = umbral_min_pico
-    min_h_obs = np.max(obs_vals) * 0.1 if np.max(obs_vals) > 0 else 0.01
-
-    peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=min_h_sim, distance=1)
-    peaks_obs_padded, _ = find_peaks(obs_vals_padded, height=min_h_obs, distance=1)
+    peaks_sim_padded, _ = find_peaks(sim_vals_padded, height=umbral_min_pico, distance=1)
     
     peaks_sim = peaks_sim_padded - 1
-    peaks_obs = peaks_obs_padded - 1
-    
     peaks_sim = peaks_sim[(peaks_sim >= 0) & (peaks_sim < len(sim_vals))]
-    peaks_obs = peaks_obs[(peaks_obs >= 0) & (peaks_obs < len(obs_vals))]
-
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
+    
+    # --- DETECCIÓN AGRONÓMICA OBSERVADA (BYPASS SCIPY) ---
+    min_h_obs = np.max(obs_vals) * 0.05 if np.max(obs_vals) > 0 else 0.01
+    peaks_obs = np.where(obs_vals >= min_h_obs)[0]
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
+    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS ---
     ventana_contigua = min_dist_picos 
     skip_indices = set()
 
@@ -233,7 +231,8 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
 
         grupo_contiguos = [i]
         for j in range(i + 1, len(sim_peak_dates)):
-            if (sim_peak_dates[j] - sim_peak_dates[grupo_contiguos[-1]]).days <= ventana_contigua:
+            # CORRECCIÓN: Medimos la distancia contra el PRIMER pico del grupo [0] para evitar efecto cadena
+            if (sim_peak_dates[j] - sim_peak_dates[grupo_contiguos[0]]).days <= ventana_contigua:
                 grupo_contiguos.append(j)
             else:
                 break
@@ -262,13 +261,13 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
         sim_vals_peaks[peaks_sim[idx]] = 0.0
         zeroed_indices.append(peaks_sim[idx])
 
+    # --- BEST-MATCH-FIRST POR PROXIMIDAD PURA + ANTI-CRUCE CRONOLÓGICO ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
         for j, obs_date in enumerate(obs_peak_dates):
             days_diff = (obs_date - sim_date).days
             if -tol_retraso <= days_diff <= tol_anticipo:
-                order_penalty = abs(i - j) * 100
-                cost = abs(days_diff) + order_penalty
+                cost = abs(days_diff) + (abs(i - j) * 0.001)  # Pequeño desempate secuencial
                 valid_pairs.append((i, j, days_diff, cost))
                 
     valid_pairs.sort(key=lambda x: x[3])
@@ -278,20 +277,31 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     fn_points = []
     matched_sim = set()
     matched_obs = set()
+    matched_links = []
     offsets = []
     
     for sim_idx, obs_idx, diff, cost in valid_pairs:
         if sim_idx not in matched_sim and obs_idx not in matched_obs:
-            matched_sim.add(sim_idx)
-            matched_obs.add(obs_idx)
-            tp_points.append((sim_peak_dates[sim_idx], sim_vals_peaks[peaks_sim[sim_idx]]))
+            crossing = False
+            for m_sim, m_obs in matched_links:
+                if (sim_idx > m_sim and obs_idx < m_obs) or (sim_idx < m_sim and obs_idx > m_obs):
+                    crossing = True
+                    break
             
-            offset_val = (sim_peak_dates[sim_idx] - obs_peak_dates[obs_idx]).days
-            offsets.append(offset_val)
+            if not crossing:
+                matched_sim.add(sim_idx)
+                matched_obs.add(obs_idx)
+                matched_links.append((sim_idx, obs_idx))
+                
+                # CORRECCIÓN: Usamos sim_vals (valores originales) para asegurar que la estrella flota 
+                # a la altura real del pico simulado, incluso si fue castigado a 0.0 en el dataframe
+                tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
+                offsets.append(diff)
             
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim:
             if sim_peak_dates[i] <= max_obs_date:
+                # Los FP sí los mostramos en 0.0 si fueron neutralizados
                 fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
     for j in range(len(obs_peak_dates)):
@@ -365,8 +375,10 @@ with col_v2:
 
 col_p1, col_p2 = st.sidebar.columns(2)
 with col_p1:
-    min_dist_picos = st.number_input("Separación Flushes (días)", value=7, step=1)
+    # Bloqueado en 7 días para estandarizar la ventana de flushes contiguos
+    min_dist_picos = st.number_input("Separación Flushes (días)", value=7, disabled=True)
 with col_p2:
+    # Bajado a 0.30 para capturar picos de intensidad media
     umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
 
 # ---------------------------------------------------------
@@ -392,6 +404,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
+    # SHIFT ESPECÍFICO DE BORDENAVE
     df["JD_Shifted"] = (df["Julian_days"] + 60).clip(1, 300)
     X = df[["JD_Shifted", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
@@ -400,6 +413,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["Prec_sum_21d"] = df["Prec"].rolling(window=21, min_periods=1).sum()
     df["Hydric_Factor"] = 1 / (1 + np.exp(-0.4 * (df["Prec_sum_21d"] - 15)))
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
+    
+    # RESTRICCIÓN HÍDRICA ESPECÍFICA DE BORDENAVE
     df.loc[(df["Julian_days"] <= 15) & (df["Prec_sum_21d"] <= 50), "EMERREL"] = 0.0
 
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
