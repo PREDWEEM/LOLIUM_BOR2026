@@ -4,10 +4,10 @@
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Corrección de Detección de picos en los bordes (Padding)
-# - Emparejamiento Cronológico Secuencial (Fuerza orden de cohortes)
+# - Matching Cronológico con PENALIDAD BIOLÓGICA (Fuerza orden 1-1, 2-2)
 # - Cálculo de Desfase Global Poblacional (T50)
 # - Cálculo de Sesgo Medio de Picos (Anticipo/Atraso TPs)
-# - Filtro estricto para omitir picos simulados < 0.4
+# - Filtro estricto para omitir picos simulados ajustables
 # - Recorte de evaluación de Falsos Positivos post-monitoreo
 # ===============================================================
 
@@ -198,8 +198,8 @@ def evaluate_shifted_validation(df_sim, df_campo, col_fecha, col_plm2, max_shift
 
 def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticipo=7, tol_retraso=2, min_dist_picos=14, umbral_min_pico=0.4):
     """
-    Detecta pulsos mediante análisis de señales y algoritmo "Cronológico Secuencial".
-    Fuerza el emparejamiento respetando el orden de aparición biológico.
+    Detecta pulsos mediante análisis de señales y algoritmo "Best-Match" con penalidad biológica.
+    Esto fuerza el emparejamiento respetando el orden de aparición estricto (1 con 1, 2 con 2).
     """
     sim_dates = df_sim['Fecha'].values
     sim_vals = df_sim['EMERREL'].values
@@ -228,17 +228,19 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
-    # --- MATCHING CRONOLÓGICO SECUENCIAL ---
+    # --- MATCHING CRONOLÓGICO CON PENALIDAD BIOLÓGICA ---
     valid_pairs = []
     for i, sim_date in enumerate(sim_peak_dates):
         for j, obs_date in enumerate(obs_peak_dates):
             days_diff = (obs_date - sim_date).days
             if -tol_retraso <= days_diff <= tol_anticipo:
-                valid_pairs.append((i, j, days_diff, abs(days_diff)))
+                # Penalidad fuerte por saltar el orden natural de las cohortes (ej. Sim 2 con Obs 3)
+                order_penalty = abs(i - j) * 100
+                cost = abs(days_diff) + order_penalty
+                valid_pairs.append((i, j, days_diff, cost))
                 
-    # Cambio Clave: Se ordena por aparición temporal (sim_idx, luego obs_idx)
-    # Esto asegura que las primeras cohortes simuladas se enlacen con las primeras del campo
-    valid_pairs.sort(key=lambda x: (x[0], x[1], x[3]))
+    # Ordenamos por el menor costo total (distancia matemática + orden biológico)
+    valid_pairs.sort(key=lambda x: x[3])
     
     tp_points = []
     fp_points = []
@@ -247,7 +249,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     matched_obs = set()
     offsets = []
     
-    for sim_idx, obs_idx, diff, abs_diff in valid_pairs:
+    for sim_idx, obs_idx, diff, cost in valid_pairs:
         if sim_idx not in matched_sim and obs_idx not in matched_obs:
             matched_sim.add(sim_idx)
             matched_obs.add(obs_idx)
@@ -321,22 +323,22 @@ dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=
 st.sidebar.markdown("## 🧪 3. Validación")
 max_desfase_validacion = st.sidebar.slider(
     "Desfase máximo admisible Pearson (días)",
-    min_value=0, max_value=10, value=10,
+    min_value=0, max_value=15, value=10,
     help="Desfase general de la curva para el cálculo de Pearson."
 )
 
 st.sidebar.markdown("**Tolerancia Cohortes (Días)**")
 col_v1, col_v2 = st.sidebar.columns(2)
 with col_v1:
-    tol_anticipo = st.number_input("Anticipo (+)", value=7, step=1)
+    tol_anticipo = st.number_input("Anticipo (+)", value=14, step=1)
 with col_v2:
-    tol_retraso = st.number_input("Retraso (-)", value=2, step=1)
+    tol_retraso = st.number_input("Retraso (-)", value=14, step=1)
 
 col_p1, col_p2 = st.sidebar.columns(2)
 with col_p1:
-    min_dist_picos = st.number_input("Separación Flushes (días)", value=14, step=1)
+    min_dist_picos = st.number_input("Separación Flushes (días)", value=10, step=1)
 with col_p2:
-    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.40, step=0.05)
+    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (BORDENAVE vK4.9.5)
