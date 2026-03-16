@@ -5,7 +5,7 @@
 # - Pearson por intervalos de monitoreo
 # - Emparejamiento por Proximidad con Regla Anti-Cruce
 # - CORRECCIÓN: Evitar "efecto cadena" en el filtro contiguo de 7 días
-# - NUEVO: Lógica de True Negatives (TN). Match de Campo=0 con Sim<0.30
+# - NUEVO: TN asimétrico. Match de Campo < 0.05 con Simulación < 0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
 # - Las estrellas TP siempre se grafican en la altura original del pico
 # - Mantenimiento de la Arquitectura ANN y Shifts específicos de Bordenave
@@ -273,7 +273,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     tp_points = []
     fp_points = []
     fn_points = []
-    tn_points = []  # TRUE NEGATIVES (Ceros Coincidentes)
+    tn_points = []  # TRUE NEGATIVES (Reposos Coincidentes)
     matched_sim = set()
     matched_obs = set()
     matched_links = []
@@ -302,16 +302,27 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
             
     for j in range(len(obs_peak_dates)):
         if j not in matched_obs:
-            fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
+            obs_idx = peaks_obs[j]
+            es_tn_encubierto = False
+            
+            # Si el campo dio por debajo de 0.05, comprobamos si el modelo dio < umbral (0.30)
+            if obs_vals_norm[obs_idx] < 0.05:
+                sim_idx_arr = np.where(sim_dates == obs_dates[obs_idx])[0]
+                if len(sim_idx_arr) > 0 and sim_vals[sim_idx_arr[0]] < umbral_min_pico:
+                    es_tn_encubierto = True
+            
+            # NO lo marcamos como Omisión (FN) si en realidad es un Reposo Coincidente (TN)
+            if not es_tn_encubierto:
+                fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
 
-    # --- NUEVO: CÁLCULO DE TRUE NEGATIVES (Match de Campo=0 y Sim<Umbral) ---
+    # --- NUEVO: CÁLCULO DE TRUE NEGATIVES (Match de Campo < 0.05 y Sim < 0.30) ---
     for j, obs_date in enumerate(obs_dates):
-        if obs_vals[j] == 0:
+        if obs_vals_norm[j] < 0.05:
             # Buscamos la fecha exacta en la simulación
             sim_idx_arr = np.where(sim_dates == obs_date)[0]
             if len(sim_idx_arr) > 0:
                 sim_idx = sim_idx_arr[0]
-                # Si en el día que el campo dio 0, el modelo también dio < 0.30, es un match TN
+                # Si en el día que el campo dio < 0.05, el modelo dio < 0.30, es un match TN
                 if sim_vals[sim_idx] < umbral_min_pico:
                     tn_points.append((pd.to_datetime(obs_date), sim_vals[sim_idx]))
             
@@ -518,7 +529,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             st.markdown("<p class='metric-header' style='margin-top:15px;'>🎯 SINCRONÍA DE COHORTES (PULSOS)</p>", unsafe_allow_html=True)
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("F1-Score", f"{cohort_metrics['f1_score']:.2f}", f"Ventana (+{tol_anticipo} / -{tol_retraso} d)", delta_color="normal")
-            # AHORA MOSTRAMOS TP y TN JUNTOS COMO ACIERTOS TOTALES
+            
             k2.metric("Aciertos (TP | TN)", f"{cohort_metrics['tp']} | {cohort_metrics['tn']}", "Picos | Ceros Coincidentes")
             k3.metric("Errores (FP / FN)", f"{cohort_metrics['fp']} / {cohort_metrics['fn']}", "Inventados / Omitidos", delta_color="inverse")
             
@@ -549,11 +560,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     tp_y = [p[1] for p in cohort_metrics['tp_points']]
                     fig_emer.add_trace(go.Scatter(x=tp_x, y=tp_y, mode='markers', name='✅ TP (Detectado)', marker=dict(color='#10b981', size=14, symbol='star', line=dict(width=1, color='DarkSlateGrey'))))
                 
-                # NUEVO: Ploteo de True Negatives
                 if cohort_metrics['tn_points']:
                     tn_x = [p[0] for p in cohort_metrics['tn_points']]
                     tn_y = [p[1] for p in cohort_metrics['tn_points']]
-                    fig_emer.add_trace(go.Scatter(x=tn_x, y=tn_y, mode='markers', name='✅ TN (Cero Coincidente)', marker=dict(color='#3b82f6', size=12, symbol='square', line=dict(width=1, color='DarkBlue'))))
+                    fig_emer.add_trace(go.Scatter(x=tn_x, y=tn_y, mode='markers', name='✅ TN (Reposo Coincidente)', marker=dict(color='#3b82f6', size=12, symbol='square', line=dict(width=1, color='DarkBlue'))))
 
                 if cohort_metrics['fp_points']:
                     fp_x = [p[0] for p in cohort_metrics['fp_points']]
