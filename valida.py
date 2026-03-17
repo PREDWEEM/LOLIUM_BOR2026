@@ -4,8 +4,8 @@
 # Actualización:
 # - Pearson por intervalos de monitoreo
 # - Emparejamiento por Proximidad con Regla Anti-Cruce
-# - CORRECCIÓN DEFINITIVA: Eliminación total de réplicas (Ecos) del análisis.
-# - SELECCIÓN DE PICO: En flushes < 7 días, se prioriza el más cercano al dato de campo.
+# - CORRECCIÓN DEFINITIVA: Eliminación total de réplicas (Ecos) en cadena.
+# - SELECCIÓN DE PICO: En flushes < N días, se prioriza el más cercano al dato de campo (y de mayor EMERREL en empate).
 # - NUEVO MATCH N-A-1: Observaciones de la "rampa de subida" pueden emparejarse al mismo pico simulado.
 # - TN asimétrico: Match de Campo < 0.05 con Simulación < 0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
@@ -226,16 +226,14 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     ventana_contigua = min_dist_picos 
     skip_indices = set()
 
-    for i in range(len(sim_peak_dates)):
-        if i in skip_indices:
-            continue
-
+    i = 0
+    while i < len(sim_peak_dates):
         grupo_contiguos = [i]
-        for j in range(i + 1, len(sim_peak_dates)):
-            if (sim_peak_dates[j] - sim_peak_dates[grupo_contiguos[0]]).days <= ventana_contigua:
-                grupo_contiguos.append(j)
-            else:
-                break
+        j = i + 1
+        
+        while j < len(sim_peak_dates) and (sim_peak_dates[j] - sim_peak_dates[j-1]).days <= ventana_contigua:
+            grupo_contiguos.append(j)
+            j += 1
 
         if len(grupo_contiguos) > 1:
             mejor_idx = grupo_contiguos[0]
@@ -246,15 +244,20 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                     distancias = [abs((obs_date - sim_peak_dates[idx]).days) for obs_date in obs_peak_dates]
                     dist_minima_local = min(distancias)
                 else:
-                    dist_minima_local = 0
+                    dist_minima_local = float('inf')
 
                 if dist_minima_local < min_distancia_global:
                     min_distancia_global = dist_minima_local
                     mejor_idx = idx
+                elif dist_minima_local == min_distancia_global:
+                    if sim_vals[peaks_sim[idx]] > sim_vals[peaks_sim[mejor_idx]]:
+                        mejor_idx = idx
 
             for idx in grupo_contiguos:
                 if idx != mejor_idx:
                     skip_indices.add(idx)
+                    
+        i = j
 
     zeroed_indices = []
     for idx in skip_indices:
@@ -481,6 +484,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         
         cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos, umbral_pico_sim)
         
+        # Eliminamos el EMERREL de los picos falsos para la visualización del riesgo
         if cohort_metrics.get("zeroed_indices"):
             df.loc[cohort_metrics["zeroed_indices"], "EMERREL"] = 0.0
 
