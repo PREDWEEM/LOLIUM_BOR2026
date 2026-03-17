@@ -5,7 +5,8 @@
 # - Pearson por intervalos de monitoreo
 # - Emparejamiento por Proximidad con Regla Anti-Cruce
 # - CORRECCIÓN DEFINITIVA: Eliminación total de réplicas (Ecos) en cadena.
-# - SELECCIÓN DE PICO: En flushes < N días, se prioriza el más cercano al dato de campo (y de mayor EMERREL en empate).
+# - SELECCIÓN DE PICO: Se prioriza el más cercano al dato de campo (y de mayor EMERREL en empate).
+# - APLANAMIENTO DE ECOS: Eliminación visual completa de la montaña del eco falso.
 # - NUEVO MATCH N-A-1: Observaciones de la "rampa de subida" pueden emparejarse al mismo pico simulado.
 # - TN asimétrico: Match de Campo < 0.05 con Simulación < 0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
@@ -222,7 +223,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     peaks_obs = np.where(obs_vals >= min_h_obs)[0]
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
     
-    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS (ELIMINACIÓN DE ECOS) ---
+    # --- FILTRO DE PICOS SIMULADOS CONTIGUOS (ELIMINACIÓN DE ECOS EN CADENA) ---
     ventana_contigua = min_dist_picos 
     skip_indices = set()
 
@@ -259,10 +260,36 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                     
         i = j
 
+    # --- APLANAMIENTO COMPLETO DE ECOS ---
     zeroed_indices = []
+    umbral_base = 0.05  # Nivel basal para borrar toda la rampa del pico
+
     for idx in skip_indices:
-        sim_vals_peaks[peaks_sim[idx]] = 0.0
-        zeroed_indices.append(peaks_sim[idx])
+        p_idx = peaks_sim[idx]
+        
+        # Aplanar hacia el pasado (izquierda)
+        k = p_idx
+        while k >= 0 and sim_vals[k] >= umbral_base:
+            zeroed_indices.append(k)
+            # Si empieza a subir de nuevo, tocamos otro pico válido. Frena.
+            if k > 0 and sim_vals[k-1] > sim_vals[k]:
+                break
+            k -= 1
+            
+        # Aplanar hacia el futuro (derecha)
+        k = p_idx + 1
+        while k < len(sim_vals) and sim_vals[k] >= umbral_base:
+            zeroed_indices.append(k)
+            # Si empieza a subir de nuevo, tocamos otro pico válido. Frena.
+            if k < len(sim_vals) - 1 and sim_vals[k+1] > sim_vals[k]:
+                break
+            k += 1
+
+    zeroed_indices = list(set(zeroed_indices))
+    
+    # Asignamos 0.0 temporalmente a los valores de los picos anulados para no contarlos como Falsos Positivos
+    for z_idx in zeroed_indices:
+        sim_vals_peaks[z_idx] = 0.0
 
     # --- BEST-MATCH-FIRST POR PROXIMIDAD PURA + ANTI-CRUCE CRONOLÓGICO ---
     valid_pairs = []
@@ -484,7 +511,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         
         cohort_metrics = evaluate_cohort_detection(df, df_campo, col_fecha, col_plm2, tol_anticipo, tol_retraso, min_dist_picos, umbral_pico_sim)
         
-        # Eliminamos el EMERREL de los picos falsos para la visualización del riesgo
+        # ELIMINACIÓN VISUAL: Borramos toda la montaña del pico falso de la gráfica principal
         if cohort_metrics.get("zeroed_indices"):
             df.loc[cohort_metrics["zeroed_indices"], "EMERREL"] = 0.0
 
