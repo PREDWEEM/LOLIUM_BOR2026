@@ -10,6 +10,7 @@
 # - TN asimétrico: Match de Campo < 0.05 con Simulación < 0.30
 # - Detección agronómica de flushes de campo (Bypass SciPy)
 # - Mantenimiento de la Arquitectura ANN y Shifts específicos de Bordenave
+# - NUEVO: Forzado de pico (EMERREL = 1.0) frente a lluvias >= 20 mm
 # ===============================================================
 
 import streamlit as st
@@ -125,7 +126,6 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
-        # Arquitectura específica de Bordenave mantenida
         z1 = Xn @ self.IW + self.bIW
         a1 = np.tanh(z1)
         z2 = (a1 @ self.LW.T).flatten() + self.bLW
@@ -216,7 +216,7 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     peaks_sim = peaks_sim[(peaks_sim >= 0) & (peaks_sim < len(sim_vals))]
     sim_peak_dates = pd.to_datetime(sim_dates[peaks_sim])
     
-    # --- DETECCIÓN AGRONÓMICA OBSERVADA (BYPASS SCIPY) ---
+    # --- DETECCIÓN AGRONÓMICA OBSERVADA ---
     min_h_obs = np.max(obs_vals) * 0.05 if np.max(obs_vals) > 0 else 0.01
     peaks_obs = np.where(obs_vals >= min_h_obs)[0]
     obs_peak_dates = pd.to_datetime(obs_dates[peaks_obs])
@@ -284,7 +284,6 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
     offsets = []
     
     for sim_idx, obs_idx, diff, cost in valid_pairs:
-        # MATCH N-A-1: Permite que múltiples observaciones se anclen a un solo pico simulado
         if obs_idx not in matched_obs:
             crossing = False
             for m_sim, m_obs in matched_links:
@@ -293,7 +292,6 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                     break
             
             if not crossing:
-                # Solo dibujamos el TP una vez por pico simulado
                 if sim_idx not in matched_sim:
                     tp_points.append((sim_peak_dates[sim_idx], sim_vals[peaks_sim[sim_idx]]))
                 
@@ -302,7 +300,6 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                 matched_links.append((sim_idx, obs_idx))
                 offsets.append(diff)
             
-    # Falsos Positivos omitiendo réplicas
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim and i not in skip_indices:
             if sim_peak_dates[i] <= max_obs_date:
@@ -321,7 +318,6 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
             if not es_tn_encubierto:
                 fn_points.append((obs_peak_dates[j], obs_vals_norm[peaks_obs[j]]))
 
-    # --- CÁLCULO DE TRUE NEGATIVES ---
     for j, obs_date in enumerate(obs_dates):
         if obs_vals_norm[j] < 0.05:
             sim_idx_arr = np.where(sim_dates == obs_date)[0]
@@ -330,7 +326,6 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                 if sim_vals[sim_idx] < umbral_min_pico:
                     tn_points.append((pd.to_datetime(obs_date), sim_vals[sim_idx]))
             
-    # TP se define por las observaciones reales absorbidas (N-A-1)
     tp = len(matched_obs)
     fp = len(fp_points)
     fn = len(fn_points)
@@ -442,6 +437,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
     
     # RESTRICCIÓN HÍDRICA ESPECÍFICA DE BORDENAVE
     df.loc[(df["Julian_days"] <= 15) & (df["Prec_sum_21d"] <= 50), "EMERREL"] = 0.0
+
+    # 🌧️ NUEVA REGLA: Forzar pico de 1.0 frente a eventos puntuales de lluvia >= 20 mm
+    df.loc[df["Prec"] >= 20.0, "EMERREL"] = 1.0
 
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
