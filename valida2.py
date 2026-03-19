@@ -457,7 +457,7 @@ with col_p2:
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=10.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=15.0, step=1.0)
 
 st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
 tipo_manejo = st.sidebar.selectbox(
