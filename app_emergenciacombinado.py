@@ -239,7 +239,7 @@ dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 Balance Hídrico (Suelo)")
-w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=10.0, step=1.0)
+w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
 st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
 tipo_manejo = st.sidebar.selectbox(
