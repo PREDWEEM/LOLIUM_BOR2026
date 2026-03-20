@@ -5,7 +5,9 @@
 # - UNIFICACIÓN MECANÍSTICA 100%: 
 #   * ELIMINADO el desfase temporal (Shift +60 días).
 #   * ELIMINADO el forzado empírico de 20 mm y la sigmoide de 21 días.
-# - NUEVO: Bypass Agronómico de Ruptura de Dormición por Choque Hídrico (Umbral 0.30).
+# - NUEVO: Bypass Agronómico de Ruptura de Dormición por Choque Hídrico.
+# - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
+# - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
 # - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad (Regla Anti-Cruce).
 # - Eliminación total de réplicas (Ecos) en cadena y aplanamiento visual.
 # - Detección agronómica de flushes de campo (Bypass SciPy) + TN asimétrico.
@@ -13,6 +15,7 @@
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Bordenave: -38.8).
 # - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
 # - Visualización dinámica de la retención de agua en suelo vs Lluvias.
+# - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # ===============================================================
 
 import streamlit as st
@@ -424,6 +427,13 @@ st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.30)
 
+st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
+umbral_termoinhibicion = st.sidebar.number_input(
+    "Umbral Termoinhibición (°C)", 
+    min_value=15.0, max_value=35.0, value=24.0, step=0.5,
+    help="Si la T° Media móvil de los últimos 10 días supera este valor, la emergencia se bloquea a 0%."
+)
+
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider(
     "Choque Hídrico 3 días (mm)", 
@@ -518,7 +528,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
-    # PREDICCIÓN NEURAL (Sin Shift, 100% natural)
+    # PREDICCIÓN NEURAL (Sin Shift, 100% natural para Bordenave)
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
@@ -531,7 +541,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
 
     # ---------------------------------------------------------
-    # MÓDULO HÍDRICO SUPERFICIAL (BHS)
+    # MÓDULO HÍDRICO SUPERFICIAL (BHS) Y TÉRMICO
     # ---------------------------------------------------------
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.8)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo=ke_val)
@@ -542,8 +552,16 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # Multiplicador final mecanístico
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # CÁLCULO BIO-TÉRMICO
+    # CORTE HÍDRICO ESTRICTO
+    df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+    # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival)
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
+    df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
+    mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
+    df.loc[mask_inhibicion, "EMERREL"] = 0.0
+
+    # CÁLCULO BIO-TÉRMICO
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
     fecha_hoy = pd.Timestamp.now().normalize()
@@ -795,9 +813,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 ]
             }
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
-            pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val]}).to_excel(writer, sheet_name='Bio_Params', index=False)
+            pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_8_BHS.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_8.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
