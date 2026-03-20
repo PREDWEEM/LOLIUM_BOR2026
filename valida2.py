@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.6 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.8 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - UNIFICACIÓN MECANÍSTICA 100%: 
 #   * ELIMINADO el desfase temporal (Shift +60 días).
 #   * ELIMINADO el forzado empírico de 20 mm y la sigmoide de 21 días.
+# - NUEVO: Bypass Agronómico de Ruptura de Dormición por Choque Hídrico (Umbral 0.30).
 # - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad (Regla Anti-Cruce).
 # - Eliminación total de réplicas (Ecos) en cadena y aplanamiento visual.
-# - Detección agronómica de flushes de campo (Bypass SciPy).
+# - Detección agronómica de flushes de campo (Bypass SciPy) + TN asimétrico.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Bordenave: -38.8).
 # - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
@@ -28,7 +29,7 @@ from scipy.signal import find_peaks
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.9.6",
+    page_title="PREDWEEM BORDENAVE vK4.9.8",
     layout="wide",
     page_icon="🌾"
 )
@@ -156,6 +157,7 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
+        # Multiplicación matricial específica para Bordenave
         z1 = Xn @ self.IW + self.bIW
         a1 = np.tanh(z1)
         z2 = (a1 @ self.LW.T).flatten() + self.bLW
@@ -420,7 +422,15 @@ df_campo_raw = load_data(archivo_campo, "bordenave_campo")
 
 st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.50)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.30)
+
+st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
+umbral_choque_hidrico = st.sidebar.slider(
+    "Choque Hídrico 3 días (mm)", 
+    min_value=20.0, max_value=100.0, value=45.0, 
+    help="Desbloquea la emergencia temprana si se acumula esta lluvia antes de fines de abril."
+)
+
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 20)
 
 col_t1, col_t2 = st.sidebar.columns(2)
@@ -453,7 +463,7 @@ col_p1, col_p2 = st.sidebar.columns(2)
 with col_p1:
     min_dist_picos = st.number_input("Separación Flushes (días)", min_value=1, max_value=45, value=7, step=1)
 with col_p2:
-    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.50, step=0.05)
+    umbral_pico_sim = st.number_input("Umbral Mín. Pico Simulado", value=0.30, step=0.05)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
@@ -483,7 +493,7 @@ else:
 st.sidebar.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}**")
 
 # ---------------------------------------------------------
-# 5. MOTOR DE CÁLCULO (MECANÍSTICO BORDENAVE vK4.9.6)
+# 5. MOTOR DE CÁLCULO (MECANÍSTICO BORDENAVE vK4.9.8)
 # ---------------------------------------------------------
 if df_meteo_raw is not None and modelo_ann is not None:
 
@@ -512,6 +522,13 @@ if df_meteo_raw is not None and modelo_ann is not None:
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
+
+    # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
+    limite_juliano_temprano = 110 # Aprox. 20 de Abril
+    df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
+    
+    mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
+    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
 
     # ---------------------------------------------------------
     # MÓDULO HÍDRICO SUPERFICIAL (BHS)
@@ -600,7 +617,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM - BORDENAVE 2026")
 
-    colorscale_hard = [[0.0, "green"], [0.49, "green"], [0.50, "red"], [1.0, "red"]]
+    # AJUSTADO: Escala de colores para reflejar el umbral 0.30
+    colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False))
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo (Tasa Diaria)")
     st.plotly_chart(fig_risk, use_container_width=True)
@@ -779,7 +797,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             pd.DataFrame(resumen_val).to_excel(writer, sheet_name='Validacion_Campo', index=False)
             pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_6_BHS.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_8_BHS.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
