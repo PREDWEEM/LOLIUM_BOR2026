@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.5 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.6 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - ELIMINADO: Desfase temporal (Shift +60 días) en la entrada de la red.
 # - ELIMINADO: Restricciones empíricas de 21 días y forzado de 20mm.
+# - NUEVO: Bypass de Ruptura de Dormición por Choque Hídrico (Umbral 0.30).
 # - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (BHS) puro.
 # - NUEVO: Evapotranspiración (ET0) mediante Hargreaves-Samani (Lat ajustada a Bordenave: -38.8)
 # - NUEVO: Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
@@ -22,7 +23,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.5", 
+    page_title="PREDWEEM BORDENAVE vK4.6", 
     layout="wide",
     page_icon="🌾"
 )
@@ -219,7 +220,15 @@ df = get_data(archivo_usuario)
 
 st.sidebar.divider()
 st.sidebar.markdown("**Parámetros de Emergencia**")
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.05, 0.80, 0.40)
+# AJUSTADO: Umbral de alerta por defecto a 0.30
+umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.05, 0.80, 0.30)
+
+st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
+umbral_choque_hidrico = st.sidebar.slider(
+    "Choque Hídrico 3 días (mm)", 
+    min_value=20.0, max_value=100.0, value=45.0, 
+    help="Desbloquea la emergencia temprana si se acumula esta lluvia antes de fines de abril."
+)
 
 st.sidebar.divider()
 st.sidebar.markdown("🌡️ **Fisiología Térmica (Bio-Limit)**")
@@ -277,6 +286,13 @@ if df is not None and modelo_ann is not None:
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
+
+    # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
+    limite_juliano_temprano = 110 # Aprox. 20 de Abril
+    df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
+    
+    mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
+    df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
     
     # --- C. RESTRICCIÓN HÍDRICA (MÓDULO BHS) ---
     # 1. Calculamos ET0 (Latitud Bordenave)
@@ -330,7 +346,8 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     st.title("🌾 PREDWEEM LOLIUM - BORDENAVE 2026")
 
-    colorscale_hard = [[0.0, "green"], [0.39, "green"], [0.40, "red"], [1.0, "red"]]
+    # AJUSTADO: Escala de colores personalizada (cambio en 0.30)
+    colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
         colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False
