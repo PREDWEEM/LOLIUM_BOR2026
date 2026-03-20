@@ -1,14 +1,18 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.6 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - ELIMINADO: Desfase temporal (Shift +60 días) en la entrada de la red.
 # - ELIMINADO: Restricciones empíricas de 21 días y forzado de 20mm.
-# - NUEVO: Bypass de Ruptura de Dormición por Choque Hídrico (Umbral 0.30).
-# - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (BHS) puro.
-# - NUEVO: Evapotranspiración (ET0) mediante Hargreaves-Samani (Lat ajustada a Bordenave: -38.8)
-# - NUEVO: Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
-# - NUEVO: Gráfico dinámico de retención de agua en suelo vs Lluvias.
+# - NUEVO: Bypass de Ruptura de Dormición por Choque Hídrico.
+# - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
+# - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
+# - Módulo Mecanístico de Balance Hídrico Superficial (BHS) puro.
+# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Lat ajustada a Bordenave: -38.8)
+# - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
+# - Gráfico dinámico de retención de agua en suelo vs Lluvias.
+# - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # ===============================================================
 
 import streamlit as st
@@ -23,7 +27,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.6", 
+    page_title="PREDWEEM BORDENAVE vK4.9.8", 
     layout="wide",
     page_icon="🌾"
 )
@@ -215,13 +219,19 @@ LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.sidebar.markdown("## ⚙️ Configuración")
-archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual", type=["xlsx", "csv"])
+archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual (BORDENAVE)", type=["xlsx", "csv"])
 df = get_data(archivo_usuario)
 
 st.sidebar.divider()
 st.sidebar.markdown("**Parámetros de Emergencia**")
-# AJUSTADO: Umbral de alerta por defecto a 0.30
 umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Para detectar pico)", 0.05, 0.80, 0.30)
+
+st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
+umbral_termoinhibicion = st.sidebar.number_input(
+    "Umbral Termoinhibición (°C)", 
+    min_value=15.0, max_value=35.0, value=24.0, step=0.5,
+    help="Si la T° Media móvil de los últimos 10 días supera este valor, la emergencia se bloquea a 0%."
+)
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
 umbral_choque_hidrico = st.sidebar.slider(
@@ -294,7 +304,7 @@ if df is not None and modelo_ann is not None:
     mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
     
-    # --- C. RESTRICCIÓN HÍDRICA (MÓDULO BHS) ---
+    # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO BHS) ---
     # 1. Calculamos ET0 (Latitud Bordenave)
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.8)
     
@@ -308,8 +318,16 @@ if df is not None and modelo_ann is not None:
     # Multiplicador final
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
-    # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
+    # 4. CORTE HÍDRICO ESTRICTO
+    df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+    # 5. ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival por T media 10d)
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
+    df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
+    mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
+    df.loc[mask_inhibicion, "EMERREL"] = 0.0
+    
+    # --- D. CÁLCULO BIO-TÉRMICO (TT) ---
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
     
     # --- E. DETECCIÓN DE VENTANA Y ACUMULADOS ---
@@ -359,12 +377,9 @@ if df is not None and modelo_ann is not None:
 
     with tab1:
         col_main, col_gauge = st.columns([2, 1])
-        if indices_pulso:
-            first_peak_index = indices_pulso[0]
-            fecha_inicio_ventana = df.loc[first_peak_index, "Fecha"]
-        
         dga_actual = 0.0
         dias_stress = 0
+        
         if fecha_inicio_ventana:
             df_ventana = df[df["Fecha"] >= fecha_inicio_ventana].copy()
             df_ventana["DGA_cum"] = df_ventana["DG"].cumsum()
@@ -378,7 +393,7 @@ if df is not None and modelo_ann is not None:
                 line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'
             ))
             fig_emer.add_hline(y=umbral_er, line_dash="dash", line_color="orange", annotation_text=f"Umbral Pico ({umbral_er})")
-            fig_emer.update_layout(title="Dinámica de Emergencia (Ajustado para Bordenave)", height=350)
+            fig_emer.update_layout(title="Dinámica de Emergencia (Ajustado para Bordenave)", height=350, hovermode="x unified")
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
@@ -487,8 +502,8 @@ if df is not None and modelo_ann is not None:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
-        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val]}).to_excel(writer, sheet_name='Bio_Params', index=False)
-    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Bordenave_BHS.xlsx")
+        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
+    st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Operativo_Bordenave_vK4_9_8.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM Bordenave. Cargue datos meteorológicos para comenzar.")
