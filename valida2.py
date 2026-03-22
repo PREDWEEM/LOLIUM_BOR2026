@@ -11,9 +11,9 @@
 # - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad (Regla Anti-Cruce).
 # - Eliminación total de réplicas (Ecos) en cadena y aplanamiento visual.
 # - Detección agronómica de flushes de campo (Bypass SciPy) + TN asimétrico.
-# - Módulo Mecanístico de Balance Hídrico Superficial (BHS) activo.
+# - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (BHS) con Secado Exponencial (Kr).
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Bordenave: -38.8).
-# - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
+# - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke Máximo.
 # - Visualización dinámica de la retención de agua en suelo vs Lluvias.
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # ===============================================================
@@ -137,13 +137,16 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.8):
     et0 = 0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange)
     return np.maximum(et0, 0)
 
-def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo=0.4):
+# MODIFICACIÓN: Secado dinámico con factor Kr
+def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo_max=0.4):
     n = len(prec)
     w = np.zeros(n)
     w[0] = w_max / 2.0 
     
     for i in range(1, n):
-        evaporacion_real = et0[i] * ke_suelo
+        kr = w[i-1] / w_max 
+        ke_dinamico = ke_suelo_max * kr
+        evaporacion_real = et0[i] * ke_dinamico
         w[i] = w[i-1] + prec[i] - evaporacion_real
         w[i] = max(0.0, min(w_max, w[i]))
         
@@ -544,7 +547,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # MÓDULO HÍDRICO SUPERFICIAL (BHS) Y TÉRMICO
     # ---------------------------------------------------------
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.8)
-    df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo=ke_val)
+    
+    # Aplicación del BHS con Kr Dinámico
+    df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
     
     humedad_relativa = df["W_superficial"] / w_max_val
     df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
