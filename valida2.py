@@ -552,7 +552,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
     
     humedad_relativa = df["W_superficial"] / w_max_val
-    df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
+    df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.22)))
     
     # Multiplicador final mecanístico
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
