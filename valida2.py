@@ -558,7 +558,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
     # CORTE HÍDRICO ESTRICTO
-    df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+    df.loc[humedad_relativa < 0.10, "EMERREL"] = 0.0
 
     # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival)
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
