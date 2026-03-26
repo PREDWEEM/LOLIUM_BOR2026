@@ -10,7 +10,7 @@
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
 # - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad (Regla Anti-Cruce).
 # - Eliminación total de réplicas (Ecos) en cadena y aplanamiento visual.
-# - Detección agronómica de flushes de campo (Bypass SciPy) + TN asimétrico.
+# - Detección agronómica de flushes de campo (Lógica Gemelos Flanqueantes + Filtro de Indulto para FP).
 # - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (BHS) con Secado Exponencial (Kr).
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Bordenave: -38.8).
 # - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke Máximo.
@@ -292,7 +292,16 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
 
             for idx in grupo_contiguos:
                 if idx != mejor_idx:
-                    skip_indices.add(idx)
+                    es_flanqueante = False
+                    for obs_date in obs_peak_dates:
+                        d_idx = sim_peak_dates[idx]
+                        d_mejor = sim_peak_dates[mejor_idx]
+                        if (d_idx <= obs_date <= d_mejor) or (d_mejor <= obs_date <= d_idx):
+                            es_flanqueante = True
+                            break
+                    
+                    if not es_flanqueante:
+                        skip_indices.add(idx)
                     
         i = j
 
@@ -363,11 +372,52 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
                 matched_obs.add(obs_idx)
                 matched_links.append((sim_idx, obs_idx))
                 offsets.append(diff)
+                
+    # 2. Integración de Picos Gemelos (Misma Cohorte TP)
+    for i in range(len(sim_peak_dates)):
+        if i not in matched_sim and i not in skip_indices:
+            sim_date_i = sim_peak_dates[i]
             
+            for m_sim, m_obs in matched_links:
+                obs_date = obs_peak_dates[m_obs]
+                sim_date_m = sim_peak_dates[m_sim]
+                
+                if (sim_date_i <= obs_date <= sim_date_m) or (sim_date_m <= obs_date <= sim_date_i):
+                    picos_intermedios = 0
+                    min_idx, max_idx = min(i, m_sim), max(i, m_sim)
+                    for k in range(min_idx + 1, max_idx):
+                        if k not in skip_indices:
+                            picos_intermedios += 1
+                            
+                    if picos_intermedios == 0:
+                        days_diff = (obs_date - sim_date_i).days
+                        if -tol_retraso <= days_diff <= tol_anticipo:
+                            tp_points.append((sim_date_i, sim_vals[peaks_sim[i]]))
+                            matched_sim.add(i)
+                            break
+
+    # --- NUEVA LÓGICA: FILTRO DE INDULTO PARA FALSOS POSITIVOS ---
     for i in range(len(sim_peak_dates)):
         if i not in matched_sim and i not in skip_indices:
             if sim_peak_dates[i] <= max_obs_date:
-                fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
+                es_error_real = True
+                sim_date_i = sim_peak_dates[i]
+                
+                for obs_idx in matched_obs:
+                    obs_date = obs_peak_dates[obs_idx]
+                    if -tol_retraso <= (obs_date - sim_date_i).days <= tol_anticipo:
+                        es_error_real = False
+                        break
+                
+                if es_error_real:
+                    for m_sim in matched_sim:
+                        sim_date_m = sim_peak_dates[m_sim]
+                        if abs((sim_date_i - sim_date_m).days) <= min_dist_picos:
+                            es_error_real = False
+                            break
+                
+                if es_error_real:
+                    fp_points.append((sim_peak_dates[i], sim_vals_peaks[peaks_sim[i]]))
             
     for j in range(len(obs_peak_dates)):
         if j not in matched_obs:
