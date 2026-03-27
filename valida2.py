@@ -8,6 +8,7 @@
 # - NUEVO: Bypass Agronómico de Ruptura de Dormición por Choque Hídrico.
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
+# - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - Pearson por intervalos de monitoreo y Emparejamiento por Proximidad (Regla Anti-Cruce).
 # - Eliminación total de réplicas (Ecos) en cadena y aplanamiento visual.
 # - Detección agronómica de flushes de campo (Lógica Gemelos Flanqueantes + Filtro de Indulto para FP).
@@ -609,6 +610,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     # CORTE HÍDRICO ESTRICTO
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+
+    # TRIGGER DE RECARGA INICIAL (Lluvia puntual)
+    df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
+    df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
     # ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival)
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
