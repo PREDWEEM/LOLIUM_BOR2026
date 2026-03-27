@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM BORDENAVE 2026
@@ -7,12 +8,14 @@
 # - NUEVO: Bypass de Ruptura de Dormición por Choque Hídrico.
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
+# - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) puro.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Lat ajustada a Bordenave: -38.8)
 # - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias.
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
+# - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
 # ===============================================================
 
 import streamlit as st
@@ -132,7 +135,7 @@ def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.8):
     et0 = 0.0023 * ra_mm * (tmean + 17.8) * np.sqrt(trange)
     return np.maximum(et0, 0)
 
-# MODIFICACIÓN: Secado dinámico con factor Kr
+# Secado dinámico con factor Kr
 def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo_max=0.4):
     n = len(prec)
     w = np.zeros(n)
@@ -158,7 +161,7 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
-        # Capa oculta (Arquitectura Bordenave)
+        # Capa oculta (Vectorizada)
         z1 = Xn @ self.IW + self.bIW
         a1 = np.tanh(z1)
         # Capa de salida
@@ -324,7 +327,11 @@ if df is not None and modelo_ann is not None:
     # 4. CORTE HÍDRICO ESTRICTO
     df.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
 
-    # 5. ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival por T media 10d)
+    # 5. TRIGGER DE RECARGA INICIAL (Lluvia puntual)
+    df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
+    df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
+
+    # 6. ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival por T media 10d)
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
