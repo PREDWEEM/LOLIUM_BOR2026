@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM BORDENAVE 2026
@@ -12,7 +11,7 @@
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
 # - Módulo Mecanístico de Balance Hídrico Superficial (BHS) puro.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Lat ajustada a Bordenave: -38.8)
-# - Selector dinámico de manejo de lote (Rastrojo/Labranza) para coeficiente Ke.
+# - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo.
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias.
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
@@ -278,16 +277,22 @@ tipo_manejo = st.sidebar.selectbox(
     index=1 
 )
 
+# Lógica de cobertura ampliada
 if "Muy Densa" in tipo_manejo:
-    ke_val = 0.15
+    ke_val = 0.10      
+    mod_termico = 0.80 
 elif "Alta" in tipo_manejo:
-    ke_val = 0.20
+    ke_val = 0.25      
+    mod_termico = 0.90 
 elif "Media" in tipo_manejo:
-    ke_val = 0.30
+    ke_val = 0.50      
+    mod_termico = 0.95 
 else:
-    ke_val = 0.40
+    ke_val = 0.95      
+    mod_termico = 1.00 
 
 st.sidebar.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}**")
+st.sidebar.caption(f"Modulador Térmico Suelo: **{mod_termico:.2f}**")
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (MECANÍSTICO BORDENAVE)
@@ -298,8 +303,15 @@ if df is not None and modelo_ann is not None:
     df = df.dropna(subset=["Fecha", "TMAX", "TMIN", "Prec"]).sort_values("Fecha").reset_index(drop=True)
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
-    # --- B. PREDICCIÓN NEURAL (Sin Shift) ---
-    X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
+    # --- SIMULACIÓN TÉRMICA DEL SUELO ---
+    df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
+    amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
+    
+    df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
+    df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
+
+    # --- B. PREDICCIÓN NEURAL (Sin Shift, Usando la Temperatura del Suelo) ---
+    X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
@@ -311,7 +323,7 @@ if df is not None and modelo_ann is not None:
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.65)
     
     # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO BHS) ---
-    # 1. Calculamos ET0 (Latitud Bordenave)
+    # 1. Calculamos ET0 (Latitud Bordenave) - Usa T Aire
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.8)
     
     # 2. Balance Hídrico Superficial (Actualizado con Ke Dinámico)
@@ -331,8 +343,8 @@ if df is not None and modelo_ann is not None:
     df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
-    # 6. ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival por T media 10d)
-    df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
+    # 6. ESCUDO TERMOFISIOLÓGICO DINÁMICO (Bloqueo Estival por T media 10d - del aire)
+    df["Tmedia"] = df["Tmedia_aire"]
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     mask_inhibicion = df["Tmedia_10d"] >= umbral_termoinhibicion
     df.loc[mask_inhibicion, "EMERREL"] = 0.0
@@ -512,7 +524,7 @@ if df is not None and modelo_ann is not None:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
-        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
+        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
     st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Operativo_Bordenave_vK4_9_8.xlsx")
 
 else:
