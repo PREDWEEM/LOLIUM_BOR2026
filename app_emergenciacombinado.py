@@ -2,6 +2,7 @@
 # ===============================================================
 # 🌾 PREDWEEM OPERATIVO vK4.9.8 — LOLIUM BORDENAVE 2026
 # Actualización:
+# - UI: "Datos del Lote" movido a st.expander en la página principal.
 # - ADAPTACIÓN BORDENAVE: Coordenadas mantenidas estrictamente en -37.81 según indicación.
 # - REVERSIÓN: Eliminada la Memoria Térmica. Restaurado el umbral manual estricto.
 # - UNIFICACIÓN MECANÍSTICA 100%: 
@@ -120,7 +121,6 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
         return 0.0
 
 def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.81):
-    # Latitud mantenida estrictamente en -37.81 (Bordenave)
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -162,7 +162,6 @@ class PracticalANNModel:
 
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
-        # Vectorización matricial (reemplaza el for loop)
         z1 = Xn @ self.IW + self.bIW
         a1 = np.tanh(z1)
         z2 = (a1 @ self.LW.T).flatten() + self.bLW
@@ -219,14 +218,49 @@ def get_data(file_input):
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
+# --- HEADER PRINCIPAL ---
+st.title("🌾 PREDWEEM LOLIUM - BORDENAVE 2026")
+
+# --- MENÚ DESPLEGABLE: DATOS DEL LOTE (MAIN PAGE) ---
+with st.expander("📂 1. Datos del Lote", expanded=True):
+    col_upload, col_rastrojo = st.columns(2)
+    
+    with col_upload:
+        archivo_usuario = st.file_uploader("Subir Clima Manual (BORDENAVE)", type=["xlsx", "csv"])
+        df = get_data(archivo_usuario)
+        
+    with col_rastrojo:
+        tipo_manejo = st.selectbox(
+            "Nivel de Rastrojo",
+            options=[
+                "Cobertura Muy Densa (SD - Extra Rastrojo/CS)",
+                "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
+                "Cobertura Media (SD - Rastrojo Soja)",
+                "Baja Cobertura / Labranza Convencional"
+            ],
+            index=1 
+        )
+        
+        if "Muy Densa" in tipo_manejo:
+            ke_val = 0.10      
+            mod_termico = 0.80 
+        elif "Alta" in tipo_manejo:
+            ke_val = 0.25      
+            mod_termico = 0.90 
+        elif "Media" in tipo_manejo:
+            ke_val = 0.50      
+            mod_termico = 0.95 
+        else:
+            ke_val = 0.95      
+            mod_termico = 1.00 
+            
+        st.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}** | Modulador Térmico Suelo: **{mod_termico:.2f}**")
+
+
+# --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
-st.sidebar.markdown("## 📂 1. Datos del Lote")
-archivo_usuario = st.sidebar.file_uploader("Subir Clima Manual (BORDENAVE)", type=["xlsx", "csv"])
-df = get_data(archivo_usuario)
-
-st.sidebar.divider()
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 
 umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.05, 0.80, 0.30)
@@ -260,33 +294,6 @@ st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
-st.sidebar.markdown("**Manejo del Lote (Cobertura)**")
-tipo_manejo = st.sidebar.selectbox(
-    "Nivel de Rastrojo",
-    options=[
-        "Cobertura Muy Densa (SD - Extra Rastrojo/CS)",
-        "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
-        "Cobertura Media (SD - Rastrojo Soja)",
-        "Baja Cobertura / Labranza Convencional"
-    ],
-    index=1 
-)
-
-if "Muy Densa" in tipo_manejo:
-    ke_val = 0.10      
-    mod_termico = 0.80 
-elif "Alta" in tipo_manejo:
-    ke_val = 0.25      
-    mod_termico = 0.90 
-elif "Media" in tipo_manejo:
-    ke_val = 0.50      
-    mod_termico = 0.95 
-else:
-    ke_val = 0.95      
-    mod_termico = 1.00 
-
-st.sidebar.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}**")
-st.sidebar.caption(f"Modulador Térmico Suelo: **{mod_termico:.2f}**")
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
@@ -317,18 +324,13 @@ if df is not None and modelo_ann is not None:
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 0.75)
 
     # --- C. RESTRICCIÓN HÍDRICA Y TÉRMICA (MÓDULO MECANÍSTICO BHS) ---
-    # 1. Calculamos la Evapotranspiración (ET0) - Latitud mantenida en -37.81
-    # Nota: Se usan las T del aire, ya que ET0 es una demanda atmosférica
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-37.81)
     
-    # 2. Ejecutamos el Balance Hídrico Superficial (Actualizado con Ke Dinámico)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
     
-    # 3. Factor Hídrico basado en la humedad real retenida
     humedad_relativa = df["W_superficial"] / w_max_val
     df["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
     
-    # Multiplicador final (Sin forzados empíricos)
     df["EMERREL"] = df["EMERREL"] * df["Hydric_Factor"]
 
     # 4. CORTE HÍDRICO ESTRICTO
@@ -379,9 +381,6 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM - BORDENAVE 2026")
-
-    # AJUSTADO: Escala de colores personalizada para disparar el rojo en el nuevo umbral (0.30)
     colorscale_hard = [[0.0, "green"], [0.29, "green"], [0.30, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"],
@@ -457,7 +456,6 @@ if df is not None and modelo_ann is not None:
         
         fig_hidrico = go.Figure()
         
-        # Barras de Precipitación
         fig_hidrico.add_trace(go.Bar(
             x=df["Fecha"], 
             y=df["Prec"], 
@@ -466,7 +464,6 @@ if df is not None and modelo_ann is not None:
             opacity=0.7
         ))
         
-        # Línea de Agua retenida en el suelo
         fig_hidrico.add_trace(go.Scatter(
             x=df["Fecha"], 
             y=df["W_superficial"], 
@@ -477,7 +474,6 @@ if df is not None and modelo_ann is not None:
             fillcolor='rgba(2, 132, 199, 0.2)'
         ))
 
-        # Límite de la caja
         fig_hidrico.add_hline(
             y=w_max_val, 
             line_dash="dot", 
