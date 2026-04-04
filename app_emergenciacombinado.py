@@ -71,6 +71,36 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
+import base64
+
+# --- FUNCIÓN PARA INYECTAR IMAGEN DE FONDO ---
+def set_bg_hack(main_bg_file):
+    """
+    Inyecta una imagen de fondo codificada en Base64 en el cuerpo de la aplicación.
+    Funciona bien para fondos de pantalla completa con bajo contraste.
+    """
+    with open(main_bg_file, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode()
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-image: url(data:image/png;base64,{encoded_string});
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# --- LLAMA A LA FUNCIÓN (Usa la Opción 1 o 2) ---
+# st.set_page_config(...) # Tu configuración actual
+# Tu bloque <style> actual...
+set_bg_hack("fondo_predweem_v3.png") # Reemplaza con tu archivo
+
 # ---------------------------------------------------------
 # 2. ROBUSTEZ: GENERADOR DE ARCHIVOS MOCK
 # ---------------------------------------------------------
