@@ -1,11 +1,6 @@
 streamlit
 pandas
 numpy
-matplotlib
 plotly
-requests
-xlsxwriter
-openpyxl
-scipy
-scikit-learn
-seaborn
+XlsxWriter
+numba
