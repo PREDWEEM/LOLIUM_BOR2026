@@ -21,12 +21,28 @@
 # ===============================================================
 
 import streamlit as st
+import time
+
+# 1. PANTALLA DE CARGA ULTRARRÁPIDA
+if 'arranque_fase' not in st.session_state:
+    st.set_page_config(page_title="PREDWEEM", layout="wide")
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.info("🚜 **Iniciando Servidor PREDWEEM...** Cargando librerías pesadas en la nube. (Esto puede tomar unos 10 segundos en el servidor gratuito).")
+    st.progress(20)
+    
+    st.session_state.arranque_fase = 1
+    time.sleep(0.1) # Obliga al navegador a renderizar el cartel
+    st.rerun()      # Reinicia el código al instante
+
+# 2. IMPORTACIONES PESADAS (Ocurren MIENTRAS el usuario ve el cartel)
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import pickle
 import io
+import base64
 from pathlib import Path
+
 
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
