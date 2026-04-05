@@ -27,7 +27,7 @@ import time
 if 'arranque_fase' not in st.session_state:
     st.set_page_config(page_title="PREDWEEM", layout="wide")
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.info("🚜 **Iniciando Servidor PREDWEEM...** Cargando librerías pesadas en la nube. (Esto puede tomar unos 10 segundos en el servidor gratuito).")
+    st.info("🚜 **Iniciando Servidor PREDWEEM...** Cargando librerías pesadas en la nube. (Esto puede tomar unos 10 segundos. ")
     st.progress(20)
     
     st.session_state.arranque_fase = 1
