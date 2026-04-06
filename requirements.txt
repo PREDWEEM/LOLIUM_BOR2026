@@ -4,3 +4,5 @@ numpy
 plotly
 XlsxWriter
 numba
+scipy
+openpyxl
