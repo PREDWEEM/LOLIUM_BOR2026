@@ -5,7 +5,7 @@
 # - UNIFICACIÓN MECANÍSTICA 100%: 
 #   * Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS DE CAMPO.
 #   * Agregado de métricas robustas: RMSE de trayectoria y CCC (Concordancia).
-# - NUEVO GRÁFICO: "Llenado de la Caja" (Curvas Acumuladas) para visualizar el CCC.
+# - NUEVO GRÁFICO: "Llenado de la Caja" (Curvas Acumuladas) + Dispersión 1:1.
 # - NUEVO: Bypass Agronómico de Ruptura de Dormición por Choque Hídrico.
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
@@ -548,7 +548,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df_campo[col_fecha] = pd.to_datetime(df_campo[col_fecha])
         df_campo = df_campo.sort_values(col_fecha).reset_index(drop=True)
 
-        # Mantenemos esto solo para visualización gráfica, la validación estadística usa la integración
         max_plm2 = df_campo[col_plm2].max()
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
@@ -745,12 +744,29 @@ if df_meteo_raw is not None and modelo_ann is not None:
             else:
                 st.warning(f"⏳ Esperando primera alerta (Tasa diaria >= {umbral_er}).")
 
-            # -----------------------------------------------------
-            # NUEVO GRÁFICO 2: CURVAS ACUMULADAS (Visualización del CCC)
-            # -----------------------------------------------------
-            if df_campo is not None and 'df_sincronizado' in locals():
-                st.markdown("<p class='metric-header' style='margin-top:20px;'>📈 LLENADO DE LA CAJA (Emergencia Acumulada Real vs Simulada)</p>", unsafe_allow_html=True)
-                
+        with col_gauge:
+            max_axis = dga_critico * 1.2
+            fig_gauge = go.Figure()
+            fig_gauge.add_trace(go.Indicator(
+                mode="gauge+number", value=dga_hoy, domain={'x': [0, 1], 'y': [0, 1]},
+                title={'text': "<b>TT ACUMULADO (°Cd)</b>", 'font': {'size': 18}},
+                gauge={'axis': {'range': [None, max_axis]}, 'bar': {'color': "#1e293b", 'thickness': 0.3}, 'steps': [{'range': [0, dga_optimo], 'color': "#4ade80"}, {'range': [dga_optimo, dga_critico], 'color': "#facc15"}, {'range': [dga_critico, max_axis], 'color': "#f87171"}], 'threshold': {'line': {'color': "#2563eb", 'width': 6}, 'thickness': 0.8, 'value': dga_7dias}}
+            ))
+            fig_gauge.add_annotation(x=0.5, y=-0.1, text=f"{msg_estado}<br>Pronóstico +7d: <b>{dga_7dias:.1f} °Cd</b>", showarrow=False, font=dict(size=14, color="#1e3a8a"))
+            fig_gauge.update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30))
+            st.plotly_chart(fig_gauge, use_container_width=True)
+
+        # -----------------------------------------------------
+        # NUEVOS GRÁFICOS: CURVAS ACUMULADAS Y DISPERSIÓN 1:1
+        # -----------------------------------------------------
+        if df_campo is not None and 'df_sincronizado' in locals():
+            st.markdown("---")
+            st.markdown("<p class='metric-header' style='margin-top:20px;'>📈 VALIDACIÓN DE TRAYECTORIA Y PRECISIÓN</p>", unsafe_allow_html=True)
+            
+            # Crear dos columnas para mostrar ambos gráficos a la par
+            col_curva, col_disp = st.columns([2, 1])
+            
+            with col_curva:
                 fig_acum = go.Figure()
                 
                 # Curva Real de Campo
@@ -773,7 +789,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 ))
 
                 fig_acum.update_layout(
-                    title="Concordancia de Curvas (Representación visual del CCC)",
+                    title="Dinámica de Llenado (Curvas Acumuladas)",
                     xaxis_title="Fechas de Monitoreo",
                     yaxis_title="Emergencia Acumulada (%)",
                     height=400,
@@ -782,17 +798,38 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 )
                 st.plotly_chart(fig_acum, use_container_width=True)
 
-        with col_gauge:
-            max_axis = dga_critico * 1.2
-            fig_gauge = go.Figure()
-            fig_gauge.add_trace(go.Indicator(
-                mode="gauge+number", value=dga_hoy, domain={'x': [0, 1], 'y': [0, 1]},
-                title={'text': "<b>TT ACUMULADO (°Cd)</b>", 'font': {'size': 18}},
-                gauge={'axis': {'range': [None, max_axis]}, 'bar': {'color': "#1e293b", 'thickness': 0.3}, 'steps': [{'range': [0, dga_optimo], 'color': "#4ade80"}, {'range': [dga_optimo, dga_critico], 'color': "#facc15"}, {'range': [dga_critico, max_axis], 'color': "#f87171"}], 'threshold': {'line': {'color': "#2563eb", 'width': 6}, 'thickness': 0.8, 'value': dga_7dias}}
-            ))
-            fig_gauge.add_annotation(x=0.5, y=-0.1, text=f"{msg_estado}<br>Pronóstico +7d: <b>{dga_7dias:.1f} °Cd</b>", showarrow=False, font=dict(size=14, color="#1e3a8a"))
-            fig_gauge.update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30))
-            st.plotly_chart(fig_gauge, use_container_width=True)
+            with col_disp:
+                fig_1to1 = go.Figure()
+                
+                # Línea 1:1 (Concordancia Perfecta)
+                fig_1to1.add_trace(go.Scatter(
+                    x=[0, 100], y=[0, 100], 
+                    mode='lines', 
+                    name='Modelo Perfecto', 
+                    line=dict(color='gray', dash='dash', width=2)
+                ))
+                
+                # Puntos reales vs simulados
+                fig_1to1.add_trace(go.Scatter(
+                    x=df_sincronizado['Campo_Acumulado'] * 100, 
+                    y=df_sincronizado['Sim_Acumulado'] * 100, 
+                    mode='markers', 
+                    name='Lecturas a Campo', 
+                    marker=dict(color='#2563eb', size=10, line=dict(width=1, color='DarkBlue')),
+                    text=df_sincronizado[col_fecha].dt.strftime('%d-%m-%Y'),
+                    hovertemplate="<b>%{text}</b><br>Campo: %{x:.1f}%<br>Modelo: %{y:.1f}%<extra></extra>"
+                ))
+
+                fig_1to1.update_layout(
+                    title=f"Ajuste 1:1 (CCC: {ccc_acum:.3f})",
+                    xaxis_title="Observado en Campo (%)",
+                    yaxis_title="Simulado por PREDWEEM (%)",
+                    height=400,
+                    xaxis=dict(range=[0, 105]),
+                    yaxis=dict(range=[0, 105]),
+                    showlegend=False
+                )
+                st.plotly_chart(fig_1to1, use_container_width=True)
 
     with tab2:
         st.header("💧 Dinámica Hídrica del Suelo (Balance Superficial)")
