@@ -5,6 +5,7 @@
 # - UNIFICACIÓN MECANÍSTICA 100%: 
 #   * Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS DE CAMPO.
 #   * Agregado de métricas robustas: RMSE de trayectoria y CCC (Concordancia).
+# - NUEVO GRÁFICO: "Llenado de la Caja" (Curvas Acumuladas) para visualizar el CCC.
 # - NUEVO: Bypass Agronómico de Ruptura de Dormición por Choque Hídrico.
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
@@ -743,6 +744,43 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd requeridos.")
             else:
                 st.warning(f"⏳ Esperando primera alerta (Tasa diaria >= {umbral_er}).")
+
+            # -----------------------------------------------------
+            # NUEVO GRÁFICO 2: CURVAS ACUMULADAS (Visualización del CCC)
+            # -----------------------------------------------------
+            if df_campo is not None and 'df_sincronizado' in locals():
+                st.markdown("<p class='metric-header' style='margin-top:20px;'>📈 LLENADO DE LA CAJA (Emergencia Acumulada Real vs Simulada)</p>", unsafe_allow_html=True)
+                
+                fig_acum = go.Figure()
+                
+                # Curva Real de Campo
+                fig_acum.add_trace(go.Scatter(
+                    x=df_sincronizado[col_fecha], 
+                    y=df_sincronizado['Campo_Acumulado'] * 100, 
+                    mode='markers+lines', 
+                    name='Real a Campo (%)', 
+                    marker=dict(color='#dc2626', size=10, symbol='diamond'),
+                    line=dict(color='#dc2626', width=2)
+                ))
+                
+                # Curva Simulada por el Modelo
+                fig_acum.add_trace(go.Scatter(
+                    x=df_sincronizado[col_fecha], 
+                    y=df_sincronizado['Sim_Acumulado'] * 100, 
+                    mode='lines', 
+                    name='Simulado Modelo (%)', 
+                    line=dict(color='#166534', width=3, dash='dash')
+                ))
+
+                fig_acum.update_layout(
+                    title="Concordancia de Curvas (Representación visual del CCC)",
+                    xaxis_title="Fechas de Monitoreo",
+                    yaxis_title="Emergencia Acumulada (%)",
+                    height=400,
+                    hovermode="x unified",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig_acum, use_container_width=True)
 
         with col_gauge:
             max_axis = dga_critico * 1.2
