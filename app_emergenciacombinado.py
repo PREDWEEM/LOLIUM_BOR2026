@@ -14,7 +14,7 @@
 # - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
 # - NUEVO: Secado exponencial del suelo (Ke Dinámico / Factor Kr) en BHS.
 # - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud mantenida: -37.81)
-# - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo.
+# - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo (slider continuo).
 # - Gráfico dinámico de retención de agua en suelo vs Lluvias
 # - AJUSTE: Umbral de alerta por defecto y salto visual calibrado en 0.30.
 # - OPTIMIZACIÓN: Vectorización matricial pura en PracticalANNModel.predict.
@@ -22,36 +22,30 @@
 
 import streamlit as st
 import time
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import pickle
+import io
+from pathlib import Path
+import base64
 
 # 1. PANTALLA DE CARGA ULTRARRÁPIDA
 if 'arranque_fase' not in st.session_state:
-    st.set_page_config(page_title="PREDWEEM", layout="wide")
+    st.set_page_config(page_title="PREDWEEM BORDENAVE", layout="wide", page_icon="🌾")
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.info("🚜 **Iniciando Servidor PREDWEEM...** Cargando librerías pesadas en la nube. (Esto puede tomar unos 10 segundos). ")
+    st.info("🚜 **Iniciando Servidor PREDWEEM...** Cargando librerías pesadas en la nube. (Esto puede tomar unos 10 segundos).")
     st.progress(20)
     
     st.session_state.arranque_fase = 1
     time.sleep(0.1) # Obliga al navegador a renderizar el cartel
     st.rerun()      # Reinicia el código al instante
 
-# 2. IMPORTACIONES PESADAS (Ocurren MIENTRAS el usuario ve el cartel)
-import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-import pickle
-import io
-import base64
-from pathlib import Path
-
-
 # ---------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
-st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.9.8", 
-    layout="wide",
-    page_icon="🌾"
-)
+if 'arranque_fase' in st.session_state and st.session_state.arranque_fase == 1:
+    st.session_state.arranque_fase = 2 
 
 st.markdown("""
 <style>
@@ -82,12 +76,21 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    div[data-testid="stVerticalBlockBorderWrapper"], 
+    div[data-testid="stContainerBorder"],
+    div[data-testid="stContainer"] > div > div[style*="border"],
+    div[data-testid="stVerticalBlock"] > div[style*="border-radius"] {
+        background-color: #ffffff !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+        padding: 15px !important;
+        border: 1px solid #e2e8f0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
-
-import base64
 
 # --- FUNCIÓN PARA INYECTAR IMAGEN DE FONDO ---
 def set_bg_hack(main_bg_file):
@@ -95,27 +98,28 @@ def set_bg_hack(main_bg_file):
     Inyecta una imagen de fondo codificada en Base64 en el cuerpo de la aplicación.
     Funciona bien para fondos de pantalla completa con bajo contraste.
     """
-    with open(main_bg_file, "rb") as image_file:
-        encoded_string = base64.b64encode(image_file.read()).decode()
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url(data:image/png;base64,{encoded_string});
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    try:
+        with open(main_bg_file, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-image: url(data:image/png;base64,{encoded_string});
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+    except FileNotFoundError:
+        pass
 
-# --- LLAMA A LA FUNCIÓN (Usa la Opción 1 o 2) ---
-# st.set_page_config(...) # Tu configuración actual
-# Tu bloque <style> actual...
-set_bg_hack("fondo_predweem_v3.png") # Reemplaza con tu archivo
+# --- LLAMA A LA FUNCIÓN ---
+set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
 # 2. ROBUSTEZ: GENERADOR DE ARCHIVOS MOCK
@@ -265,7 +269,7 @@ def get_data(file_input):
 modelo_ann, cluster_model = load_models()
 
 # --- HEADER PRINCIPAL ---
-st.title("🌾 PREDWEEM LOLIUM - BORDENAVE (BA) lat=-37.803 lon=-63.04 ")
+st.title("🌾 PREDWEEM LOLIUM - BORDENAVE (BA) lat=-37.803 lon=-63.04")
 
 # --- MENÚ DESPLEGABLE: DATOS DEL LOTE (MAIN PAGE) ---
 with st.expander("📂 1. Datos del Lote", expanded=True):
@@ -276,32 +280,47 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
         df = get_data(archivo_usuario)
         
     with col_rastrojo:
-        tipo_manejo = st.selectbox(
-            "Nivel de Rastrojo",
-            options=[
-                "Cobertura Muy Densa (SD - Extra Rastrojo/CS)",
-                "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
-                "Cobertura Media (SD - Rastrojo Soja)",
-                "Baja Cobertura / Labranza Convencional"
-            ],
-            index=1 
-        )
-        
-        if "Muy Densa" in tipo_manejo:
-            ke_val = 0.10      
-            mod_termico = 0.80 
-        elif "Alta" in tipo_manejo:
-            ke_val = 0.25      
-            mod_termico = 0.90 
-        elif "Media" in tipo_manejo:
-            ke_val = 0.50      
-            mod_termico = 0.95 
-        else:
-            ke_val = 0.95      
-            mod_termico = 1.00 
+        with st.container(border=True):
+            st.markdown("#### 🌾 Manejo de Superficie") 
             
-        st.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}** | Modulador Térmico Suelo: **{mod_termico:.2f}**")
+            # Slider continuo
+            cobertura_pct = st.slider(
+                "Cobertura de Rastrojo en Suelo (%)",
+                min_value=0, max_value=100, value=95, step=5,
+                help="0% = Suelo desnudo / Labranza convencional. 100% = Cobertura total (Ej. Cultivo de Servicio denso)."
+            )
 
+            x_cobertura = [0, 30, 70, 100] 
+            y_ke = [0.95, 0.50, 0.25, 0.10]
+            ke_val = float(np.interp(cobertura_pct, x_cobertura, y_ke))
+            
+            y_mod_termico = [1.00, 0.95, 0.90, 0.80]
+            mod_termico = float(np.interp(cobertura_pct, x_cobertura, y_mod_termico))
+            
+            # Tarjeta visual HTML
+            html_card = f"""
+            <div style="
+                background-color: #ffffff;
+                padding: 15px 20px;
+                border-radius: 10px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                border: 1px solid #e2e8f0;
+                margin-top: 15px;
+            ">
+                <h5 style="color: #1e293b; margin-top: 0; margin-bottom: 12px; font-size: 0.95rem;">
+                    Parámetros Dinámicos Aplicados
+                </h5>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="color: #475569; font-size: 0.9rem;">Coeficiente Hídrico Suelo (Ke):</span>
+                    <span style="color: #0284c7; font-weight: bold; font-size: 1.05rem;">{ke_val:.2f}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: #475569; font-size: 0.9rem;">Modulador Térmico Suelo:</span>
+                    <span style="color: #b91c1c; font-weight: bold; font-size: 1.05rem;">{mod_termico:.2f}</span>
+                </div>
+            </div>
+            """
+            st.markdown(html_card, unsafe_allow_html=True)
 
 # --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
@@ -339,7 +358,6 @@ dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
-
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (LÓGICA 100% MECANÍSTICA)
