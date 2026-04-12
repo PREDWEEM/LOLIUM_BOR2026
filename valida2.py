@@ -6,7 +6,9 @@
 #   * Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS DE CAMPO.
 #   * Agregado de métricas robustas: RMSE de trayectoria y CCC (Concordancia).
 # - NUEVO GRÁFICO: "Llenado de la Caja" (Curvas Acumuladas) + Dispersión 1:1.
-# - NUEVO: Bypass Agronómico de Ruptura de Dormición por Choque Hídrico.
+# - UI: "Datos del Lote" movido a st.expander en la página principal con slider continuo.
+# - ADAPTACIÓN BORDENAVE: Coordenadas mantenidas estrictamente en -37.81 según indicación.
+# - NUEVO: Bypass Agronómico de Ruptura de Dormición por Choque Hídrico (Reintegrado al motor).
 # - NUEVO: Escudo Termofisiológico Dinámico (Media Móvil 10d) para inhibición estival.
 # - NUEVO: Corte Hídrico Estricto (20% HR) acoplado a la sigmoide.
 # - NUEVO: Bloqueo de emergencia (0%) hasta que una LLUVIA PUNTUAL supere la Capacidad de Campo.
@@ -14,7 +16,6 @@
 # - Eliminación total de réplicas (Ecos) en cadena y aplanamiento visual.
 # - Detección agronómica de flushes de campo (Lógica Gemelos Flanqueantes + Filtro de Indulto para FP).
 # - NUEVO: Módulo Mecanístico de Balance Hídrico Superficial (BHS) con Secado Exponencial (Kr).
-# - Evapotranspiración (ET0) mediante Hargreaves-Samani (Latitud Bordenave: -38.8).
 # - MEJORA: Sensibilidad térmica e hídrica agresiva según nivel de rastrojo.
 # ===============================================================
 
@@ -24,18 +25,27 @@ import pandas as pd
 import plotly.graph_objects as go
 import pickle
 import io
+import time
+import base64
 from datetime import timedelta
 from pathlib import Path
 from scipy.signal import find_peaks
 
 # ---------------------------------------------------------
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
+# 1. PANTALLA DE CARGA ULTRARRÁPIDA Y ESTILO
 # ---------------------------------------------------------
-st.set_page_config(
-    page_title="PREDWEEM BORDENAVE vK4.9.8",
-    layout="wide",
-    page_icon="🌾"
-)
+if 'arranque_fase' not in st.session_state:
+    st.set_page_config(page_title="PREDWEEM BORDENAVE", layout="wide", page_icon="🌾")
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.info("🚜 **Iniciando Servidor PREDWEEM Integral...** Cargando módulos de validación y librerías pesadas.")
+    st.progress(20)
+    
+    st.session_state.arranque_fase = 1
+    time.sleep(0.1)
+    st.rerun()
+
+if 'arranque_fase' in st.session_state and st.session_state.arranque_fase == 1:
+    st.session_state.arranque_fase = 2 
 
 st.markdown("""
 <style>
@@ -67,10 +77,34 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    div[data-testid="stVerticalBlockBorderWrapper"], 
+    div[data-testid="stContainerBorder"],
+    div[data-testid="stContainer"] > div > div[style*="border"],
+    div[data-testid="stVerticalBlock"] > div[style*="border-radius"] {
+        background-color: #ffffff !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+        padding: 15px !important;
+        border: 1px solid #e2e8f0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
+
+def set_bg_hack(main_bg_file):
+    try:
+        with open(main_bg_file, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        st.markdown(
+            f"""<style>.stApp {{ background-image: url(data:image/png;base64,{encoded_string}); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }}</style>""",
+            unsafe_allow_html=True
+        )
+    except FileNotFoundError:
+        pass
+
+set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
 # 2. ROBUSTEZ Y ARCHIVOS (MOCKS)
@@ -120,7 +154,8 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
     else:
         return 0.0
 
-def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-38.8):
+def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.81):
+    # Latitud ajustada estrictamente a Bordenave
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -191,7 +226,12 @@ def load_data(file_uploader, default_name):
         return pd.read_csv(BASE / f"{default_name}.csv")
     elif (BASE / f"{default_name}.xlsx").exists():
         return pd.read_excel(BASE / f"{default_name}.xlsx")
-    return None
+    
+    github_url = f"https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/{default_name}.csv"
+    try:
+        return pd.read_csv(github_url)
+    except:
+        return None
 
 # --- NUEVAS FUNCIONES DE INTEGRACIÓN DE INTERVALOS ---
 def sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2):
@@ -436,15 +476,67 @@ def evaluate_cohort_detection(df_sim, df_campo, col_fecha, col_plm2, tol_anticip
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
 
-st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png", use_container_width=True)
-st.sidebar.markdown("## 📂 1. Datos del Lote")
-archivo_meteo = st.sidebar.file_uploader("1. Clima (Bordenave)", type=["xlsx", "csv"])
-archivo_campo = st.sidebar.file_uploader("2. Campo (Validación)", type=["xlsx", "csv"])
+# --- HEADER PRINCIPAL ---
+st.title("🌾 PREDWEEM LOLIUM - BORDENAVE (BA) lat=-37.803 lon=-63.04")
 
-df_meteo_raw = load_data(archivo_meteo, "bordenave")
+# --- MENÚ DESPLEGABLE: DATOS DEL LOTE (MAIN PAGE) ---
+with st.expander("📂 1. Datos del Lote", expanded=True):
+    col_upload, col_rastrojo = st.columns(2)
+    
+    with col_upload:
+        archivo_meteo = st.file_uploader("1. Clima (Bordenave)", type=["xlsx", "csv"])
+        archivo_campo = st.file_uploader("2. Campo (Validación)", type=["xlsx", "csv"])
+        
+    with col_rastrojo:
+        with st.container(border=True):
+            st.markdown("#### 🌾 Manejo de Superficie") 
+            
+            # Slider continuo
+            cobertura_pct = st.slider(
+                "Cobertura de Rastrojo en Suelo (%)",
+                min_value=0, max_value=100, value=95, step=5,
+                help="0% = Suelo desnudo / Labranza convencional. 100% = Cobertura total (Ej. Cultivo de Servicio denso)."
+            )
+
+            x_cobertura = [0, 30, 70, 100] 
+            y_ke = [0.95, 0.50, 0.25, 0.10]
+            ke_val = float(np.interp(cobertura_pct, x_cobertura, y_ke))
+            
+            y_mod_termico = [1.00, 0.95, 0.90, 0.80]
+            mod_termico = float(np.interp(cobertura_pct, x_cobertura, y_mod_termico))
+            
+            # Tarjeta visual HTML
+            html_card = f"""
+            <div style="
+                background-color: #ffffff;
+                padding: 15px 20px;
+                border-radius: 10px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                border: 1px solid #e2e8f0;
+                margin-top: 15px;
+            ">
+                <h5 style="color: #1e293b; margin-top: 0; margin-bottom: 12px; font-size: 0.95rem;">
+                    Parámetros Dinámicos Aplicados
+                </h5>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="color: #475569; font-size: 0.9rem;">Coeficiente Hídrico Suelo (Ke):</span>
+                    <span style="color: #0284c7; font-weight: bold; font-size: 1.05rem;">{ke_val:.2f}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: #475569; font-size: 0.9rem;">Modulador Térmico Suelo:</span>
+                    <span style="color: #b91c1c; font-weight: bold; font-size: 1.05rem;">{mod_termico:.2f}</span>
+                </div>
+            </div>
+            """
+            st.markdown(html_card, unsafe_allow_html=True)
+
+df_meteo_raw = load_data(archivo_meteo, "meteo_daily")
 df_campo_raw = load_data(archivo_campo, "bordenave_campo")
 
-st.sidebar.divider()
+# --- SIDEBAR ---
+LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
+st.sidebar.image(LOGO_URL, use_container_width=True)
+
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.05, 0.80, 0.50)
 
@@ -492,32 +584,6 @@ st.sidebar.divider()
 st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
-tipo_manejo = st.sidebar.selectbox(
-    "Nivel de Rastrojo",
-    options=[
-        "Cobertura Muy Densa (SD - Extra Rastrojo/CS)",
-        "Alta Cobertura (SD - Rastrojo Trigo/Maíz)",
-        "Cobertura Media (SD - Rastrojo Soja)",
-        "Baja Cobertura / Labranza Convencional"
-    ],
-    index=1 
-)
-
-if "Muy Densa" in tipo_manejo:
-    ke_val = 0.10      
-    mod_termico = 0.80 
-elif "Alta" in tipo_manejo:
-    ke_val = 0.25      
-    mod_termico = 0.90 
-elif "Media" in tipo_manejo:
-    ke_val = 0.50      
-    mod_termico = 0.95 
-else:
-    ke_val = 0.95      
-    mod_termico = 1.00 
-
-st.sidebar.caption(f"Coeficiente Ke interno aplicado: **{ke_val:.2f}**")
-st.sidebar.caption(f"Modulador Térmico Suelo: **{mod_termico:.2f}**")
 
 # ---------------------------------------------------------
 # 5. MOTOR DE CÁLCULO (MECANÍSTICO)
@@ -555,13 +621,14 @@ if df_meteo_raw is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
-    limite_juliano_temprano = 110
+    # --- BYPASS AGRONÓMICO: RUPTURA DE DORMICIÓN TEMPRANA ---
+    limite_juliano_temprano = 110 # Aprox. 20 de Abril
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
     mask_ruptura = (df["Julian_days"] <= limite_juliano_temprano) & (df["Prec_3d"] >= umbral_choque_hidrico)
-    # Cambio aquí: forzamos el máximo a 1.0
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
 
-    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-38.8)
+    # Cálculo ET0 con la latitud estricta
+    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=-37.81)
     df["W_superficial"] = balance_hidrico_superficial(df["Prec"].values, df["ET0"].values, w_max=w_max_val, ke_suelo_max=ke_val)
     
     humedad_relativa = df["W_superficial"] / w_max_val
@@ -659,8 +726,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM - BORDENAVE 2026")
-
     colorscale_hard = [[0.0, "green"], [0.01, "green"], [0.02, "red"], [1.0, "red"]]
     fig_risk = go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False))
     fig_risk.update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo (Tasa Diaria)")
