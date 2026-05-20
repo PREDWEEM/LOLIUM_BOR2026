@@ -189,7 +189,7 @@ def load_data(file_uploader, default_name):
     elif (BASE / f"{default_name}.xlsx").exists():
         return pd.read_excel(BASE / f"{default_name}.xlsx")
     
-    github_url = f"https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BORDENAVE-2026/main/{default_name}.csv"
+    github_url = f"https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/{default_name}.csv"
     try:
         return pd.read_csv(github_url)
     except:
@@ -290,10 +290,11 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             st.markdown(html_card, unsafe_allow_html=True)
 
 # --- SIDEBAR ---
-st.sidebar.image("https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BORDENAVE-2026/main/logo.png", use_container_width=True)
+LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
+st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Tasa Diaria (Detección pico)", 0.01, 0.80, 0.01)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.01, 0.80, 0.01)
 
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
@@ -309,15 +310,15 @@ with col_t2: t_opt_max = st.number_input("T Óptima Max", value=20.0, step=1.0)
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
-dga_optimo = st.sidebar.number_input("Objetivo Control", value=600, step=50)
-dga_critico = st.sidebar.number_input("Límite Ventana", value=800, step=50)
+dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10)
+dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
 df_meteo_raw = load_data(archivo_meteo, "meteo_daily")
-df_campo_raw = load_data(archivo_campo, "BORDENAVE_campo")
+df_campo_raw = load_data(archivo_campo, "bordenave_campo")
 
 # ---------------------------------------------------------
 # 6. MOTOR DE CÁLCULO
@@ -372,6 +373,27 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["Tmedia"] = df["Tmedia_aire"]
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     df.loc[df["Tmedia_10d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
+
+    # ===============================================================
+    # NUEVO: AGOTAMIENTO DINÁMICO DEL BANCO DE SEMILLAS (OPCIÓN 1)
+    # ===============================================================
+    emergencia_bruta_acumulada = df['EMERREL'].cumsum()
+    total_emergencia_esperada = df['EMERREL'].sum()
+    
+    if total_emergencia_esperada > 0:
+        # Crea un multiplicador que empieza en ~1.0 y cae suavemente hasta 0.0 
+        # a medida que se agota la cohorte anual.
+        df['Factor_Agotamiento'] = 1.0 - (emergencia_bruta_acumulada / total_emergencia_esperada)
+        
+        # Evitamos matemáticamente cualquier valor negativo
+        df['Factor_Agotamiento'] = np.clip(df['Factor_Agotamiento'], 0.0, 1.0)
+        
+        # Penalizamos la tasa diaria real.
+        # Los pulsos tempranos se multiplican por ~0.95 (casi intactos).
+        # Los pulsos tardíos de mayo se multiplican por ~0.05 (suprimidos).
+        df['EMERREL'] = df['EMERREL'] * df['Factor_Agotamiento']
+    # ===============================================================
+
 
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
