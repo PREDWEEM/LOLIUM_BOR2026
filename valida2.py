@@ -374,6 +374,27 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
     df.loc[df["Tmedia_10d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
 
+    # ===============================================================
+    # NUEVO: AGOTAMIENTO DINÁMICO DEL BANCO DE SEMILLAS (OPCIÓN 1)
+    # ===============================================================
+    emergencia_bruta_acumulada = df['EMERREL'].cumsum()
+    total_emergencia_esperada = df['EMERREL'].sum()
+    
+    if total_emergencia_esperada > 0:
+        # Crea un multiplicador que empieza en ~1.0 y cae suavemente hasta 0.0 
+        # a medida que se agota la cohorte anual.
+        df['Factor_Agotamiento'] = 1.0 - (emergencia_bruta_acumulada / total_emergencia_esperada)
+        
+        # Evitamos matemáticamente cualquier valor negativo
+        df['Factor_Agotamiento'] = np.clip(df['Factor_Agotamiento'], 0.0, 1.0)
+        
+        # Penalizamos la tasa diaria real.
+        # Los pulsos tempranos se multiplican por ~0.95 (casi intactos).
+        # Los pulsos tardíos de mayo se multiplican por ~0.05 (suprimidos).
+        df['EMERREL'] = df['EMERREL'] * df['Factor_Agotamiento']
+    # ===============================================================
+
+
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
     fecha_hoy = pd.Timestamp.now().normalize()
