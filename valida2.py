@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.10 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.11 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - ADAPTACIÓN BORDENAVE: Coordenadas mantenidas estrictamente en -37.761671 para ET0.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
 # - LATENCIA INICIAL: Bloqueo de emergencia los primeros 25 días del año.
 # - MÉTRICAS INTER-SITIO: Incorporación de NSE y KGE sobre flujos dinámicos.
 # - UNIFICACIÓN MECANÍSTICA 100%: Reemplazo de flujos diarios por INTEGRACIÓN EN INTERVALOS.
+# - OPTIMIZADOR HÍDRICO: Módulo de barrido paramétrico integrado en Sidebar (Modo Dev).
 # - VISUALIZACIÓN LOGARÍTMICA: Transformación analítica log10(x + 0.01) para dinámicas.
 # ===============================================================
 
@@ -139,7 +140,6 @@ def calculate_tt_scalar(t, t_base, t_opt, t_crit):
     else: return 0.0
 
 def calcular_et0_hargreaves(jday, tmax, tmin, latitud=-37.761671):
-    # Latitud ajustada para Bordenave (-37.761671)
     lat_rad = np.radians(latitud)
     dr = 1 + 0.033 * np.cos(2 * np.pi / 365 * jday)
     dec = 0.409 * np.sin(2 * np.pi / 365 * jday - 1.39)
@@ -260,6 +260,69 @@ def calcular_metricas_validacion_integral(df_sync):
     }
 
 # ---------------------------------------------------------
+# 4.5 MÓDULO OPTIMIZADOR HÍDRICO (BARRIDO PARAMÉTRICO)
+# ---------------------------------------------------------
+def optimizar_parametros_hidricos(df_meteo, df_campo, modelo_ann, latitud_bordenave=-37.761671):
+    df = df_meteo.copy()
+    df['Fecha'] = pd.to_datetime(df['Fecha'])
+    df["Julian_days"] = df["Fecha"].dt.dayofyear
+    
+    # Simulación Térmica Básica (Modulador Térmico estático temporalmente en 0.90)
+    df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
+    amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
+    df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * 0.90)
+    df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * 0.90)
+    df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=latitud_bordenave)
+    
+    X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
+    emerrel_raw, _ = modelo_ann.predict(X)
+    
+    rango_w_max = np.arange(10.0, 36.0, 2.0)
+    rango_ke = np.arange(0.2, 0.85, 0.1)
+    
+    resultados = []
+    
+    for w_max in rango_w_max:
+        for ke in rango_ke:
+            df_sim = df.copy()
+            df_sim["EMERREL_RAW"] = np.maximum(emerrel_raw, 0.0)
+            df_sim.loc[df_sim["Julian_days"] <= 25, "EMERREL_RAW"] = 0.0
+            
+            df_sim["W_superficial"] = balance_hidrico_superficial(df_sim["Prec"].values, df_sim["ET0"].values, w_max=w_max, ke_suelo=ke)
+            humedad_relativa = df_sim["W_superficial"] / w_max
+            df_sim["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
+            
+            df_sim["EMERREL"] = df_sim["EMERREL_RAW"] * df_sim["Hydric_Factor"]
+            df_sim.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
+            df_sim['Lluvia_Recarga'] = (df_sim['Prec'] >= w_max).cummax()
+            df_sim.loc[~df_sim['Lluvia_Recarga'], "EMERREL"] = 0.0
+            
+            df_sim["Tmedia_10d"] = df_sim["Tmedia_aire"].rolling(window=10, min_periods=1).mean()
+            df_sim.loc[df_sim["Tmedia_10d"] >= 24.0, "EMERREL"] = 0.0
+            
+            col_fecha = df_campo.columns[0]
+            col_plm2 = df_campo.columns[1]
+            df_sync = sincronizar_series_por_intervalos(df_sim, df_campo, col_fecha, col_plm2)
+            metricas = calcular_metricas_validacion_integral(df_sync)
+            
+            resultados.append({
+                "W_Max (mm)": w_max,
+                "Ke_Suelo": round(ke, 2),
+                "NSE": metricas["NSE_Flujos"],
+                "KGE": metricas["KGE_Flujos"],
+                "CCC": metricas["CCC_Acumulado"],
+                "RMSE": metricas["RMSE_Acumulado"]
+            })
+            
+    df_resultados = pd.DataFrame(resultados)
+    df_robustos = df_resultados[df_resultados["CCC"] > 0.90].copy()
+    
+    if not df_robustos.empty:
+        return df_robustos.sort_values(by="NSE", ascending=False).reset_index(drop=True)
+    else:
+        return df_resultados.sort_values(by="NSE", ascending=False).reset_index(drop=True)
+
+# ---------------------------------------------------------
 # 5. INTERFAZ PRINCIPAL Y SIDEBAR
 # ---------------------------------------------------------
 modelo_ann, cluster_model = load_models()
@@ -310,6 +373,9 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             """
             st.markdown(html_card, unsafe_allow_html=True)
 
+df_meteo_raw = load_data(archivo_meteo, "meteo_daily")
+df_campo_raw = load_data(archivo_campo, "bordenave_campo")
+
 # --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
 st.sidebar.image(LOGO_URL, use_container_width=True)
@@ -338,8 +404,30 @@ st.sidebar.divider()
 st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
-df_meteo_raw = load_data(archivo_meteo, "meteo_daily")
-df_campo_raw = load_data(archivo_campo, "bordenave_campo")
+# --- MODO DESARROLLADOR: OPTIMIZADOR HÍDRICO ---
+with st.sidebar.expander("🛠️ Modo Dev: Optimizador Hídrico", expanded=False):
+    st.caption("Ajusta W_Max y Ke iterativamente para maximizar el NSE diario.")
+    if st.button("Ejecutar Barrido Paramétrico"):
+        if df_meteo_raw is not None and df_campo_raw is not None and modelo_ann is not None:
+            with st.spinner('Ejecutando iteraciones (10-35mm W_Max | 0.2-0.8 Ke)...'):
+                
+                # Para evitar problemas con el formato de fecha en el optimizador
+                df_meteo_opt = df_meteo_raw.copy()
+                df_meteo_opt.columns = [c.upper().strip() for c in df_meteo_opt.columns]
+                df_meteo_opt = df_meteo_opt.rename(columns={'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
+                
+                df_campo_opt = df_campo_raw.copy()
+                col_fecha_opt = 'FECHA' if 'FECHA' in df_campo_opt.columns else df_campo_opt.columns[0]
+                df_campo_opt[col_fecha_opt] = pd.to_datetime(df_campo_opt[col_fecha_opt])
+                
+                tabla_optima = optimizar_parametros_hidricos(df_meteo_opt, df_campo_opt, modelo_ann)
+                
+            st.success("¡Barrido completado!")
+            st.dataframe(tabla_optima.head(10))
+            st.caption("Aplica la mejor combinación en los paneles superiores (W_Max y Cobertura/Ke).")
+        else:
+            st.error("Se requieren datos de Clima y Campo.")
+
 
 # ---------------------------------------------------------
 # 6. MOTOR DE CÁLCULO
@@ -593,7 +681,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', 'NSE (Flujos)', 'KGE (Flujos)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_10_clean.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_11_Opt.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
