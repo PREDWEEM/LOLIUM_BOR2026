@@ -433,7 +433,7 @@ with st.sidebar.expander("🛠️ Modo Dev: Optimizador 3D", expanded=False):
     
     if st.button("Ejecutar Barrido 3D"):
         if df_meteo_raw is not None and df_campo_raw is not None and modelo_ann is not None:
-            ventanas_a_probar = [ventana_agrupacion] if modo_optimizador == "Física (Usa ventana actual)" else [3, 5, 7, 10, 14, 21]
+            ventanas_a_probar = [ventana_agrupacion] if modo_optimizador == "Física (Usa ventana actual)" else [3, 5, 7, 10, 14]
             
             with st.spinner(f'Ejecutando iteraciones 3D en ventanas: {ventanas_a_probar}...'):
                 df_meteo_opt = df_meteo_raw.copy()
