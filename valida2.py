@@ -1,6 +1,7 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.13 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.14 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - ADAPTACIÓN BORDENAVE: Coordenadas mantenidas estrictamente en -37.761671.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
@@ -8,6 +9,8 @@
 # - NSE FLEXIBLE (SEMANAL): Reemplazo de sincronización rígida por interpolación 
 #   continua de acumulados y remuestreo dinámico en ventanas de N-días.
 # - OPTIMIZADOR 3D: Barrido paramétrico simultáneo de W_Max, Ke y Ventana de Validación.
+# - UX VISUAL: Incorporación de la "Unidad de Decisión Agronómica" como 
+#   sombreado de fondo en el gráfico principal de dinámica.
 # ===============================================================
 
 import streamlit as st
@@ -309,7 +312,6 @@ def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bor
             df_sim["Tmedia_10d"] = df_sim["Tmedia_aire"].rolling(window=10, min_periods=1).mean()
             df_sim.loc[df_sim["Tmedia_10d"] >= 24.0, "EMERREL"] = 0.0
             
-            # Loop interno para testear cada tamaño de ventana sobre la misma física
             for v_dias in rango_ventanas:
                 df_sync = sincronizar_series_flexibles(df_sim, df_campo, col_fecha, col_plm2, freq_dias=v_dias)
                 metricas = calcular_metricas_validacion_integral(df_sync)
@@ -418,8 +420,8 @@ st.sidebar.divider()
 st.sidebar.markdown("## 📊 4. Flexibilidad Estadística")
 ventana_agrupacion = st.sidebar.slider(
     "Ventana de Validación (días)", 
-    min_value=1, max_value=14, value=11, step=1, 
-    help="Agrupa los flujos simulados y observados en bloques de N días."
+    min_value=1, max_value=30, value=11, step=1, 
+    help="Define la Unidad de Decisión Agronómica. Agrupa flujos y sombrea el gráfico principal en intervalos de N días."
 )
 
 # --- MODO DESARROLLADOR: OPTIMIZADOR 3D ---
@@ -433,7 +435,7 @@ with st.sidebar.expander("🛠️ Modo Dev: Optimizador 3D", expanded=False):
     
     if st.button("Ejecutar Barrido 3D"):
         if df_meteo_raw is not None and df_campo_raw is not None and modelo_ann is not None:
-            ventanas_a_probar = [ventana_agrupacion] if modo_optimizador == "Física (Usa ventana actual)" else [3, 5, 7, 10, 14]
+            ventanas_a_probar = [ventana_agrupacion] if modo_optimizador == "Física (Usa ventana actual)" else [3, 5, 7, 10, 11, 14]
             
             with st.spinner(f'Ejecutando iteraciones 3D en ventanas: {ventanas_a_probar}...'):
                 df_meteo_opt = df_meteo_raw.copy()
@@ -604,6 +606,25 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
         with col_main:
             fig_emer = go.Figure()
+            
+            # --- NUEVO: SOMBREADO DE UNIDADES DE DECISIÓN AGRONÓMICA ---
+            fecha_inicio_grilla = df["Fecha"].min()
+            fecha_fin_grilla = df["Fecha"].max()
+            fecha_actual = fecha_inicio_grilla
+            sombreado_activo = True
+            
+            while fecha_actual < fecha_fin_grilla:
+                fecha_siguiente = fecha_actual + pd.Timedelta(days=ventana_agrupacion)
+                if sombreado_activo:
+                    fig_emer.add_vrect(
+                        x0=fecha_actual, x1=fecha_siguiente, 
+                        fillcolor="rgba(148, 163, 184, 0.15)", # Un gris/azulado muy sutil
+                        layer="below", line_width=0
+                    )
+                sombreado_activo = not sombreado_activo
+                fecha_actual = fecha_siguiente
+            # -------------------------------------------------------------
+            
             fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL_LOG"], mode='lines', name='Tasa Diaria Sim. (Log)', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
             fig_emer.add_hline(y=umbral_er_log, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
 
@@ -614,7 +635,9 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 fig_emer.add_vline(x=fecha_control.timestamp() * 1000, line_dash="dot", line_color="red", line_width=3, annotation_text=f"Control ({dga_optimo}°Cd)", annotation_position="top left", annotation_font=dict(color="red", size=12))
                 fig_emer.add_vrect(x0=fecha_control.timestamp() * 1000, x1=(fecha_control + timedelta(days=residualidad)).timestamp() * 1000, fillcolor="blue", opacity=0.1, layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)", annotation_position="top left")
 
-            fig_emer.update_layout(title="Dinámica de Emergencia y Momento Crítico (Escala Log Analítica)", yaxis_title="Log10(Emergencia + 0.01)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            # Título actualizado para reflejar la ventana visual
+            titulo_grafico = f"Dinámica de Emergencia y Momento Crítico (Unidad Decisión: {ventana_agrupacion} días)"
+            fig_emer.update_layout(title=titulo_grafico, yaxis_title="Log10(Emergencia + 0.01)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
@@ -702,7 +725,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', f'NSE (Flujos {ventana_agrupacion}D)', f'KGE (Flujos {ventana_agrupacion}D)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion', 'Ventana_NSE_Dias'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion, ventana_agrupacion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_13_3D.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_14_UX.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
