@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.12 — LOLIUM BORDENAVE 2026
+# 🌾 PREDWEEM INTEGRAL vK4.9.13 — LOLIUM BORDENAVE 2026
 # Actualización:
 # - ADAPTACIÓN BORDENAVE: Coordenadas mantenidas estrictamente en -37.761671.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
 # - LATENCIA INICIAL: Bloqueo de emergencia los primeros 25 días del año.
 # - NSE FLEXIBLE (SEMANAL): Reemplazo de sincronización rígida por interpolación 
 #   continua de acumulados y remuestreo dinámico en ventanas de N-días.
-# - OPTIMIZADOR HÍDRICO: Ajustado para optimizar el NSE Semanal (7D).
+# - OPTIMIZADOR 3D: Barrido paramétrico simultáneo de W_Max, Ke y Ventana de Validación.
 # ===============================================================
 
 import streamlit as st
@@ -186,45 +186,32 @@ def load_data(file_uploader, default_name):
         return None
 
 def sincronizar_series_flexibles(df_sim, df_campo, col_fecha, col_plm2, freq_dias=7):
-    """
-    NUEVO MOTOR FLEXIBLE:
-    Interpola las observaciones de campo a nivel diario y luego remuestrea 
-    ambas series (simulada y observada) en ventanas regulares de 'freq_dias' 
-    para extraer flujos equivalentes limpios de ruidos de muestreo.
-    """
     fecha_min = min(df_sim["Fecha"].min(), df_campo[col_fecha].min())
     fecha_max = max(df_sim["Fecha"].max(), df_campo[col_fecha].max())
     df_grid = pd.DataFrame({'Fecha': pd.date_range(start=fecha_min, end=fecha_max, freq='D')})
     
-    # 1. Preparar Simulación Acumulada Absoluta
     df_sim_clean = df_sim[['Fecha', 'EMERREL']].copy()
     df_grid = pd.merge(df_grid, df_sim_clean, on='Fecha', how='left').fillna({'EMERREL': 0})
     df_grid['Sim_Acum_Abs'] = df_grid['EMERREL'].cumsum()
     
-    # 2. Preparar Campo Acumulado Absoluto e Interpolar
     df_campo_sorted = df_campo.sort_values(col_fecha).copy()
     df_campo_sorted['Campo_Acum_Abs'] = df_campo_sorted[col_plm2].cumsum()
     
     df_grid = pd.merge(df_grid, df_campo_sorted[[col_fecha, 'Campo_Acum_Abs']], left_on='Fecha', right_on=col_fecha, how='left')
     
-    # Interpolación lineal para estimar el llenado entre las visitas a campo
     df_grid['Campo_Acum_Abs'] = df_grid['Campo_Acum_Abs'].interpolate(method='linear')
-    df_grid['Campo_Acum_Abs'] = df_grid['Campo_Acum_Abs'].fillna(0) # Rellenar inicio
-    df_grid['Campo_Acum_Abs'] = df_grid['Campo_Acum_Abs'].ffill()   # Proyectar final
+    df_grid['Campo_Acum_Abs'] = df_grid['Campo_Acum_Abs'].fillna(0)
+    df_grid['Campo_Acum_Abs'] = df_grid['Campo_Acum_Abs'].ffill()
     
-    # 3. Remuestreo en la ventana elegida (Agrupación Flexible)
     df_grid.set_index('Fecha', inplace=True)
     df_resampled = df_grid.resample(f'{freq_dias}D').last().reset_index()
     
-    # 4. Derivar flujos regulares restando el acumulado anterior
     df_resampled['Simulado_Intervalo'] = df_resampled['Sim_Acum_Abs'].diff().fillna(df_resampled['Sim_Acum_Abs'])
     df_resampled['Campo_Intervalo'] = df_resampled['Campo_Acum_Abs'].diff().fillna(df_resampled['Campo_Acum_Abs'])
     
-    # Evitar pequeños flujos negativos por redondeo en interpolación
     df_resampled['Simulado_Intervalo'] = df_resampled['Simulado_Intervalo'].clip(lower=0)
     df_resampled['Campo_Intervalo'] = df_resampled['Campo_Intervalo'].clip(lower=0)
     
-    # 5. Calcular valores relativos (%)
     total_sim = df_resampled['Sim_Acum_Abs'].max()
     total_campo = df_resampled['Campo_Acum_Abs'].max()
     
@@ -279,9 +266,9 @@ def calcular_metricas_validacion_integral(df_sync):
     }
 
 # ---------------------------------------------------------
-# 4.5 MÓDULO OPTIMIZADOR HÍDRICO (BARRIDO PARAMÉTRICO)
+# 4.5 MÓDULO OPTIMIZADOR 3D (HÍDRICO + VENTANA)
 # ---------------------------------------------------------
-def optimizar_parametros_hidricos(df_meteo, df_campo, modelo_ann, latitud_bordenave=-37.761671):
+def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bordenave=-37.761671, rango_ventanas=[7]):
     df = df_meteo.copy()
     df['Fecha'] = pd.to_datetime(df['Fecha'])
     df["Julian_days"] = df["Fecha"].dt.dayofyear
@@ -301,6 +288,9 @@ def optimizar_parametros_hidricos(df_meteo, df_campo, modelo_ann, latitud_borden
     
     resultados = []
     
+    col_fecha = df_campo.columns[0]
+    col_plm2 = df_campo.columns[1]
+            
     for w_max in rango_w_max:
         for ke in rango_ke:
             df_sim = df.copy()
@@ -319,28 +309,28 @@ def optimizar_parametros_hidricos(df_meteo, df_campo, modelo_ann, latitud_borden
             df_sim["Tmedia_10d"] = df_sim["Tmedia_aire"].rolling(window=10, min_periods=1).mean()
             df_sim.loc[df_sim["Tmedia_10d"] >= 24.0, "EMERREL"] = 0.0
             
-            col_fecha = df_campo.columns[0]
-            col_plm2 = df_campo.columns[1]
-            # Usamos freq_dias=7 por defecto en el optimizador para buscar el mejor NSE Semanal
-            df_sync = sincronizar_series_flexibles(df_sim, df_campo, col_fecha, col_plm2, freq_dias=7)
-            metricas = calcular_metricas_validacion_integral(df_sync)
-            
-            resultados.append({
-                "W_Max (mm)": w_max,
-                "Ke_Suelo": round(ke, 2),
-                "NSE (7D)": metricas["NSE_Flujos"],
-                "KGE (7D)": metricas["KGE_Flujos"],
-                "CCC": metricas["CCC_Acumulado"],
-                "RMSE": metricas["RMSE_Acumulado"]
-            })
+            # Loop interno para testear cada tamaño de ventana sobre la misma física
+            for v_dias in rango_ventanas:
+                df_sync = sincronizar_series_flexibles(df_sim, df_campo, col_fecha, col_plm2, freq_dias=v_dias)
+                metricas = calcular_metricas_validacion_integral(df_sync)
+                
+                resultados.append({
+                    "W_Max (mm)": w_max,
+                    "Ke_Suelo": round(ke, 2),
+                    "Ventana (Días)": v_dias,
+                    "NSE": metricas["NSE_Flujos"],
+                    "KGE": metricas["KGE_Flujos"],
+                    "CCC": metricas["CCC_Acumulado"],
+                    "RMSE": metricas["RMSE_Acumulado"]
+                })
             
     df_resultados = pd.DataFrame(resultados)
     df_robustos = df_resultados[df_resultados["CCC"] > 0.90].copy()
     
     if not df_robustos.empty:
-        return df_robustos.sort_values(by="NSE (7D)", ascending=False).reset_index(drop=True)
+        return df_robustos.sort_values(by="NSE", ascending=False).reset_index(drop=True)
     else:
-        return df_resultados.sort_values(by="NSE (7D)", ascending=False).reset_index(drop=True)
+        return df_resultados.sort_values(by="NSE", ascending=False).reset_index(drop=True)
 
 # ---------------------------------------------------------
 # 5. INTERFAZ PRINCIPAL Y SIDEBAR
@@ -429,15 +419,23 @@ st.sidebar.markdown("## 📊 4. Flexibilidad Estadística")
 ventana_agrupacion = st.sidebar.slider(
     "Ventana de Validación (días)", 
     min_value=1, max_value=30, value=7, step=1, 
-    help="Agrupa los flujos simulados y observados en bloques de N días. Ajustar a 7 para obtener el NSE Semanal."
+    help="Agrupa los flujos simulados y observados en bloques de N días."
 )
 
-# --- MODO DESARROLLADOR: OPTIMIZADOR HÍDRICO ---
-with st.sidebar.expander("🛠️ Modo Dev: Optimizador Hídrico", expanded=False):
-    st.caption("Busca W_Max y Ke iterativamente para maximizar el NSE Semanal.")
-    if st.button("Ejecutar Barrido Paramétrico"):
+# --- MODO DESARROLLADOR: OPTIMIZADOR 3D ---
+with st.sidebar.expander("🛠️ Modo Dev: Optimizador 3D", expanded=False):
+    st.caption("Busca la combinación perfecta de Suelo y Ventana Estadística.")
+    
+    modo_optimizador = st.radio("Dimensión de Búsqueda:", [
+        "Física (Usa ventana actual)", 
+        "Integral (Busca ventana óptima)"
+    ])
+    
+    if st.button("Ejecutar Barrido 3D"):
         if df_meteo_raw is not None and df_campo_raw is not None and modelo_ann is not None:
-            with st.spinner('Ejecutando iteraciones (NSE a 7 días)...'):
+            ventanas_a_probar = [ventana_agrupacion] if modo_optimizador == "Física (Usa ventana actual)" else [3, 5, 7, 10, 14, 21]
+            
+            with st.spinner(f'Ejecutando iteraciones 3D en ventanas: {ventanas_a_probar}...'):
                 df_meteo_opt = df_meteo_raw.copy()
                 df_meteo_opt.columns = [c.upper().strip() for c in df_meteo_opt.columns]
                 df_meteo_opt = df_meteo_opt.rename(columns={'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
@@ -446,10 +444,10 @@ with st.sidebar.expander("🛠️ Modo Dev: Optimizador Hídrico", expanded=Fals
                 col_fecha_opt = 'FECHA' if 'FECHA' in df_campo_opt.columns else df_campo_opt.columns[0]
                 df_campo_opt[col_fecha_opt] = pd.to_datetime(df_campo_opt[col_fecha_opt])
                 
-                tabla_optima = optimizar_parametros_hidricos(df_meteo_opt, df_campo_opt, modelo_ann)
+                tabla_optima = optimizar_parametros_hidricos_3d(df_meteo_opt, df_campo_opt, modelo_ann, rango_ventanas=ventanas_a_probar)
                 
-            st.success("¡Barrido completado!")
-            st.dataframe(tabla_optima.head(10))
+            st.success("¡Barrido 3D completado!")
+            st.dataframe(tabla_optima.head(15))
         else:
             st.error("Se requieren datos de Clima y Campo.")
 
@@ -636,7 +634,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
             
             with col_curva:
                 fig_acum = go.Figure()
-                # Modificado para usar el df continuo remuestreado y evitar el error de longitud
                 fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Campo_Acumulado'] * 100, mode='markers+lines', name='Real a Campo (%)', marker=dict(color='#dc2626', size=8, symbol='diamond'), line=dict(color='#dc2626', width=2)))
                 fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Sim_Acumulado'] * 100, mode='lines', name='Simulado Modelo (%)', line=dict(color='#166534', width=3, dash='dash')))
                 st.plotly_chart(fig_acum.update_layout(title="Dinámica de Llenado (Curvas Acumuladas)", xaxis_title="Fechas", yaxis_title="Emergencia Acumulada (%)", height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
@@ -705,7 +702,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
             pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', f'NSE (Flujos {ventana_agrupacion}D)', f'KGE (Flujos {ventana_agrupacion}D)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion', 'Ventana_NSE_Dias'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion, ventana_agrupacion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_12_Flex.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_13_3D.xlsx")
 
 else:
     st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
