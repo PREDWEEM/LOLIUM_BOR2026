@@ -393,7 +393,7 @@ LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.
 st.sidebar.image(LOGO_URL, use_container_width=True)
 
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.01, 0.80, 0.01)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.001, 0.80, 0.001)
 
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
