@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 # ===============================================================
 # 🌾 PREDWEEM INTEGRAL vK4.9.14 — LOLIUM BORDENAVE 2026
@@ -11,6 +12,7 @@
 # - UX VISUAL: Incorporación de la "Unidad de Decisión Agronómica" como 
 #   sombreado de fondo en el gráfico principal de dinámica.
 # - NUEVO: Sombreado de Ventana de Aplicación (600 - 800 °Cd) y línea límite.
+# - NUEVO (VALIDACIÓN): Gráfico 1:1 de Emergencia Acumulada (Norm) con RMSE y R2.
 # ===============================================================
 
 import streamlit as st
@@ -260,12 +262,18 @@ def calcular_metricas_validacion_integral(df_sync):
     denominador_ccc = var_obs_ac + var_sim_ac + (mean_obs_ac - mean_sim_ac)**2
     ccc_acumulado = (2 * covar_ac) / denominador_ccc if denominador_ccc > 0 else 0.0
     
+    # NUEVO: Cálculo de R2 para Curva Acumulada
+    ss_res_ac = np.sum((obs_acum - sim_acum)**2)
+    ss_tot_ac = np.sum((obs_acum - mean_obs_ac)**2)
+    r2_acumulado = 1 - (ss_res_ac / ss_tot_ac) if ss_tot_ac > 0 else 0.0
+    
     return {
         "Pearson_Flujos": pearson_r, 
         "NSE_Flujos": nse_flujos,
         "KGE_Flujos": kge_flujos,
         "RMSE_Acumulado": rmse_acumulado, 
-        "CCC_Acumulado": ccc_acumulado
+        "CCC_Acumulado": ccc_acumulado,
+        "R2_Acumulado": r2_acumulado
     }
 
 # ---------------------------------------------------------
@@ -323,6 +331,7 @@ def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bor
                     "NSE": metricas["NSE_Flujos"],
                     "KGE": metricas["KGE_Flujos"],
                     "CCC": metricas["CCC_Acumulado"],
+                    "R2": metricas["R2_Acumulado"],
                     "RMSE": metricas["RMSE_Acumulado"]
                 })
             
@@ -541,7 +550,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
 
     # Métricas Robustas (Con Ventana Flexible)
-    pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum = 0.0, 0.0, 0.0, 0.0, 0.0
+    pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, r2_acum = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     pec, peak_lag, lead_time, desfase_t50 = 0.0, 0, 0, 0
 
     if df_campo is not None:
@@ -553,6 +562,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         kge_flujos = metricas_robustas["KGE_Flujos"]
         rmse_acum = metricas_robustas["RMSE_Acumulado"]
         ccc_acum = metricas_robustas["CCC_Acumulado"]
+        r2_acum = metricas_robustas["R2_Acumulado"]
 
         tot_plm2 = df_campo[col_plm2].sum()
         if tot_plm2 > 0:
@@ -683,24 +693,47 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 fig_acum = go.Figure()
                 fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Campo_Acumulado'] * 100, mode='markers+lines', name='Real a Campo (%)', marker=dict(color='#dc2626', size=8, symbol='diamond'), line=dict(color='#dc2626', width=2)))
                 fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Sim_Acumulado'] * 100, mode='lines', name='Simulado Modelo (%)', line=dict(color='#166534', width=3, dash='dash')))
-                st.plotly_chart(fig_acum.update_layout(title="Dinámica de Llenado (Curvas Acumuladas)", xaxis_title="Fechas", yaxis_title="Emergencia Acumulada (%)", height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
+                st.plotly_chart(fig_acum.update_layout(title="Dinámica de Llenado (Curvas Acumuladas)", xaxis_title="Fechas", yaxis_title="Emergencia Acumulada (%)", height=430, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
 
             with col_disp:
-                mask_disp = (df_sincronizado['Campo_Relativo'] > 0) | (df_sincronizado['Sim_Relativo'] > 0)
-                df_disp = df_sincronizado[mask_disp]
+                tab_flujos, tab_acum = st.tabs(["1:1 Flujos", "1:1 Acumulado"])
                 
-                fig_1to1 = go.Figure()
-                fig_1to1.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='1:1', line=dict(color='gray', dash='dash')))
-                fig_1to1.add_trace(go.Scatter(
-                    x=df_disp['Campo_Relativo'], 
-                    y=df_disp['Sim_Relativo'], 
-                    mode='markers', 
-                    name='Flujos por Ventana',
-                    marker=dict(color='#2563eb', size=12, line=dict(width=1, color='DarkBlue')),
-                    text=df_disp['Fecha'].dt.strftime('%d-%m-%Y'),
-                    hovertemplate="<b>Semana del %{text}</b><br>Obs: %{x:.3f}<br>Sim: %{y:.3f}<extra></extra>"
-                ))
-                st.plotly_chart(fig_1to1.update_layout(title=f"Ajuste 1:1 de Flujos (Ventanas de {ventana_agrupacion} días)", xaxis_title="Observado Relativo", yaxis_title="Simulado Relativo", height=400, showlegend=False), use_container_width=True)
+                with tab_flujos:
+                    mask_disp = (df_sincronizado['Campo_Relativo'] > 0) | (df_sincronizado['Sim_Relativo'] > 0)
+                    df_disp = df_sincronizado[mask_disp]
+                    
+                    fig_1to1 = go.Figure()
+                    fig_1to1.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='1:1', line=dict(color='gray', dash='dash')))
+                    fig_1to1.add_trace(go.Scatter(
+                        x=df_disp['Campo_Relativo'], 
+                        y=df_disp['Sim_Relativo'], 
+                        mode='markers', 
+                        name='Flujos por Ventana',
+                        marker=dict(color='#2563eb', size=12, line=dict(width=1, color='DarkBlue')),
+                        text=df_disp['Fecha'].dt.strftime('%d-%m-%Y'),
+                        hovertemplate="<b>Semana del %{text}</b><br>Obs: %{x:.3f}<br>Sim: %{y:.3f}<extra></extra>"
+                    ))
+                    st.plotly_chart(fig_1to1.update_layout(title=f"Ajuste 1:1 de Flujos (Ventanas {ventana_agrupacion}d)", xaxis_title="Observado Relativo", yaxis_title="Simulado Relativo", height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), use_container_width=True)
+
+                with tab_acum:
+                    fig_1to1_ac = go.Figure()
+                    fig_1to1_ac.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='1:1', line=dict(color='gray', dash='dash')))
+                    fig_1to1_ac.add_trace(go.Scatter(
+                        x=df_sincronizado['Campo_Acumulado'],
+                        y=df_sincronizado['Sim_Acumulado'],
+                        mode='markers',
+                        name='Emergencia Acumulada',
+                        marker=dict(color='#dc2626', size=12, symbol='diamond', line=dict(width=1, color='DarkRed')),
+                        text=df_sincronizado['Fecha'].dt.strftime('%d-%m-%Y'),
+                        hovertemplate="<b>%{text}</b><br>Obs Acum: %{x:.3f}<br>Sim Acum: %{y:.3f}<extra></extra>"
+                    ))
+                    st.plotly_chart(fig_1to1_ac.update_layout(
+                        title=f"Ajuste 1:1 Acumulado (R²: {r2_acum:.3f} | RMSE: {rmse_acum:.3f})", 
+                        xaxis_title="Obs. Acumulada (Norm)", 
+                        yaxis_title="Sim. Acumulada (Norm)", 
+                        height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), 
+                        use_container_width=True
+                    )
 
     with tab2:
         st.header("💧 Dinámica Hídrica del Suelo")
@@ -746,7 +779,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         if df_campo is not None:
             df_campo.to_excel(writer, index=False, sheet_name='Campo_Validacion')
-            pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', f'NSE (Flujos {ventana_agrupacion}D)', f'KGE (Flujos {ventana_agrupacion}D)', 'RMSE (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
+            pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', f'NSE (Flujos {ventana_agrupacion}D)', f'KGE (Flujos {ventana_agrupacion}D)', 'RMSE (Acumulado)', 'R2 (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, r2_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion', 'Ventana_NSE_Dias'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion, ventana_agrupacion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
     st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_14_UX.xlsx")
