@@ -431,7 +431,7 @@ st.sidebar.divider()
 st.sidebar.markdown("## 🌡️ 3. Microclima de Suelo (Invierno)")
 calentamiento_suelo = st.sidebar.slider(
     "Aumento de Temperatura (°C)", 
-    min_value=0.0, max_value=8.0, value=2.0, step=0.5,
+    min_value=0.0, max_value=8.0, value=1.5, step=0.5,
     help="Suma N grados a la T° Max y Min del suelo entre los días julianos 152 (1 de Junio) y 264 para favorecer la emergencia."
 )
 
