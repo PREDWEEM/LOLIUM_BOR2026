@@ -12,7 +12,7 @@
 #   sombreado de fondo en el gráfico principal de dinámica.
 # - NUEVO: Sombreado de Ventana de Aplicación (600 - 800 °Cd) y línea límite.
 # - NUEVO (VALIDACIÓN): Gráfico 1:1 de Emergencia Acumulada (Norm) con RMSE y R2.
-# - NUEVO (MICROCLIMA): Slider de calentamiento de suelo Otoño/Invierno (Días 80-264).
+# - NUEVO (MICROCLIMA): Slider de calentamiento de suelo en Invierno (Días 152-264).
 # ===============================================================
 
 import streamlit as st
@@ -290,8 +290,8 @@ def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bor
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * 0.90)
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * 0.90)
     
-    # APLICACIÓN DE CALENTAMIENTO
-    mask_oi = (df["Julian_days"] >= 80) & (df["Julian_days"] <= 264)
+    # APLICACIÓN DE CALENTAMIENTO (Desde el 1 de Junio)
+    mask_oi = (df["Julian_days"] >= 152) & (df["Julian_days"] <= 264)
     df.loc[mask_oi, "TMAX_suelo"] += calentamiento_suelo
     df.loc[mask_oi, "TMIN_suelo"] += calentamiento_suelo
 
@@ -428,11 +428,11 @@ dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=6
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 st.sidebar.divider()
-st.sidebar.markdown("## 🌡️ 3. Microclima de Suelo (Otoño-Invierno)")
+st.sidebar.markdown("## 🌡️ 3. Microclima de Suelo (Invierno)")
 calentamiento_suelo = st.sidebar.slider(
     "Aumento de Temperatura (°C)", 
     min_value=0.0, max_value=8.0, value=2.0, step=0.5,
-    help="Suma N grados a la T° Max y Min del suelo entre los días julianos 80 y 264 para favorecer la emergencia."
+    help="Suma N grados a la T° Max y Min del suelo entre los días julianos 152 (1 de Junio) y 264 para favorecer la emergencia."
 )
 
 st.sidebar.divider()
@@ -494,8 +494,8 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
 
-    # APLICACIÓN DE CALENTAMIENTO DESDE EL SIDEBAR (Días 80 a 264)
-    mask_oi = (df["Julian_days"] >= 80) & (df["Julian_days"] <= 264)
+    # APLICACIÓN DE CALENTAMIENTO DESDE EL SIDEBAR (Desde el 1 de Junio)
+    mask_oi = (df["Julian_days"] >= 152) & (df["Julian_days"] <= 264)
     df.loc[mask_oi, "TMAX_suelo"] += calentamiento_suelo
     df.loc[mask_oi, "TMIN_suelo"] += calentamiento_suelo
 
