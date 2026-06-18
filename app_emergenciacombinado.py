@@ -12,6 +12,7 @@
 #   sombreado de fondo en el gráfico principal de dinámica.
 # - NUEVO: Sombreado de Ventana de Aplicación (600 - 800 °Cd) y línea límite.
 # - NUEVO (VALIDACIÓN): Gráfico 1:1 de Emergencia Acumulada (Norm) con RMSE y R2.
+# - NUEVO (MICROCLIMA): Slider de calentamiento de suelo en Invierno (Días 152-264).
 # ===============================================================
 
 import streamlit as st
@@ -276,9 +277,9 @@ def calcular_metricas_validacion_integral(df_sync):
     }
 
 # ---------------------------------------------------------
-# 4.5 MÓDULO OPTIMIZADOR 3D (HÍDRICO + VENTANA)
+# 4.5 MÓDULO OPTIMIZADOR 3D (HÍDRICO + VENTANA + TÉRMICO)
 # ---------------------------------------------------------
-def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bordenave=-37.761671, rango_ventanas=[7]):
+def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bordenave=-37.761671, rango_ventanas=[7], calentamiento_suelo=0.0):
     df = df_meteo.copy()
     df['Fecha'] = pd.to_datetime(df['Fecha'])
     df["Julian_days"] = df["Fecha"].dt.dayofyear
@@ -288,6 +289,12 @@ def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bor
     amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * 0.90)
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * 0.90)
+    
+    # APLICACIÓN DE CALENTAMIENTO (Desde el 1 de Junio)
+    mask_oi = (df["Julian_days"] >= 152) & (df["Julian_days"] <= 264)
+    df.loc[mask_oi, "TMAX_suelo"] += calentamiento_suelo
+    df.loc[mask_oi, "TMIN_suelo"] += calentamiento_suelo
+
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=latitud_bordenave)
     
     X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
@@ -421,11 +428,19 @@ dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=6
 dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
 
 st.sidebar.divider()
-st.sidebar.markdown("## 💧 3. Balance Hídrico (Suelo)")
+st.sidebar.markdown("## 🌡️ 3. Microclima de Suelo (Invierno)")
+calentamiento_suelo = st.sidebar.slider(
+    "Aumento de Temperatura (°C)", 
+    min_value=0.0, max_value=8.0, value=1.5, step=0.5,
+    help="Suma N grados a la T° Max y Min del suelo entre los días julianos 152 (1 de Junio) y 264 para favorecer la emergencia."
+)
+
+st.sidebar.divider()
+st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
 st.sidebar.divider()
-st.sidebar.markdown("## 📊 4. Flexibilidad Estadística")
+st.sidebar.markdown("## 📊 5. Flexibilidad Estadística")
 ventana_agrupacion = st.sidebar.slider(
     "Ventana de Validación (días)", 
     min_value=1, max_value=30, value=11, step=1, 
@@ -454,7 +469,7 @@ with st.sidebar.expander("🛠️ Modo Dev: Optimizador 3D", expanded=False):
                 col_fecha_opt = 'FECHA' if 'FECHA' in df_campo_opt.columns else df_campo_opt.columns[0]
                 df_campo_opt[col_fecha_opt] = pd.to_datetime(df_campo_opt[col_fecha_opt])
                 
-                tabla_optima = optimizar_parametros_hidricos_3d(df_meteo_opt, df_campo_opt, modelo_ann, rango_ventanas=ventanas_a_probar)
+                tabla_optima = optimizar_parametros_hidricos_3d(df_meteo_opt, df_campo_opt, modelo_ann, rango_ventanas=ventanas_a_probar, calentamiento_suelo=calentamiento_suelo)
                 
             st.success("¡Barrido 3D completado!")
             st.dataframe(tabla_optima.head(15))
@@ -478,6 +493,11 @@ if df_meteo_raw is not None and modelo_ann is not None:
     amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
+
+    # APLICACIÓN DE CALENTAMIENTO DESDE EL SIDEBAR (Desde el 1 de Junio)
+    mask_oi = (df["Julian_days"] >= 152) & (df["Julian_days"] <= 264)
+    df.loc[mask_oi, "TMAX_suelo"] += calentamiento_suelo
+    df.loc[mask_oi, "TMIN_suelo"] += calentamiento_suelo
 
     df_campo, col_fecha, col_plm2 = None, None, None
     if df_campo_raw is not None:
@@ -524,7 +544,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     if fecha_hoy not in df['Fecha'].values: fecha_hoy = df['Fecha'].max()
     indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
 
-    # --- NUEVO: CÁLCULO DE FECHA LÍMITE (800 °Cd) ---
+    # --- CÁLCULO DE FECHA LÍMITE (800 °Cd) ---
     dga_hoy, dga_7dias = 0.0, 0.0
     fecha_inicio_ventana, fecha_control, fecha_limite = None, None, None
     msg_estado = "Esperando pico de emergencia..."
@@ -653,7 +673,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 # Sombreado de protección química
                 fig_emer.add_vrect(x0=fecha_control.timestamp() * 1000, x1=(fecha_control + timedelta(days=residualidad)).timestamp() * 1000, fillcolor="blue", opacity=0.1, layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)", annotation_position="top left")
 
-                # --- NUEVO: MARCA DE 800 °Cd Y ÁREA SOMBREADA ---
+                # MARCA DE 800 °Cd Y ÁREA SOMBREADA
                 if fecha_limite:
                     # Línea a los 800 °Cd
                     fig_emer.add_vline(x=fecha_limite.timestamp() * 1000, line_dash="dot", line_color="orange", line_width=3, annotation_text=f"Límite ({dga_critico}°Cd)", annotation_position="top right", annotation_font=dict(color="orange", size=12))
@@ -666,7 +686,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
                         layer="below", line_width=0,
                         annotation_text="Ventana de Aplicación", annotation_position="top left"
                     )
-                # --------------------------------------------------
 
             # Título actualizado para reflejar la ventana visual
             titulo_grafico = f"Dinámica de Emergencia y Momento Crítico (Unidad Decisión: {ventana_agrupacion} días)"
@@ -779,7 +798,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         if df_campo is not None:
             df_campo.to_excel(writer, index=False, sheet_name='Campo_Validacion')
             pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', f'NSE (Flujos {ventana_agrupacion}D)', f'KGE (Flujos {ventana_agrupacion}D)', 'RMSE (Acumulado)', 'R2 (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, r2_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
-        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion', 'Ventana_NSE_Dias'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion, ventana_agrupacion]}).to_excel(writer, sheet_name='Bio_Params', index=False)
+        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion', 'Ventana_NSE_Dias', 'Calentamiento_Suelo_OI'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion, ventana_agrupacion, calentamiento_suelo]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
     st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_14_UX.xlsx")
 
