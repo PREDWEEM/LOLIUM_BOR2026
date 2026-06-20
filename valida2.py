@@ -1,18 +1,15 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.9.14 — LOLIUM BORDENAVE 2026
-# Actualización:
-# - ADAPTACIÓN BORDENAVE: Coordenadas mantenidas estrictamente en -37.761671.
+# 👑 PREDWEEM INTEGRAL vK4.9.15 — LOLIUM BORDENAVE 2026
+# Actualización y Rigor Científico:
+# - ADAPTACIÓN BORDENAVE: Coordenadas fijas en -37.761671 para el motor de ET0.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
-# - LATENCIA INICIAL: Bloqueo de emergencia los primeros 25 días del año.
-# - NSE FLEXIBLE (SEMANAL): Reemplazo de sincronización rígida por interpolación 
-#   continua de acumulados y remuestreo dinámico en ventanas de N-días.
-# - OPTIMIZADOR 3D: Barrido paramétrico simultáneo de W_Max, Ke y Ventana de Validación.
-# - UX VISUAL: Incorporación de la "Unidad de Decisión Agronómica" como 
-#   sombreado de fondo en el gráfico principal de dinámica.
-# - NUEVO: Sombreado de Ventana de Aplicación (600 - 800 °Cd) y línea límite.
-# - NUEVO (VALIDACIÓN): Gráfico 1:1 de Emergencia Acumulada (Norm) con RMSE y R2.
-# - NUEVO (MICROCLIMA): Slider de calentamiento de suelo en Invierno (Días 152-264).
+# - LATENCIA INICIAL: Bloqueo estricto de emergencia los primeros 25 días del año.
+# - VALIDACIÓN DE FRECUENCIA VARIABLE: Incorporación del método de Integración 
+#   Dinámica por Intervalo Real (Event-to-Event), eliminando artefactos de interpolación.
+# - OPTIMIZADOR 2D BIO-FÍSICO: Barrido de parámetros de suelo (W_Max y Ke) ajustado a ventanas de campo.
+# - MICROCLIMA PRESERVADO: Modulador térmico invernal activo (Días julianos 152-264).
+# - UX DINÁMICA: Sombreados de fondo del gráfico de dinámica vinculados a las fechas reales de muestreo.
 # ===============================================================
 
 import streamlit as st
@@ -32,7 +29,7 @@ import base64
 if 'arranque_fase' not in st.session_state:
     st.set_page_config(page_title="PREDWEEM BORDENAVE INTEGRAL", layout="wide", page_icon="🌾")
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.info("🚜 **Iniciando Servidor PREDWEEM Integral...** Cargando módulos de validación.")
+    st.info("🚜 **Iniciando Servidor PREDWEEM Bordenave...** Cargando motores por evento real.")
     st.progress(20)
     
     st.session_state.arranque_fase = 1
@@ -116,7 +113,7 @@ def create_mock_files_if_missing():
 create_mock_files_if_missing()
 
 # ---------------------------------------------------------
-# 4. LÓGICA TÉCNICA Y VALIDACIÓN FLEXIBLE
+# 4. LÓGICA TÉCNICA E INTEGRACIÓN DINÁMICA POR EVENTO REAL
 # ---------------------------------------------------------
 def dtw_distance(a, b):
     na, nb = len(a), len(b)
@@ -150,8 +147,8 @@ def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo=0.4):
     w = np.zeros(n)
     w[0] = w_max / 2.0 
     for i in range(1, n):
-        evaporacion_real = et0[i] * ke_suelo
-        w[i] = max(0.0, min(w_max, w[i-1] + prec[i] - evaporacion_real))
+        evapacoracion_real = et0[i] * ke_suelo
+        w[i] = max(0.0, min(w_max, w[i-1] + prec[i] - evapacoracion_real))
     return w
 
 class PracticalANNModel:
@@ -190,45 +187,55 @@ def load_data(file_uploader, default_name):
     except:
         return None
 
-def sincronizar_series_flexibles(df_sim, df_campo, col_fecha, col_plm2, freq_dias=7):
-    fecha_min = min(df_sim["Fecha"].min(), df_campo[col_fecha].min())
-    fecha_max = max(df_sim["Fecha"].max(), df_campo[col_fecha].max())
-    df_grid = pd.DataFrame({'Fecha': pd.date_range(start=fecha_min, end=fecha_max, freq='D')})
+def sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2):
+    df_campo = df_campo.sort_values(col_fecha).copy()
+    df_campo['Campo_Acum_Abs'] = df_campo[col_plm2].cumsum()
     
-    df_sim_clean = df_sim[['Fecha', 'EMERREL']].copy()
-    df_grid = pd.merge(df_grid, df_sim_clean, on='Fecha', how='left').fillna({'EMERREL': 0})
-    df_grid['Sim_Acum_Abs'] = df_grid['EMERREL'].cumsum()
+    fechas_reales = df_campo[col_fecha].tolist()
+    registros = []
     
-    df_campo_sorted = df_campo.sort_values(col_fecha).copy()
-    df_campo_sorted['Campo_Acum_Abs'] = df_campo_sorted[col_plm2].cumsum()
+    for i in range(1, len(fechas_reales)):
+        f_inicio = fechas_reales[i-1]
+        f_fin = fechas_reales[i]
+        dias_intervalo = (f_fin - f_inicio).days
+        
+        obs_inicio = df_campo.loc[df_campo[col_fecha] == f_inicio, 'Campo_Acum_Abs'].values[0]
+        obs_fin = df_campo.loc[df_campo[col_fecha] == f_fin, 'Campo_Acum_Abs'].values[0]
+        flujo_obs = max(0.0, obs_fin - obs_inicio)
+        
+        mask_sim = (df_sim['Fecha'] > f_inicio) & (df_sim['Fecha'] <= f_fin)
+        flujo_sim = df_sim.loc[mask_sim, 'EMERREL'].sum()
+        
+        acum_sim_fin = df_sim.loc[df_sim['Fecha'] <= f_fin, 'EMERREL'].sum()
+        
+        registros.append({
+            'Fecha': f_fin,
+            'Dias_Intervalo': dias_intervalo,
+            'Flujo_Obs_Abs': flujo_obs,
+            'Flujo_Sim_Abs': flujo_sim,
+            'Acum_Obs_Abs': obs_fin,
+            'Acum_Sim_Abs': acum_sim_fin
+        })
+        
+    df_res = pd.DataFrame(registros)
+    if df_res.empty:
+        return pd.DataFrame()
+        
+    total_obs = df_res['Flujo_Obs_Abs'].sum()
+    total_sim = df_sim.loc[df_sim['Fecha'] <= fechas_reales[-1], 'EMERREL'].sum()
     
-    df_grid = pd.merge(df_grid, df_campo_sorted[[col_fecha, 'Campo_Acum_Abs']], left_on='Fecha', right_on=col_fecha, how='left')
+    df_res['Campo_Relativo'] = df_res['Flujo_Obs_Abs'] / total_obs if total_obs > 0 else 0.0
+    df_res['Sim_Relativo'] = df_res['Flujo_Sim_Abs'] / total_sim if total_sim > 0 else 0.0
     
-    df_grid['Campo_Acum_Abs'] = df_grid['Campo_Acum_Abs'].interpolate(method='linear')
-    df_grid['Campo_Acum_Abs'] = df_grid['Campo_Acum_Abs'].fillna(0)
-    df_grid['Campo_Acum_Abs'] = df_grid['Campo_Acum_Abs'].ffill()
+    df_res['Campo_Acumulado'] = df_res['Acum_Obs_Abs'] / df_campo['Campo_Acum_Abs'].max() if df_campo['Campo_Acum_Abs'].max() > 0 else 0.0
+    df_res['Sim_Acumulado'] = df_res['Acum_Sim_Abs'] / df_sim['EMERREL'].sum() if df_sim['EMERREL'].sum() > 0 else 0.0
     
-    df_grid.set_index('Fecha', inplace=True)
-    df_resampled = df_grid.resample(f'{freq_dias}D').last().reset_index()
-    
-    df_resampled['Simulado_Intervalo'] = df_resampled['Sim_Acum_Abs'].diff().fillna(df_resampled['Sim_Acum_Abs'])
-    df_resampled['Campo_Intervalo'] = df_resampled['Campo_Acum_Abs'].diff().fillna(df_resampled['Campo_Acum_Abs'])
-    
-    df_resampled['Simulado_Intervalo'] = df_resampled['Simulado_Intervalo'].clip(lower=0)
-    df_resampled['Campo_Intervalo'] = df_resampled['Campo_Intervalo'].clip(lower=0)
-    
-    total_sim = df_resampled['Sim_Acum_Abs'].max()
-    total_campo = df_resampled['Campo_Acum_Abs'].max()
-    
-    df_resampled['Sim_Relativo'] = df_resampled['Simulado_Intervalo'] / total_sim if total_sim > 0 else 0.0
-    df_resampled['Campo_Relativo'] = df_resampled['Campo_Intervalo'] / total_campo if total_campo > 0 else 0.0
-    
-    df_resampled['Sim_Acumulado'] = df_resampled['Sim_Acum_Abs'] / total_sim if total_sim > 0 else 0.0
-    df_resampled['Campo_Acumulado'] = df_resampled['Campo_Acum_Abs'] / total_campo if total_campo > 0 else 0.0
-    
-    return df_resampled
+    return df_res
 
 def calcular_metricas_validacion_integral(df_sync):
+    if df_sync.empty or len(df_sync) < 2:
+        return {"Pearson_Flujos": 0.0, "NSE_Flujos": 0.0, "KGE_Flujos": 0.0, "RMSE_Acumulado": 0.0, "CCC_Acumulado": 0.0, "R2_Acumulado": 0.0}
+
     mask_activos = (df_sync['Campo_Relativo'] > 0) | (df_sync['Sim_Relativo'] > 0)
     df_activos = df_sync[mask_activos].copy()
     
@@ -262,7 +269,6 @@ def calcular_metricas_validacion_integral(df_sync):
     denominador_ccc = var_obs_ac + var_sim_ac + (mean_obs_ac - mean_sim_ac)**2
     ccc_acumulado = (2 * covar_ac) / denominador_ccc if denominador_ccc > 0 else 0.0
     
-    # NUEVO: Cálculo de R2 para Curva Acumulada
     ss_res_ac = np.sum((obs_acum - sim_acum)**2)
     ss_tot_ac = np.sum((obs_acum - mean_obs_ac)**2)
     r2_acumulado = 1 - (ss_res_ac / ss_tot_ac) if ss_tot_ac > 0 else 0.0
@@ -277,20 +283,18 @@ def calcular_metricas_validacion_integral(df_sync):
     }
 
 # ---------------------------------------------------------
-# 4.5 MÓDULO OPTIMIZADOR 3D (HÍDRICO + VENTANA + TÉRMICO)
+# 4.5 MÓDULO OPTIMIZADOR 2D (CALIBRACIÓN SUELO POR EVENTO)
 # ---------------------------------------------------------
-def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bordenave=-37.761671, rango_ventanas=[7], calentamiento_suelo=0.0):
+def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bordenave=-37.761671, calentamiento_suelo=0.0):
     df = df_meteo.copy()
     df['Fecha'] = pd.to_datetime(df['Fecha'])
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     
-    # Simulación Térmica Básica
     df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
     amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * 0.90)
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * 0.90)
     
-    # APLICACIÓN DE CALENTAMIENTO (Desde el 1 de Junio)
     mask_oi = (df["Julian_days"] >= 152) & (df["Julian_days"] <= 264)
     df.loc[mask_oi, "TMAX_suelo"] += calentamiento_suelo
     df.loc[mask_oi, "TMIN_suelo"] += calentamiento_suelo
@@ -304,7 +308,6 @@ def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bor
     rango_ke = np.arange(0.2, 0.85, 0.1)
     
     resultados = []
-    
     col_fecha = df_campo.columns[0]
     col_plm2 = df_campo.columns[1]
             
@@ -326,28 +329,21 @@ def optimizar_parametros_hidricos_3d(df_meteo, df_campo, modelo_ann, latitud_bor
             df_sim["Tmedia_10d"] = df_sim["Tmedia_aire"].rolling(window=10, min_periods=1).mean()
             df_sim.loc[df_sim["Tmedia_10d"] >= 24.0, "EMERREL"] = 0.0
             
-            for v_dias in rango_ventanas:
-                df_sync = sincronizar_series_flexibles(df_sim, df_campo, col_fecha, col_plm2, freq_dias=v_dias)
-                metricas = calcular_metricas_validacion_integral(df_sync)
-                
-                resultados.append({
-                    "W_Max (mm)": w_max,
-                    "Ke_Suelo": round(ke, 2),
-                    "Ventana (Días)": v_dias,
-                    "NSE": metricas["NSE_Flujos"],
-                    "KGE": metricas["KGE_Flujos"],
-                    "CCC": metricas["CCC_Acumulado"],
-                    "R2": metricas["R2_Acumulado"],
-                    "RMSE": metricas["RMSE_Acumulado"]
-                })
+            df_sync = sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2)
+            metricas = calcular_metricas_validacion_integral(df_sync)
+            
+            resultados.append({
+                "W_Max (mm)": w_max,
+                "Ke_Suelo": round(ke, 2),
+                "NSE (Flujos)": metricas["NSE_Flujos"],
+                "KGE": metricas["KGE_Flujos"],
+                "CCC (Acumulado)": metricas["CCC_Acumulado"],
+                "R2": metricas["R2_Acumulado"],
+                "RMSE": metricas["RMSE_Acumulado"]
+            })
             
     df_resultados = pd.DataFrame(resultados)
-    df_robustos = df_resultados[df_resultados["CCC"] > 0.90].copy()
-    
-    if not df_robustos.empty:
-        return df_robustos.sort_values(by="NSE", ascending=False).reset_index(drop=True)
-    else:
-        return df_resultados.sort_values(by="NSE", ascending=False).reset_index(drop=True)
+    return df_resultados.sort_values(by="NSE (Flujos)", ascending=False).reset_index(drop=True)
 
 # ---------------------------------------------------------
 # 5. INTERFAZ PRINCIPAL Y SIDEBAR
@@ -361,7 +357,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
     
     with col_upload:
         archivo_meteo = st.file_uploader("1. Clima (Bordenave)", type=["xlsx", "csv"])
-        archivo_campo = st.file_uploader("2. Campo (Validación Bordenave)", type=["xlsx", "csv"])
+        archivo_campo = st.file_uploader("2. Campo (Validación Real Variable)", type=["xlsx", "csv"])
         
     with col_rastrojo:
         with st.container(border=True):
@@ -377,17 +373,8 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             mod_termico = float(np.interp(cobertura_pct, x_cobertura, [1.00, 0.95, 0.90, 0.80]))
 
             html_card = f"""
-            <div style="
-                background-color: #ffffff;
-                padding: 15px 20px;
-                border-radius: 10px;
-                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-                border: 1px solid #e2e8f0;
-                margin-top: 15px;
-            ">
-                <h5 style="color: #1e293b; margin-top: 0; margin-bottom: 12px; font-size: 0.95rem;">
-                    Parámetros Dinámicos Aplicados
-                </h5>
+            <div style="background-color: #ffffff; padding: 15px 20px; border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0; margin-top: 15px;">
+                <h5 style="color: #1e293b; margin-top: 0; margin-bottom: 12px; font-size: 0.95rem;">Parámetros Dinámicos Aplicados</h5>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                     <span style="color: #475569; font-size: 0.9rem;">Coeficiente Hídrico Suelo (Ke):</span>
                     <span style="color: #0284c7; font-weight: bold; font-size: 1.05rem;">{ke_val:.2f}</span>
@@ -440,27 +427,15 @@ st.sidebar.markdown("## 💧 4. Balance Hídrico (Suelo)")
 w_max_val = st.sidebar.number_input("Cap. de Campo Superficial (mm)", value=20.0, step=1.0)
 
 st.sidebar.divider()
-st.sidebar.markdown("## 📊 5. Flexibilidad Estadística")
-ventana_agrupacion = st.sidebar.slider(
-    "Ventana de Validación (días)", 
-    min_value=1, max_value=30, value=11, step=1, 
-    help="Define la Unidad de Decisión Agronómica. Agrupa flujos y sombrea el gráfico principal en intervalos de N días."
-)
+st.sidebar.markdown("## 📊 5. Estado de Validación")
+st.sidebar.info("🔬 **Modo Event-to-Event Habilitado**: Los desvíos se calculan de manera dinámica adaptándose al intervalo real de muestreo a campo (7 a 21 días), protegiendo la varianza pura.")
 
-# --- MODO DESARROLLADOR: OPTIMIZADOR 3D ---
-with st.sidebar.expander("🛠️ Modo Dev: Optimizador 3D", expanded=False):
-    st.caption("Busca la combinación perfecta de Suelo y Ventana Estadística.")
-    
-    modo_optimizador = st.radio("Dimensión de Búsqueda:", [
-        "Física (Usa ventana actual)", 
-        "Integral (Busca ventana óptima)"
-    ])
-    
-    if st.button("Ejecutar Barrido 3D"):
+# --- MODO DESARROLLADOR: CALIBRADOR 2D ---
+with st.sidebar.expander("🛠️ Modo Dev: Calibrador Bio-Físico 2D", expanded=False):
+    st.caption("Mapea combinaciones óptimas de suelo directamente contra las ventanas reales de tus datos de campo.")
+    if st.button("Ejecutar Barrido Hídrico"):
         if df_meteo_raw is not None and df_campo_raw is not None and modelo_ann is not None:
-            ventanas_a_probar = [ventana_agrupacion] if modo_optimizador == "Física (Usa ventana actual)" else [3, 5, 7, 10, 11, 14]
-            
-            with st.spinner(f'Ejecutando iteraciones 3D en ventanas: {ventanas_a_probar}...'):
+            with st.spinner('Ejecutando iteraciones hídricas puras por evento...'):
                 df_meteo_opt = df_meteo_raw.copy()
                 df_meteo_opt.columns = [c.upper().strip() for c in df_meteo_opt.columns]
                 df_meteo_opt = df_meteo_opt.rename(columns={'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
@@ -469,9 +444,9 @@ with st.sidebar.expander("🛠️ Modo Dev: Optimizador 3D", expanded=False):
                 col_fecha_opt = 'FECHA' if 'FECHA' in df_campo_opt.columns else df_campo_opt.columns[0]
                 df_campo_opt[col_fecha_opt] = pd.to_datetime(df_campo_opt[col_fecha_opt])
                 
-                tabla_optima = optimizar_parametros_hidricos_3d(df_meteo_opt, df_campo_opt, modelo_ann, rango_ventanas=ventanas_a_probar, calentamiento_suelo=calentamiento_suelo)
+                tabla_optima = optimizar_parametros_hidricos_2d(df_meteo_opt, df_campo_opt, modelo_ann, latitud_bordenave=-37.761671, calentamiento_suelo=calentamiento_suelo)
                 
-            st.success("¡Barrido 3D completado!")
+            st.success("¡Barrido 2D por eventos completado de forma rigurosa!")
             st.dataframe(tabla_optima.head(15))
         else:
             st.error("Se requieren datos de Clima y Campo.")
@@ -514,7 +489,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
-    # Bloqueo de latencia temprana (Primeros 25 días)
+    # Bloqueo de latencia temprana (Primeros 25 días del año)
     df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0
 
     # Bypass Ruptura Temprana
@@ -568,74 +543,72 @@ if df_meteo_raw is not None and modelo_ann is not None:
         dga_7dias = dga_hoy + df.iloc[idx_hoy + 1: idx_hoy + 8]["DG"].sum() if idx_hoy + 8 <= len(df) else dga_hoy
         msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
 
-    # Métricas Robustas (Con Ventana Flexible)
+    # Sincronización Rigurosa por Eventos Variables
     pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, r2_acum = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     pec, peak_lag, lead_time, desfase_t50 = 0.0, 0, 0, 0
+    df_sincronizado = pd.DataFrame()
 
     if df_campo is not None:
-        df_sincronizado = sincronizar_series_flexibles(df, df_campo, col_fecha, col_plm2, freq_dias=ventana_agrupacion)
-        metricas_robustas = calcular_metricas_validacion_integral(df_sincronizado)
-        
-        pearson_r = metricas_robustas["Pearson_Flujos"]
-        nse_flujos = metricas_robustas["NSE_Flujos"]
-        kge_flujos = metricas_robustas["KGE_Flujos"]
-        rmse_acum = metricas_robustas["RMSE_Acumulado"]
-        ccc_acum = metricas_robustas["CCC_Acumulado"]
-        r2_acum = metricas_robustas["R2_Acumulado"]
-
-        tot_plm2 = df_campo[col_plm2].sum()
-        if tot_plm2 > 0:
-            df_campo['cum_plm2_norm'] = df_campo[col_plm2].cumsum() / tot_plm2
-            t50_obs_date = df_campo[df_campo['cum_plm2_norm'] >= 0.5].iloc[0][col_fecha]
-            df_sim_trunc = df[df['Fecha'] <= df_campo[col_fecha].max()].copy()
-            tot_emer = df_sim_trunc['EMERREL'].sum()
+        df_sincronizado = sincronizar_intervalos_variables(df, df_campo, col_fecha, col_plm2)
+        if not df_sincronizado.empty:
+            metricas_robustas = calcular_metricas_validacion_integral(df_sincronizado)
             
-            if tot_emer > 0:
-                df_sim_trunc['cum_emer_norm'] = df_sim_trunc['EMERREL'].cumsum() / tot_emer
-                t50_sim_date = df_sim_trunc[df_sim_trunc['cum_emer_norm'] >= 0.5].iloc[0]['Fecha']
-                desfase_t50 = (t50_sim_date - t50_obs_date).days
+            pearson_r = metricas_robustas["Pearson_Flujos"]
+            nse_flujos = metricas_robustas["NSE_Flujos"]
+            kge_flujos = metricas_robustas["KGE_Flujos"]
+            rmse_acum = metricas_robustas["RMSE_Acumulado"]
+            ccc_acum = metricas_robustas["CCC_Acumulado"]
+            r2_acum = metricas_robustas["R2_Acumulado"]
 
-        if fecha_control:
-            malezas_totales_campo = df_campo[col_plm2].sum()
-            pec = ((df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum() / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0)
-            peak_lag = (fecha_control - df_campo.loc[df_campo[col_plm2].idxmax(), col_fecha]).days
-            df_alertas = df[df['EMERREL'] >= umbral_er]
-            lead_time = (fecha_control - (df_alertas['Fecha'].iloc[0] if not df_alertas.empty else fecha_inicio_ventana)).days
+            tot_plm2 = df_campo[col_plm2].sum()
+            if tot_plm2 > 0:
+                df_campo['cum_plm2_norm'] = df_campo[col_plm2].cumsum() / tot_plm2
+                t50_obs_date = df_campo[df_campo['cum_plm2_norm'] >= 0.5].iloc[0][col_fecha]
+                df_sim_trunc = df[df['Fecha'] <= df_campo[col_fecha].max()].copy()
+                tot_emer = df_sim_trunc['EMERREL'].sum()
+                
+                if tot_emer > 0:
+                    df_sim_trunc['cum_emer_norm'] = df_sim_trunc['EMERREL'].cumsum() / tot_emer
+                    t50_sim_date = df_sim_trunc[df_sim_trunc['cum_emer_norm'] >= 0.5].iloc[0]['Fecha']
+                    desfase_t50 = (t50_sim_date - t50_obs_date).days
 
-    # -----------------------------------------------------
-    # TRANSFORMACIÓN LOGARÍTMICA (Opción 2 Analítica)
-    # -----------------------------------------------------
+            if fecha_control:
+                malezas_totales_campo = df_campo[col_plm2].sum()
+                pec = ((df_campo.loc[df_campo[col_fecha] <= fecha_control, col_plm2].sum() / malezas_totales_campo) * 100 if malezas_totales_campo > 0 else 0)
+                peak_lag = (fecha_control - df_campo.loc[df_campo[col_plm2].idxmax(), col_fecha]).days
+                df_alertas = df[df['EMERREL'] >= umbral_er]
+                lead_time = (fecha_control - (df_alertas['Fecha'].iloc[0] if not df_alertas.empty else fecha_inicio_ventana)).days
+
+    # Transformación Logarítmica Analítica
     c_log = 0.01
     df["EMERREL_LOG"] = np.log10(df["EMERREL"] + c_log)
     umbral_er_log = np.log10(umbral_er + c_log)
     if df_campo is not None:
         df_campo['Campo_Normalizado_LOG'] = np.log10(df_campo['Campo_Normalizado'] + c_log)
 
-    # -----------------------------------------------------
     # VISUALIZACIÓN FRONT-END
-    # -----------------------------------------------------
     colorscale_hard = [[0.0, "green"], [0.01, "green"], [0.02, "red"], [1.0, "red"]]
-    st.plotly_chart(go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False)).update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo (Tasa Diaria)"), use_container_width=True)
+    st.plotly_chart(go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False)).update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo (Tasa Diaria Bordenave)"), use_container_width=True)
 
     tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "💧 PRECIPITACIONES Y SUELO", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
 
     with tab1:
         if df_campo is not None:
-            st.markdown(f"<p class='metric-header'>🚜 FIDELIDAD DE SIMULACIÓN (Flujos a {ventana_agrupacion} días)</p>", unsafe_allow_html=True)
+            st.markdown("<p class='metric-header'>🚜 FIDELIDAD DE SIMULACIÓN (Evaluación Rigurosa sobre Ventanas Reales de Campo)</p>", unsafe_allow_html=True)
             c1, c2, c3, c4, c5 = st.columns(5)
             
-            c1.metric("Eficiencia (KGE)", f"{kge_flujos:.3f}", "Ajuste Global")
-            c2.metric("Predictivo (NSE)", f"{nse_flujos:.3f}", "Flujos")
+            c1.metric("Eficiencia (KGE)", f"{kge_flujos:.3f}", "Ajuste por Evento")
+            c2.metric("Predictivo (NSE)", f"{nse_flujos:.3f}", "Flujos Puros")
             c3.metric("Trayectoria (CCC)", f"{ccc_acum:.3f}", "Curva Acum.")
-            c4.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Desvío Acum.", delta_color="inverse")
+            c4.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Desvío Acumulado", delta_color="inverse")
             c5.metric("Desfase (T50)", f"{desfase_t50:+d} días", "Sincronía Operativa", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
 
             if fecha_control:
-                st.markdown("<p class='metric-header' style='margin-top:15px;'>⚙️ LOGÍSTICA DE CONTROL</p>", unsafe_allow_html=True)
+                st.markdown("<p class='metric-header' style='margin-top:15px;'>⚙️ LOGÍSTICA DE CONTROL EN LOTE</p>", unsafe_allow_html=True)
                 l1, l2, l3 = st.columns(3)
                 l1.metric("Control Efectivo (PEC)", f"{pec:.1f}%", "A la fecha de aplicación")
-                l2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo")
-                l3.metric("Lead Time", f"{lead_time} días", "Anticipación Logística")
+                l2.metric("Lag (Desfase)", f"{peak_lag} días", "Vs Pico de Campo Real")
+                l3.metric("Lead Time", f"{lead_time} días", "Ventana de Alerta")
             st.markdown("---")
 
         col_main, col_gauge = st.columns([2, 1])
@@ -643,122 +616,91 @@ if df_meteo_raw is not None and modelo_ann is not None:
         with col_main:
             fig_emer = go.Figure()
             
-            # SOMBREADO DE UNIDADES DE DECISIÓN AGRONÓMICA 
-            fecha_inicio_grilla = df["Fecha"].min()
-            fecha_fin_grilla = df["Fecha"].max()
-            fecha_actual = fecha_inicio_grilla
-            sombreado_activo = True
-            
-            while fecha_actual < fecha_fin_grilla:
-                fecha_siguiente = fecha_actual + pd.Timedelta(days=ventana_agrupacion)
-                if sombreado_activo:
+            # --- SOMBREADO DINÁMICO VINCULADO A LAS FECHAS REALES DE MONITOREO ---
+            if df_campo is not None:
+                fechas_reales_lote = df_campo[col_fecha].sort_values().tolist()
+                for i in range(1, len(fechas_reales_lote), 2):
                     fig_emer.add_vrect(
-                        x0=fecha_actual, x1=fecha_siguiente, 
-                        fillcolor="rgba(148, 163, 184, 0.15)", # Un gris/azulado muy sutil
+                        x0=fechas_reales_lote[i-1], x1=fechas_reales_lote[i], 
+                        fillcolor="rgba(148, 163, 184, 0.12)", 
                         layer="below", line_width=0
                     )
-                sombreado_activo = not sombreado_activo
-                fecha_actual = fecha_siguiente
             
             fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL_LOG"], mode='lines', name='Tasa Diaria Sim. (Log)', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
             fig_emer.add_hline(y=umbral_er_log, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
 
             if df_campo is not None:
-                fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado_LOG'], mode='markers+lines', name='Recuentos a Campo (Log)', marker=dict(color='#dc2626', size=10, symbol='diamond'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
+                fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado_LOG'], mode='markers+lines', name='Recuentos de Campo Real (Log)', marker=dict(color='#dc2626', size=10, symbol='diamond'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
 
             if fecha_control:
-                # Marca a 600 °Cd
                 fig_emer.add_vline(x=fecha_control.timestamp() * 1000, line_dash="dot", line_color="red", line_width=3, annotation_text=f"Control ({dga_optimo}°Cd)", annotation_position="top left", annotation_font=dict(color="red", size=12))
-                
-                # Sombreado de protección química
                 fig_emer.add_vrect(x0=fecha_control.timestamp() * 1000, x1=(fecha_control + timedelta(days=residualidad)).timestamp() * 1000, fillcolor="blue", opacity=0.1, layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)", annotation_position="top left")
 
-                # MARCA DE 800 °Cd Y ÁREA SOMBREADA
                 if fecha_limite:
-                    # Línea a los 800 °Cd
                     fig_emer.add_vline(x=fecha_limite.timestamp() * 1000, line_dash="dot", line_color="orange", line_width=3, annotation_text=f"Límite ({dga_critico}°Cd)", annotation_position="top right", annotation_font=dict(color="orange", size=12))
-                    
-                    # Sombreado de la Ventana de Aplicación (600 - 800 °Cd)
                     fig_emer.add_vrect(
-                        x0=fecha_control.timestamp() * 1000, 
-                        x1=fecha_limite.timestamp() * 1000, 
-                        fillcolor="rgba(255, 165, 0, 0.2)", # Naranja suave
-                        layer="below", line_width=0,
+                        x0=fecha_control.timestamp() * 1000, x1=fecha_limite.timestamp() * 1000, 
+                        fillcolor="rgba(255, 165, 0, 0.18)", layer="below", line_width=0,
                         annotation_text="Ventana de Aplicación", annotation_position="top left"
                     )
 
-            # Título actualizado para reflejar la ventana visual
-            titulo_grafico = f"Dinámica de Emergencia y Momento Crítico (Unidad Decisión: {ventana_agrupacion} días)"
-            fig_emer.update_layout(title=titulo_grafico, yaxis_title="Log10(Emergencia + 0.01)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_emer.update_layout(title="Dinámica Fisiológica de Emergencia (Intervalos Reales de Monitoreo)", yaxis_title="Log10(Emergencia + 0.01)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
-                st.success(f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Primer pico detectado)")
+                st.success(f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Detección biológica inicial)")
                 if fecha_control: st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se acumularon **{dga_optimo} °Cd** post-emergencia.")
-                else: st.info(f"⏳ **En Progreso:** Aún no se han acumulado los {dga_optimo} °Cd requeridos para el control.")
-            else: st.warning(f"⏳ Esperando primera alerta (Tasa >= {umbral_er}).")
+            else:
+                st.warning(f"⏳ Esperando primera alerta (Tasa >= {umbral_er}).")
 
         with col_gauge:
             max_axis = dga_critico * 1.2
-            st.plotly_chart(go.Figure().add_trace(go.Indicator(mode="gauge+number", value=dga_hoy, domain={'x': [0, 1], 'y': [0, 1]}, title={'text': "<b>TT ACUMULADO (°Cd)</b>", 'font': {'size': 18}}, gauge={'axis': {'range': [None, max_axis]}, 'bar': {'color': "#1e293b", 'thickness': 0.3}, 'steps': [{'range': [0, dga_optimo], 'color': "#4ade80"}, {'range': [dga_optimo, dga_critico], 'color': "#facc15"}, {'range': [dga_critico, max_axis], 'color': "#f87171"}], 'threshold': {'line': {'color': "#2563eb", 'width': 6}, 'thickness': 0.8, 'value': dga_7dias}})).add_annotation(x=0.5, y=-0.1, text=f"{msg_estado}<br>Pronóstico +7d: <b>{dga_7dias:.1f} °Cd</b>", showarrow=False, font=dict(size=14, color="#1e3a8a"), align="center").update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30)), use_container_width=True)
+            st.plotly_chart(go.Figure().add_trace(go.Indicator(mode="gauge+number", value=dga_hoy, domain={'x': [0, 1], 'y': [0, 1]}, title={'text': "<b>TT POST-EMERGENCIA (°Cd)</b>", 'font': {'size': 18}}, gauge={'axis': {'range': [None, max_axis]}, 'bar': {'color': "#1e293b", 'thickness': 0.3}, 'steps': [{'range': [0, dga_optimo], 'color': "#4ade80"}, {'range': [dga_optimo, dga_critico], 'color': "#facc15"}, {'range': [dga_critico, max_axis], 'color': "#f87171"}], 'threshold': {'line': {'color': "#2563eb", 'width': 6}, 'thickness': 0.8, 'value': dga_7dias}})).add_annotation(x=0.5, y=-0.1, text=f"{msg_estado}<br>Pronóstico +7d: <b>{dga_7dias:.1f} °Cd</b>", showarrow=False, font=dict(size=14, color="#1e3a8a"), align="center").update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30)), use_container_width=True)
 
-        if df_campo is not None and 'df_sincronizado' in locals():
+        if df_campo is not None and not df_sincronizado.empty:
             st.markdown("---")
-            st.markdown("<p class='metric-header' style='margin-top:20px;'>📈 VALIDACIÓN DE TRAYECTORIA Y PRECISIÓN</p>", unsafe_allow_html=True)
+            st.markdown("<p class='metric-header' style='margin-top:20px;'>📈 DISPERSIÓN DE AJUSTE Y RECTAS 1:1</p>", unsafe_allow_html=True)
             col_curva, col_disp = st.columns([2, 1])
             
             with col_curva:
                 fig_acum = go.Figure()
-                fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Campo_Acumulado'] * 100, mode='markers+lines', name='Real a Campo (%)', marker=dict(color='#dc2626', size=8, symbol='diamond'), line=dict(color='#dc2626', width=2)))
-                fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Sim_Acumulado'] * 100, mode='lines', name='Simulado Modelo (%)', line=dict(color='#166534', width=3, dash='dash')))
-                st.plotly_chart(fig_acum.update_layout(title="Dinámica de Llenado (Curvas Acumuladas)", xaxis_title="Fechas", yaxis_title="Emergencia Acumulada (%)", height=430, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
+                fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Campo_Acumulado'] * 100, mode='markers+lines', name='Real de Campo (%)', marker=dict(color='#dc2626', size=8, symbol='diamond'), line=dict(color='#dc2626', width=2)))
+                fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Sim_Acumulado'] * 100, mode='lines', name='Simulado PREDWEEM (%)', line=dict(color='#166534', width=3, dash='dash')))
+                st.plotly_chart(fig_acum.update_layout(title="Llenado Cinético (Curvas Acumuladas Puras)", xaxis_title="Calendario", yaxis_title="Emergencia Acumulada (%)", height=430, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
 
             with col_disp:
                 tab_flujos, tab_acum = st.tabs(["1:1 Flujos", "1:1 Acumulado"])
                 
                 with tab_flujos:
-                    mask_disp = (df_sincronizado['Campo_Relativo'] > 0) | (df_sincronizado['Sim_Relativo'] > 0)
-                    df_disp = df_sincronizado[mask_disp]
-                    
                     fig_1to1 = go.Figure()
                     fig_1to1.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='1:1', line=dict(color='gray', dash='dash')))
                     fig_1to1.add_trace(go.Scatter(
-                        x=df_disp['Campo_Relativo'], 
-                        y=df_disp['Sim_Relativo'], 
-                        mode='markers', 
-                        name='Flujos por Ventana',
+                        x=df_sincronizado['Campo_Relativo'], y=df_sincronizado['Sim_Relativo'], 
+                        mode='markers', name='Eventos',
                         marker=dict(color='#2563eb', size=12, line=dict(width=1, color='DarkBlue')),
-                        text=df_disp['Fecha'].dt.strftime('%d-%m-%Y'),
-                        hovertemplate="<b>Semana del %{text}</b><br>Obs: %{x:.3f}<br>Sim: %{y:.3f}<extra></extra>"
+                        text=df_sincronizado['Fecha'].dt.strftime('%d-%m-%Y'),
+                        hovertemplate="<b>Intervalo fin: %{text}</b><br>Obs: %{x:.3f}<br>Sim: %{y:.3f}<extra></extra>"
                     ))
-                    st.plotly_chart(fig_1to1.update_layout(title=f"Ajuste 1:1 de Flujos (Ventanas {ventana_agrupacion}d)", xaxis_title="Observado Relativo", yaxis_title="Simulado Relativo", height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), use_container_width=True)
+                    st.plotly_chart(fig_1to1.update_layout(title="Ajuste 1:1 de Flujos por Evento Real", xaxis_title="Observado Relativo", yaxis_title="Simulado Relativo", height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), use_container_width=True)
 
                 with tab_acum:
                     fig_1to1_ac = go.Figure()
                     fig_1to1_ac.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='1:1', line=dict(color='gray', dash='dash')))
                     fig_1to1_ac.add_trace(go.Scatter(
-                        x=df_sincronizado['Campo_Acumulado'],
-                        y=df_sincronizado['Sim_Acumulado'],
-                        mode='markers',
-                        name='Emergencia Acumulada',
+                        x=df_sincronizado['Campo_Acumulado'], y=df_sincronizado['Sim_Acumulado'],
+                        mode='markers', name='Acumulado',
                         marker=dict(color='#dc2626', size=12, symbol='diamond', line=dict(width=1, color='DarkRed')),
                         text=df_sincronizado['Fecha'].dt.strftime('%d-%m-%Y'),
                         hovertemplate="<b>%{text}</b><br>Obs Acum: %{x:.3f}<br>Sim Acum: %{y:.3f}<extra></extra>"
                     ))
-                    st.plotly_chart(fig_1to1_ac.update_layout(
-                        title=f"Ajuste 1:1 Acumulado (R²: {r2_acum:.3f} | RMSE: {rmse_acum:.3f})", 
-                        xaxis_title="Obs. Acumulada (Norm)", 
-                        yaxis_title="Sim. Acumulada (Norm)", 
-                        height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), 
-                        use_container_width=True
-                    )
+                    st.plotly_chart(fig_1to1_ac.update_layout(title=f"Ajuste 1:1 Acumulado (R²: {r2_acum:.3f} | RMSE: {rmse_acum:.3f})", xaxis_title="Obs. Acumulada (Norm)", yaxis_title="Sim. Acumulada (Norm)", height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), use_container_width=True)
 
     with tab2:
-        st.header("💧 Dinámica Hídrica del Suelo")
+        st.header("💧 Dinámica Hídrica del Suelo (Bordenave)")
         fig_hidrico = go.Figure()
         fig_hidrico.add_trace(go.Bar(x=df["Fecha"], y=df["Prec"], name='Lluvia Diaria (mm)', marker_color='#93c5fd', opacity=0.7))
         fig_hidrico.add_trace(go.Scatter(x=df["Fecha"], y=df["W_superficial"], name='Agua en Suelo (0-10cm)', mode='lines', line=dict(color='#0284c7', width=3), fill='tozeroy', fillcolor='rgba(2, 132, 199, 0.2)'))
-        fig_hidrico.add_hline(y=w_max_val, line_dash="dot", line_color="#334155", annotation_text=f"Capacidad Máx. ({w_max_val} mm)", annotation_position="top left")
+        fig_hidrico.add_hline(y=w_max_val, line_dash="dot", line_color="#334155", annotation_text=f"Capacidad Máx. Suelo ({w_max_val} mm)", annotation_position="top left")
         st.plotly_chart(fig_hidrico.update_layout(title="Precipitación vs. Retención Real de Humedad", xaxis_title="Fecha", yaxis_title="Milímetros (mm)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
 
     with tab3:
@@ -785,22 +727,26 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 st.success(f"### {nombres_patrones.get(pred, 'Desconocido')}")
                 st.metric("DTW Score", f"{min(dists):.2f}")
         else:
-            st.info("Datos insuficientes para clasificación DTW.")
+            st.info("Datos insuficientes para clasificación por Dinámica Temporal (DTW).")
 
     with tab4:
         st.subheader("🧪 Curva de Respuesta Fisiológica")
         x_temps = np.linspace(0, 45, 200)
         st.plotly_chart(go.Figure().add_trace(go.Scatter(x=x_temps, y=[calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps], mode='lines', line=dict(color='#2563eb', width=4), fill='tozeroy')), use_container_width=True)
 
+    # REPORTE EN EXCEL
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
-        if df_campo is not None:
+        if df_campo is not None and not df_sincronizado.empty:
             df_campo.to_excel(writer, index=False, sheet_name='Campo_Validacion')
-            pd.DataFrame({'Métrica': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Valores > 0)', f'NSE (Flujos {ventana_agrupacion}D)', f'KGE (Flujos {ventana_agrupacion}D)', 'RMSE (Acumulado)', 'R2 (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, r2_acum, ccc_acum, desfase_t50]}).to_excel(writer, sheet_name='Validacion_Campo', index=False)
-        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion', 'Ventana_NSE_Dias', 'Calentamiento_Suelo_OI'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion, ventana_agrupacion, calentamiento_suelo]}).to_excel(writer, sheet_name='Bio_Params', index=False)
+            pd.DataFrame({
+                'Métrica de Validación': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Flujos)', 'NSE (Flujos Reales Evento)', 'KGE (Flujos)', 'RMSE (Acumulado)', 'R2 (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 
+                'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, r2_acum, ccc_acum, desfase_t50]
+            }).to_excel(writer, sheet_name='Validacion_Campo', index=False)
+        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion', 'Calentamiento_Suelo_OI'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion, calentamiento_suelo]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
-    st.sidebar.download_button("📥 Descargar Reporte Completo", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_14_UX.xlsx")
+    st.sidebar.download_button("📥 Descargar Reporte Bordenave", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_15.xlsx")
 
 else:
-    st.info("👋 Bienvenido a PREDWEEM. Cargue datos climáticos para comenzar.")
+    st.info("👋 Bienvenido a PREDWEEM. Cargue los datos climáticos de Bordenave para comenzar.")
