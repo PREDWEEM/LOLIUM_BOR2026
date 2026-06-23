@@ -9,7 +9,7 @@
 #   Dinámica por Intervalo Real (Event-to-Event), eliminando artefactos de interpolación.
 # - OPTIMIZADOR 2D BIO-FÍSICO: Barrido de parámetros de suelo (W_Max y Ke) ajustado a ventanas de campo.
 # - MICROCLIMA PRESERVADO: Modulador térmico invernal activo (Días julianos 152-264).
-# - BENCHMARKING EDAFODINÁMICO: Torneo en vivo de múltiples hipótesis hídricas (FAO-56, Intercepción).
+# - BENCHMARKING MULTI-HIPÓTESIS: Torneo que evalúa T° Aire vs T° Suelo y modelos FAO-56.
 # - UX DINÁMICA: Sombreados de fondo del gráfico de dinámica vinculados a las fechas reales de muestreo.
 # ===============================================================
 
@@ -383,7 +383,7 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bor
     return df_resultados.sort_values(by="NSE (Flujos)", ascending=False).reset_index(drop=True)
 
 # ---------------------------------------------------------
-# MÓDULO DE BENCHMARKING: TORNEO DE MODELOS EDÁFICOS
+# MÓDULO DE BENCHMARKING: TORNEO DE MODELOS BIO-FÍSICOS
 # ---------------------------------------------------------
 def ejecutar_torneo_edafico(df_meteo, df_campo, modelo_ann, cobertura_lote, calentamiento_suelo, umbral_ch_hidrico, latitud_sitio=-37.761671):
     df = df_meteo.copy()
@@ -394,6 +394,7 @@ def ejecutar_torneo_edafico(df_meteo, df_campo, modelo_ann, cobertura_lote, cale
     df["Tmedia_aire"] = (df["TMAX"] + df["TMIN"]) / 2
     amplitud_termica = (df["TMAX"] - df["TMIN"]) / 2
     mod_termico = float(np.interp(cobertura_lote, [0, 30, 70, 100], [1.00, 0.95, 0.90, 0.80]))
+    
     df["TMAX_suelo"] = df["Tmedia_aire"] + (amplitud_termica * mod_termico)
     df["TMIN_suelo"] = df["Tmedia_aire"] - (amplitud_termica * mod_termico)
     
@@ -403,32 +404,48 @@ def ejecutar_torneo_edafico(df_meteo, df_campo, modelo_ann, cobertura_lote, cale
 
     df["ET0"] = calcular_et0_hargreaves(df["Julian_days"].values, df["TMAX"].values, df["TMIN"].values, latitud=latitud_sitio)
     
-    X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
-    emerrel_raw, _ = modelo_ann.predict(X)
-    
-    # Definición de las hipótesis a competir
     ke_base = float(np.interp(cobertura_lote, [0, 30, 70, 100], [0.95, 0.50, 0.25, 0.10]))
     
+    # --- DICCIONARIO DE HIPÓTESIS COMPETITIVAS ---
     hipotesis = {
-        "V1: Base (Tipping Bucket)": lambda p, et: balance_hidrico_superficial(p, et, 20.0, ke_base),
-        "V2: Intercepción Rastrojo": lambda p, et: bhs_v2_intercepcion(p, et, 20.0, ke_base, cobertura_lote),
-        "V3: Secado FAO-56": lambda p, et: bhs_v3_fao56(p, et, tew=20.0, rew=8.0, ke_max=0.95)
+        "H1: Base Suelo (T_Suelo + Tipping Bucket)": {
+            "t_cols": ["TMAX_suelo", "TMIN_suelo"],
+            "bhs": lambda p, et: balance_hidrico_superficial(p, et, 20.0, ke_base)
+        },
+        "H2: Aire Crudo (T_Aire + Tipping Bucket)": {
+            "t_cols": ["TMAX", "TMIN"], # Prueba de alimentación directa con T del Aire
+            "bhs": lambda p, et: balance_hidrico_superficial(p, et, 20.0, ke_base)
+        },
+        "H3: Intercepción (T_Suelo + Rastrojo)": {
+            "t_cols": ["TMAX_suelo", "TMIN_suelo"],
+            "bhs": lambda p, et: bhs_v2_intercepcion(p, et, 20.0, ke_base, cobertura_lote)
+        },
+        "H4: Secado Real (T_Suelo + FAO-56)": {
+            "t_cols": ["TMAX_suelo", "TMIN_suelo"],
+            "bhs": lambda p, et: bhs_v3_fao56(p, et, tew=20.0, rew=8.0, ke_max=0.95)
+        }
     }
     
     col_fecha = df_campo.columns[0]
     col_plm2 = df_campo.columns[1]
     resultados = []
     
-    for nombre_modelo, func_balance in hipotesis.items():
+    for nombre_modelo, config in hipotesis.items():
         df_sim = df.copy()
+        
+        # 1. PREDICCIÓN NEURAL DINÁMICA (Depende de la hipótesis térmica)
+        cols_temp = config["t_cols"]
+        X = df_sim[["Julian_days", cols_temp[0], cols_temp[1], "Prec"]].to_numpy(float)
+        emerrel_raw, _ = modelo_ann.predict(X)
         df_sim["EMERREL"] = np.maximum(emerrel_raw, 0.0)
         
-        # Bypass Ruptura Temprana (15 días latencia)
+        # 2. Bypass Ruptura Temprana (15 días latencia)
         df_sim["Prec_3d"] = df_sim["Prec"].rolling(window=3, min_periods=1).sum()
         mask_ruptura = (df_sim["Julian_days"] > 15) & (df_sim["Julian_days"] <= 110) & (df_sim["Prec_3d"] >= umbral_ch_hidrico)
         df_sim.loc[mask_ruptura, "EMERREL"] = np.maximum(df_sim.loc[mask_ruptura, "EMERREL"], 1.0)
         
-        # Aplicar el balance hídrico de la hipótesis actual
+        # 3. Aplicar el balance hídrico de la hipótesis actual
+        func_balance = config["bhs"]
         df_sim["W_superficial"] = func_balance(df_sim["Prec"].values, df_sim["ET0"].values)
         humedad_relativa = df_sim["W_superficial"] / 20.0
         df_sim["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
@@ -438,12 +455,12 @@ def ejecutar_torneo_edafico(df_meteo, df_campo, modelo_ann, cobertura_lote, cale
         df_sim['Lluvia_Recarga'] = (df_sim['Prec'] >= 20.0).cummax()
         df_sim.loc[~df_sim['Lluvia_Recarga'], "EMERREL"] = 0.0
         
-        # Termoinhibición
+        # 4. Termoinhibición
         df_sim["Tmedia_10d"] = df_sim["Tmedia_aire"].rolling(window=10, min_periods=1).mean()
         df_sim.loc[df_sim["Tmedia_10d"] >= 24.0, "EMERREL"] = 0.0
         df_sim["EMERREL"] = np.clip(df_sim["EMERREL"], 0, 1.0)
         
-        # Latencia Temprana Estricta
+        # 5. Latencia Temprana Estricta
         df_sim.loc[df_sim["Julian_days"] <= 15, "EMERREL"] = 0.0
         
         # Validación
@@ -451,7 +468,7 @@ def ejecutar_torneo_edafico(df_meteo, df_campo, modelo_ann, cobertura_lote, cale
         metricas = calcular_metricas_validacion_integral(df_sync)
         
         resultados.append({
-            "Hipótesis Edafodinámica": nombre_modelo,
+            "Hipótesis Evaluada": nombre_modelo,
             "KGE (Ajuste Global)": metricas["KGE_Flujos"],
             "NSE (Predictivo Flujos)": metricas["NSE_Flujos"],
             "RMSE (Error Acumulado)": metricas["RMSE_Acumulado"],
@@ -568,10 +585,10 @@ with st.sidebar.expander("🛠️ Modo Dev: Calibrador Bio-Físico 2D", expanded
 
 # --- MODO DESARROLLADOR: TORNEO DE MODELOS EDÁFICOS ---
 with st.sidebar.expander("🧪 Modo Dev: Torneo de Hipótesis Físicas", expanded=False):
-    st.caption("Compara en paralelo múltiples enfoques de balance hídrico contra las fechas de campo reales.")
+    st.caption("Compara en paralelo múltiples enfoques (T° Aire vs Suelo, FAO-56, Intercepción) contra las fechas de campo reales.")
     if st.button("Ejecutar Benchmarking"):
         if df_meteo_raw is not None and df_campo_raw is not None and modelo_ann is not None:
-            with st.spinner('Evaluando múltiples arquitecturas físicas en paralelo...'):
+            with st.spinner('Evaluando múltiples arquitecturas en paralelo...'):
                 df_meteo_opt = df_meteo_raw.copy()
                 df_meteo_opt.columns = [c.upper().strip() for c in df_meteo_opt.columns]
                 df_meteo_opt = df_meteo_opt.rename(columns={'FECHA': 'Fecha', 'DATE': 'Fecha', 'TMAX': 'TMAX', 'TMIN': 'TMIN', 'PREC': 'Prec', 'LLUVIA': 'Prec'})
@@ -582,7 +599,7 @@ with st.sidebar.expander("🧪 Modo Dev: Torneo de Hipótesis Físicas", expande
                 
                 tabla_torneo = ejecutar_torneo_edafico(df_meteo_opt, df_campo_opt, modelo_ann, cobertura_pct, calentamiento_suelo, umbral_choque_hidrico, latitud_sitio=-37.761671)
                 
-            st.success("¡Torneo de Modelos completado!")
+            st.success("¡Torneo Multi-Hipótesis completado!")
             st.dataframe(tabla_torneo)
         else:
             st.error("Se requieren datos de Clima y Campo para validar.")
