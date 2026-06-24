@@ -412,7 +412,7 @@ t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 
 st.sidebar.markdown("**Objetivos (°Cd)**")
 dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10)
-dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
+dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=900, step=10)
 
 st.sidebar.divider()
 st.sidebar.markdown("## 🌡️ 3. Microclima de Suelo (Invierno)")
