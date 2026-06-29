@@ -9,6 +9,8 @@
 #   Dinámica por Intervalo Real (Event-to-Event), eliminando artefactos de interpolación.
 # - OPTIMIZADOR 2D BIO-FÍSICO: Barrido de parámetros de suelo (W_Max y Ke) ajustado a ventanas de campo.
 # - MICROCLIMA PRESERVADO: Modulador térmico invernal activo (Días julianos 152-264).
+# - COINCIDENCIA OPERATIVA: Métricas F1-Score, Exactitud Global y Matriz de Confusión interactiva.
+# - SINCRONÍA DE INICIO: Evaluación del desfase temporal del primer flujo (Gatillo de DGA).
 # - UX DINÁMICA: Sombreados de fondo del gráfico de dinámica vinculados a las fechas reales de muestreo.
 # ===============================================================
 
@@ -232,9 +234,12 @@ def sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2):
     
     return df_res
 
-def calcular_metricas_validacion_integral(df_sync):
+def calcular_metricas_validacion_integral(df_sync, umbral_deteccion=0.05):
     if df_sync.empty or len(df_sync) < 2:
-        return {"Pearson_Flujos": 0.0, "NSE_Flujos": 0.0, "KGE_Flujos": 0.0, "RMSE_Acumulado": 0.0, "CCC_Acumulado": 0.0, "R2_Acumulado": 0.0}
+        return {"Pearson_Flujos": 0.0, "NSE_Flujos": 0.0, "KGE_Flujos": 0.0, 
+                "RMSE_Acumulado": 0.0, "CCC_Acumulado": 0.0, "R2_Acumulado": 0.0,
+                "Exactitud_Global": 0.0, "F1_Score_Coincidencia": 0.0, 
+                "Hits": 0, "Misses": 0, "Falsos_Positivos": 0, "Correctos_Negativos": 0}
 
     mask_activos = (df_sync['Campo_Relativo'] > 0) | (df_sync['Sim_Relativo'] > 0)
     df_activos = df_sync[mask_activos].copy()
@@ -273,13 +278,35 @@ def calcular_metricas_validacion_integral(df_sync):
     ss_tot_ac = np.sum((obs_acum - mean_obs_ac)**2)
     r2_acumulado = 1 - (ss_res_ac / ss_tot_ac) if ss_tot_ac > 0 else 0.0
     
+    # --- MÉTRICAS DE COINCIDENCIA POR INTERVALO (AGREEMENT) ---
+    obs_eventos = df_sync['Campo_Relativo'] > umbral_deteccion
+    sim_eventos = df_sync['Sim_Relativo'] > umbral_deteccion
+
+    hits = np.sum(obs_eventos & sim_eventos)                 
+    misses = np.sum(obs_eventos & ~sim_eventos)              
+    false_alarms = np.sum(~obs_eventos & sim_eventos)        
+    correct_negatives = np.sum(~obs_eventos & ~sim_eventos)  
+
+    total_intervalos = len(df_sync)
+
+    exactitud = (hits + correct_negatives) / total_intervalos if total_intervalos > 0 else 0.0
+    precision = hits / (hits + false_alarms) if (hits + false_alarms) > 0 else 0.0
+    recall = hits / (hits + misses) if (hits + misses) > 0 else 0.0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    
     return {
         "Pearson_Flujos": pearson_r, 
         "NSE_Flujos": nse_flujos,
         "KGE_Flujos": kge_flujos,
         "RMSE_Acumulado": rmse_acumulado, 
         "CCC_Acumulado": ccc_acumulado,
-        "R2_Acumulado": r2_acumulado
+        "R2_Acumulado": r2_acumulado,
+        "Exactitud_Global": exactitud,
+        "F1_Score_Coincidencia": f1_score,
+        "Hits": int(hits),
+        "Misses": int(misses),
+        "Falsos_Positivos": int(false_alarms),
+        "Correctos_Negativos": int(correct_negatives)
     }
 
 # ---------------------------------------------------------
@@ -335,6 +362,7 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bor
             resultados.append({
                 "W_Max (mm)": w_max,
                 "Ke_Suelo": round(ke, 2),
+                "F1-Score": metricas["F1_Score_Coincidencia"],
                 "NSE (Flujos)": metricas["NSE_Flujos"],
                 "KGE": metricas["KGE_Flujos"],
                 "CCC (Acumulado)": metricas["CCC_Acumulado"],
@@ -343,7 +371,7 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bor
             })
             
     df_resultados = pd.DataFrame(resultados)
-    return df_resultados.sort_values(by="NSE (Flujos)", ascending=False).reset_index(drop=True)
+    return df_resultados.sort_values(by=["F1-Score", "NSE (Flujos)"], ascending=[False, False]).reset_index(drop=True)
 
 # ---------------------------------------------------------
 # 5. INTERFAZ PRINCIPAL Y SIDEBAR
@@ -549,13 +577,25 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     # Sincronización Rigurosa por Eventos Variables
     pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, r2_acum = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    exactitud_global, f1_score_coincidencia = 0.0, 0.0
+    hits_val, misses_val, falsos_pos_val, correctos_neg_val = 0, 0, 0, 0
     pec, peak_lag, lead_time, desfase_t50 = 0.0, 0, 0, 0
     df_sincronizado = pd.DataFrame()
+    
+    # --- CÁLCULO DE SINCRONÍA DE INICIO ---
+    lag_inicio_dias = None
+    fecha_primer_flujo_obs = None
 
     if df_campo is not None:
+        muestreos_con_plantas = df_campo[df_campo[col_plm2] > 0]
+        if not muestreos_con_plantas.empty:
+            fecha_primer_flujo_obs = muestreos_con_plantas.iloc[0][col_fecha]
+            if fecha_inicio_ventana is not None:
+                lag_inicio_dias = (fecha_inicio_ventana - fecha_primer_flujo_obs).days
+
         df_sincronizado = sincronizar_intervalos_variables(df, df_campo, col_fecha, col_plm2)
         if not df_sincronizado.empty:
-            metricas_robustas = calcular_metricas_validacion_integral(df_sincronizado)
+            metricas_robustas = calcular_metricas_validacion_integral(df_sincronizado, umbral_deteccion=0.05)
             
             pearson_r = metricas_robustas["Pearson_Flujos"]
             nse_flujos = metricas_robustas["NSE_Flujos"]
@@ -563,6 +603,13 @@ if df_meteo_raw is not None and modelo_ann is not None:
             rmse_acum = metricas_robustas["RMSE_Acumulado"]
             ccc_acum = metricas_robustas["CCC_Acumulado"]
             r2_acum = metricas_robustas["R2_Acumulado"]
+            exactitud_global = metricas_robustas["Exactitud_Global"]
+            f1_score_coincidencia = metricas_robustas["F1_Score_Coincidencia"]
+            
+            hits_val = metricas_robustas["Hits"]
+            misses_val = metricas_robustas["Misses"]
+            falsos_pos_val = metricas_robustas["Falsos_Positivos"]
+            correctos_neg_val = metricas_robustas["Correctos_Negativos"]
 
             tot_plm2 = df_campo[col_plm2].sum()
             if tot_plm2 > 0:
@@ -606,6 +653,48 @@ if df_meteo_raw is not None and modelo_ann is not None:
             c3.metric("Trayectoria (CCC)", f"{ccc_acum:.3f}", "Curva Acum.")
             c4.metric("Error (RMSE)", f"{rmse_acum:.3f}", "Desvío Acumulado", delta_color="inverse")
             c5.metric("Desfase (T50)", f"{desfase_t50:+d} días", "Sincronía Operativa", delta_color="inverse" if desfase_t50 > 0 else "normal" if desfase_t50 < 0 else "off")
+
+            st.markdown("<p class='metric-header' style='margin-top:15px;'>🎯 COINCIDENCIA POR INTERVALO DE MUESTREO</p>", unsafe_allow_html=True)
+            d1, d2, d3 = st.columns(3)
+            d1.metric("F1-Score (Coincidencia)", f"{f1_score_coincidencia:.3f}", "Fidelidad en ventanas activas")
+            d2.metric("Exactitud Global", f"{exactitud_global * 100:.1f}%", "Acuerdo total (Invierno + Verano)")
+            d3.metric("Falsos Positivos", f"{falsos_pos_val}", "Intervalos simulados sin contraparte real", delta_color="inverse")
+
+            # --- SECCIÓN: SINCRONÍA DE INICIO ---
+            st.markdown("<p class='metric-header' style='margin-top:15px;'>⏰ SINCRONÍA DE INICIO (Gatillo de Tiempo Térmico)</p>", unsafe_allow_html=True)
+            s1, s2, s3 = st.columns(3)
+            s1.metric("Inicio Simulado", fecha_inicio_ventana.strftime('%d-%m-%Y') if fecha_inicio_ventana else "N/A")
+            s2.metric("Inicio Observado (Campo)", fecha_primer_flujo_obs.strftime('%d-%m-%Y') if fecha_primer_flujo_obs else "N/A")
+            
+            str_lag = "N/A"
+            if lag_inicio_dias is not None:
+                str_lag = f"{lag_inicio_dias:+} días"
+            s3.metric("Desfase de Gatillo", str_lag, "Negativo = Modelo Anticipa", delta_color="inverse" if (lag_inicio_dias and lag_inicio_dias > 0) else "normal" if (lag_inicio_dias and lag_inicio_dias < 0) else "off")
+            
+            # --- TABLA HTML: MATRIZ DE CONFUSIÓN ---
+            html_cm = f"""
+            <div style="background-color:#ffffff; padding:15px; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,0.1); border:1px solid #e2e8f0; margin-top:15px;">
+                <p style="color:#1e293b; font-weight:bold; margin-top:0; margin-bottom:10px;">🧩 Matriz de Confusión (Intervalos de Monitoreo)</p>
+                <table style="width:100%; text-align:center; border-collapse: collapse; font-family:sans-serif;">
+                    <tr>
+                        <th style="border-bottom:2px solid #e2e8f0; padding:10px; color:#475569; width:34%;">Realidad ⬇ \ Simulación ➡</th>
+                        <th style="border-bottom:2px solid #e2e8f0; padding:10px; background-color:#eff6ff; color:#1e3a8a; width:33%;">🚨 Modelo Predice FLUJO</th>
+                        <th style="border-bottom:2px solid #e2e8f0; padding:10px; background-color:#f8fafc; color:#475569; width:33%;">💤 Modelo Predice INACTIVO</th>
+                    </tr>
+                    <tr>
+                        <td style="border-bottom:1px solid #e2e8f0; padding:10px; font-weight:bold; color:#166534; background-color:#f0fdf4;">🌱 Campo: HUBO Flujo</td>
+                        <td style="border-bottom:1px solid #e2e8f0; padding:10px; background-color:#dcfce7; font-size:1.1em; font-weight:bold; color:#166534;">{hits_val} <span style="font-size:0.8em; font-weight:normal;">(Hits / Coincidencia)</span></td>
+                        <td style="border-bottom:1px solid #e2e8f0; padding:10px; background-color:#fee2e2; font-size:1.1em; font-weight:bold; color:#991b1b;">{misses_val} <span style="font-size:0.8em; font-weight:normal;">(Omisiones)</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding:10px; font-weight:bold; color:#475569; background-color:#f8fafc;">🛑 Campo: SIN Flujo</td>
+                        <td style="padding:10px; background-color:#fee2e2; font-size:1.1em; font-weight:bold; color:#991b1b;">{falsos_pos_val} <span style="font-size:0.8em; font-weight:normal;">(Falsas Alarmas)</span></td>
+                        <td style="padding:10px; background-color:#dcfce7; font-size:1.1em; font-weight:bold; color:#166534;">{correctos_neg_val} <span style="font-size:0.8em; font-weight:normal;">(Correctos Negativos)</span></td>
+                    </tr>
+                </table>
+            </div>
+            """
+            st.markdown(html_cm, unsafe_allow_html=True)
 
             if fecha_control:
                 st.markdown("<p class='metric-header' style='margin-top:15px;'>⚙️ LOGÍSTICA DE CONTROL EN LOTE</p>", unsafe_allow_html=True)
@@ -744,9 +833,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df.to_excel(writer, index=False, sheet_name='Data_Diaria')
         if df_campo is not None and not df_sincronizado.empty:
             df_campo.to_excel(writer, index=False, sheet_name='Campo_Validacion')
+            val_lag = lag_inicio_dias if lag_inicio_dias is not None else "N/A"
             pd.DataFrame({
-                'Métrica de Validación': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Flujos)', 'NSE (Flujos Reales Evento)', 'KGE (Flujos)', 'RMSE (Acumulado)', 'R2 (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)'], 
-                'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, r2_acum, ccc_acum, desfase_t50]
+                'Métrica de Validación': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Flujos)', 'NSE (Flujos Reales Evento)', 'KGE (Flujos)', 'RMSE (Acumulado)', 'R2 (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)', 'F1-Score (Coincidencia)', 'Exactitud Global', 'Hits (Aciertos)', 'Misses (Omisiones)', 'Falsos Positivos', 'Correctos Negativos', 'Desfase Primer Flujo (días)'], 
+                'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, r2_acum, ccc_acum, desfase_t50, f1_score_coincidencia, exactitud_global, hits_val, misses_val, falsos_pos_val, correctos_neg_val, val_lag]
             }).to_excel(writer, sheet_name='Validacion_Campo', index=False)
         pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion', 'Calentamiento_Suelo_OI'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion, calentamiento_suelo]}).to_excel(writer, sheet_name='Bio_Params', index=False)
 
