@@ -342,7 +342,7 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bor
         for ke in rango_ke:
             df_sim = df.copy()
             df_sim["EMERREL_RAW"] = np.maximum(emerrel_raw, 0.0)
-            df_sim.loc[df_sim["Julian_days"] <= 25, "EMERREL_RAW"] = 0.0
+            df_sim.loc[df_sim["Julian_days"] <= 45, "EMERREL_RAW"] = 0.0
             
             df_sim["W_superficial"] = balance_hidrico_superficial(df_sim["Prec"].values, df_sim["ET0"].values, w_max=w_max, ke_suelo=ke)
             humedad_relativa = df_sim["W_superficial"] / w_max
