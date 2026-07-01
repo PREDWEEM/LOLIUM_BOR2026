@@ -5,9 +5,6 @@
 # - ADAPTACIÓN BORDENAVE: Coordenadas fijas en -37.761671 para el motor de ET0.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
 # - LATENCIA INICIAL: Bloqueo estricto de emergencia los primeros 15 días del año.
-# - LÓGICA DE BYPASS DUAL: 
-#      1. Ruptura Térmica (Lluvia > 30mm + Tmedia_15d < 24°C) para otoño.
-#      2. Ruptura Masiva (Lluvia > 45mm) para captar eventos extremos de verano.
 # - VALIDACIÓN DE FRECUENCIA VARIABLE: Incorporación del método de Integración 
 #   Dinámica por Intervalo Real (Event-to-Event), eliminando artefactos de interpolación.
 # - OPTIMIZADOR 2D BIO-FÍSICO: Barrido de parámetros de suelo (W_Max y Ke) ajustado a ventanas de campo.
@@ -285,7 +282,7 @@ def calcular_metricas_validacion_integral(df_sync, umbral_deteccion=0.05):
     obs_eventos = df_sync['Campo_Relativo'] > umbral_deteccion
     sim_eventos = df_sync['Sim_Relativo'] > umbral_deteccion
 
-    hits = np.sum(obs_eventos & sim_eventos)                  
+    hits = np.sum(obs_eventos & sim_eventos)                 
     misses = np.sum(obs_eventos & ~sim_eventos)              
     false_alarms = np.sum(~obs_eventos & sim_eventos)        
     correct_negatives = np.sum(~obs_eventos & ~sim_eventos)  
@@ -356,8 +353,8 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bor
             df_sim['Lluvia_Recarga'] = (df_sim['Prec'] >= w_max).cummax()
             df_sim.loc[~df_sim['Lluvia_Recarga'], "EMERREL"] = 0.0
             
-            df_sim["Tmedia_15d"] = df_sim["Tmedia_aire"].rolling(window=15, min_periods=1).mean()
-            df_sim.loc[df_sim["Tmedia_15d"] >= 24.0, "EMERREL"] = 0.0
+            df_sim["Tmedia_10d"] = df_sim["Tmedia_aire"].rolling(window=10, min_periods=1).mean()
+            df_sim.loc[df_sim["Tmedia_10d"] >= 24.0, "EMERREL"] = 0.0
             
             df_sync = sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2)
             metricas = calcular_metricas_validacion_integral(df_sync)
@@ -504,10 +501,6 @@ if df_meteo_raw is not None and modelo_ann is not None:
     mask_oi = (df["Julian_days"] >= 152) & (df["Julian_days"] <= 264)
     df.loc[mask_oi, "TMAX_suelo"] += calentamiento_suelo
     df.loc[mask_oi, "TMIN_suelo"] += calentamiento_suelo
-    
-    # Pre-cálculo de Inercia Térmica a 15 días (Requisito para Bypass)
-    df["Tmedia"] = df["Tmedia_aire"]
-    df["Tmedia_15d"] = df["Tmedia"].rolling(window=15, min_periods=1).mean()
 
     df_campo, col_fecha, col_plm2 = None, None, None
     if df_campo_raw is not None:
@@ -520,23 +513,16 @@ if df_meteo_raw is not None and modelo_ann is not None:
         df_campo['Campo_Normalizado'] = df_campo[col_plm2] / max_plm2 if max_plm2 > 0 else 0
 
     # ----------------------------------------------------
-    # CORRECCIÓN: Lógica Fisiológica Ordenada y BYPASS DUAL
+    # CORRECCIÓN: Lógica Fisiológica Ordenada
     # ----------------------------------------------------
     # 1. Predicción Neural Base
     X = df[["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]].to_numpy(float)
     emerrel_raw, _ = modelo_ann.predict(X)
     df["EMERREL"] = np.maximum(emerrel_raw, 0.0)
 
-    # 2. Lógica BYPASS DUAL (Bordenave = 1.0) - ESTRICTAMENTE LUEGO DEL DÍA 15
+    # 2. Bypass Ruptura Temprana (Bordenave = 1.0) - ESTRICTAMENTE LUEGO DEL DÍA 15
     df["Prec_3d"] = df["Prec"].rolling(window=3, min_periods=1).sum()
-    
-    # Bypass A: Lluvias masivas (> 1.5x umbral) rompen dormición a la fuerza (Tormentas estivales)
-    mask_ruptura_masiva = (df["Julian_days"] > 15) & (df["Julian_days"] <= 110) & (df["Prec_3d"] >= (umbral_choque_hidrico * 1.5))
-    
-    # Bypass B: Lluvias moderadas (> 30mm) requieren descenso térmico (< 24°C) (Otoño temprano)
-    mask_ruptura_termica = (df["Julian_days"] > 15) & (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico) & (df["Tmedia_15d"] < umbral_termoinhibicion)
-    
-    mask_ruptura = mask_ruptura_masiva | mask_ruptura_termica
+    mask_ruptura = (df["Julian_days"] > 15) & (df["Julian_days"] <= 110) & (df["Prec_3d"] >= umbral_choque_hidrico)
     df.loc[mask_ruptura, "EMERREL"] = np.maximum(df.loc[mask_ruptura, "EMERREL"], 1.0)
 
     # 3. Balance Hídrico Superficial (Bordenave)
@@ -550,8 +536,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df['Lluvia_Recarga'] = (df['Prec'] >= w_max_val).cummax()
     df.loc[~df['Lluvia_Recarga'], "EMERREL"] = 0.0
 
-    # 4. Escudo Termofisiológico (Inercia 15 días)
-    df.loc[df["Tmedia_15d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
+    # 4. Escudo Termofisiológico
+    df["Tmedia"] = df["Tmedia_aire"]
+    df["Tmedia_10d"] = df["Tmedia"].rolling(window=10, min_periods=1).mean()
+    df.loc[df["Tmedia_10d"] >= umbral_termoinhibicion, "EMERREL"] = 0.0
 
     # 5. BLOQUEO FINAL ESTRICTO: Latencia Temprana (Primeros 15 días del año)
     df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
@@ -689,7 +677,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 <p style="color:#1e293b; font-weight:bold; margin-top:0; margin-bottom:10px;">🧩 Matriz de Confusión (Intervalos de Monitoreo)</p>
                 <table style="width:100%; text-align:center; border-collapse: collapse; font-family:sans-serif;">
                     <tr>
-                        <th style="border-bottom:2px solid #e2e8f0; padding:10px; color:#475569; width:34%;">Realidad ⬇ \\ Simulación ➡</th>
+                        <th style="border-bottom:2px solid #e2e8f0; padding:10px; color:#475569; width:34%;">Realidad ⬇ \ Simulación ➡</th>
                         <th style="border-bottom:2px solid #e2e8f0; padding:10px; background-color:#eff6ff; color:#1e3a8a; width:33%;">🚨 Modelo Predice FLUJO</th>
                         <th style="border-bottom:2px solid #e2e8f0; padding:10px; background-color:#f8fafc; color:#475569; width:33%;">💤 Modelo Predice INACTIVO</th>
                     </tr>
