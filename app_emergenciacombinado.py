@@ -6,7 +6,8 @@
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
 # - LATENCIA INICIAL: Bloqueo estricto de emergencia los primeros 15 días del año.
 # - ESCUDO TERMOFISIOLÓGICO: Horizonte de termoinhibición dinámico ajustado a 5 días.
-# - UMBRAL HÍDRICO: Umbral de choque hídrico calibrado a 15 mm.
+# - UMBRAL HÍDRICO: Choque hídrico de 3 días fijado en 45 mm.
+# - PRIMER PICO VÁLIDO: La campaña se habilita únicamente cuando EMERREL > 0.70.
 # - VALIDACIÓN DE FRECUENCIA VARIABLE: Incorporación del método de Integración 
 #   Dinámica por Intervalo Real (Event-to-Event), eliminando artefactos de interpolación.
 # - OPTIMIZADOR 2D BIO-FÍSICO: Barrido de parámetros de suelo (W_Max y Ke) ajustado a ventanas de campo.
@@ -83,6 +84,8 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
+UMBRAL_PRIMER_PICO = 0.70
+
 def set_bg_hack(main_bg_file):
     try:
         with open(main_bg_file, "rb") as image_file:
@@ -154,6 +157,28 @@ def balance_hidrico_superficial(prec, et0, w_max=20.0, ke_suelo=0.4):
         evapacoracion_real = et0[i] * ke_suelo
         w[i] = max(0.0, min(w_max, w[i-1] + prec[i] - evapacoracion_real))
     return w
+
+def aplicar_filtro_primer_pico(df, umbral=UMBRAL_PRIMER_PICO):
+    """
+    Habilita la campaña desde el primer valor de EMERREL
+    estrictamente superior al umbral. Los pulsos anteriores
+    se conservan para auditoría y se cancelan en EMERREL.
+    """
+    df = df.copy()
+    df["EMERREL_ANTES_FILTRO_PRIMER_PICO"] = df["EMERREL"].copy()
+
+    candidatos = df.index[df["EMERREL"] > umbral].tolist()
+
+    if candidatos:
+        idx_primer_pico = candidatos[0]
+        df["Primer_Pico_Habilitado"] = df.index >= idx_primer_pico
+        df.loc[df.index < idx_primer_pico, "EMERREL"] = 0.0
+    else:
+        idx_primer_pico = None
+        df["Primer_Pico_Habilitado"] = False
+        df["EMERREL"] = 0.0
+
+    return df, idx_primer_pico
 
 class PracticalANNModel:
     def __init__(self, IW, bIW, LW, bLW):
@@ -314,7 +339,14 @@ def calcular_metricas_validacion_integral(df_sync, umbral_deteccion=0.05):
 # ---------------------------------------------------------
 # 4.5 MÓDULO OPTIMIZADOR 2D (CALIBRACIÓN SUELO POR EVENTO)
 # ---------------------------------------------------------
-def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bordenave=-37.761671, calentamiento_suelo=0.0):
+def optimizar_parametros_hidricos_2d(
+    df_meteo,
+    df_campo,
+    modelo_ann,
+    latitud_bordenave=-37.761671,
+    calentamiento_suelo=0.0,
+    umbral_choque_hidrico=45.0
+):
     df = df_meteo.copy()
     df['Fecha'] = pd.to_datetime(df['Fecha'])
     df["Julian_days"] = df["Fecha"].dt.dayofyear
@@ -350,6 +382,21 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bor
             humedad_relativa = df_sim["W_superficial"] / w_max
             df_sim["Hydric_Factor"] = 1 / (1 + np.exp(-10 * (humedad_relativa - 0.3)))
             
+            # Choque hídrico de 3 días, coherente con el motor principal
+            df_sim["Prec_3d"] = df_sim["Prec"].rolling(
+                window=3,
+                min_periods=1
+            ).sum()
+            mask_ruptura_opt = (
+                (df_sim["Julian_days"] > 15)
+                & (df_sim["Julian_days"] <= 110)
+                & (df_sim["Prec_3d"] >= umbral_choque_hidrico)
+            )
+            df_sim.loc[mask_ruptura_opt, "EMERREL_RAW"] = np.maximum(
+                df_sim.loc[mask_ruptura_opt, "EMERREL_RAW"],
+                1.0
+            )
+
             df_sim["EMERREL"] = df_sim["EMERREL_RAW"] * df_sim["Hydric_Factor"]
             df_sim.loc[humedad_relativa < 0.20, "EMERREL"] = 0.0
             df_sim['Lluvia_Recarga'] = (df_sim['Prec'] >= w_max).cummax()
@@ -357,6 +404,12 @@ def optimizar_parametros_hidricos_2d(df_meteo, df_campo, modelo_ann, latitud_bor
             
             df_sim["Tmedia_5d"] = df_sim["Tmedia_aire"].rolling(window=5, min_periods=1).mean()
             df_sim.loc[df_sim["Tmedia_5d"] >= 24.0, "EMERREL"] = 0.0
+            
+            # Misma validación de inicio usada por el motor principal
+            df_sim, _ = aplicar_filtro_primer_pico(
+                df_sim,
+                umbral=UMBRAL_PRIMER_PICO
+            )
             
             df_sync = sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2)
             metricas = calcular_metricas_validacion_integral(df_sync)
@@ -431,7 +484,19 @@ st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
-umbral_choque_hidrico = st.sidebar.slider("Choque Hídrico 3 días (mm)", 10.0, 100.0, 30.0)
+umbral_choque_hidrico = st.sidebar.slider(
+    "Choque Hídrico 3 días (mm)",
+    min_value=10.0,
+    max_value=100.0,
+    value=45.0,
+    step=1.0
+)
+
+st.sidebar.markdown("**Validación del Primer Pico**")
+st.sidebar.info(
+    f"El inicio de la campaña se habilita únicamente cuando "
+    f"EMERREL > {UMBRAL_PRIMER_PICO:.2f}."
+)
 
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 0)
 
@@ -474,7 +539,14 @@ with st.sidebar.expander("🛠️ Modo Dev: Calibrador Bio-Físico 2D", expanded
                 col_fecha_opt = 'FECHA' if 'FECHA' in df_campo_opt.columns else df_campo_opt.columns[0]
                 df_campo_opt[col_fecha_opt] = pd.to_datetime(df_campo_opt[col_fecha_opt])
                 
-                tabla_optima = optimizar_parametros_hidricos_2d(df_meteo_opt, df_campo_opt, modelo_ann, latitud_bordenave=-37.761671, calentamiento_suelo=calentamiento_suelo)
+                tabla_optima = optimizar_parametros_hidricos_2d(
+                    df_meteo_opt,
+                    df_campo_opt,
+                    modelo_ann,
+                    latitud_bordenave=-37.761671,
+                    calentamiento_suelo=calentamiento_suelo,
+                    umbral_choque_hidrico=umbral_choque_hidrico
+                )
                 
             st.success("¡Barrido 2D por eventos completado de forma rigurosa!")
             st.dataframe(tabla_optima.head(15))
@@ -545,13 +617,20 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     # 5. BLOQUEO FINAL ESTRICTO: Latencia Temprana (Primeros 15 días del año)
     df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
+
+    # 6. VALIDACIÓN DEL PRIMER PICO
+    # La campaña comienza en el primer valor estrictamente superior a 0.70.
+    df, idx_primer_pico = aplicar_filtro_primer_pico(
+        df,
+        umbral=UMBRAL_PRIMER_PICO
+    )
     # ----------------------------------------------------
 
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
     fecha_hoy = pd.Timestamp.now().normalize()
     if fecha_hoy not in df['Fecha'].values: fecha_hoy = df['Fecha'].max()
-    indices_pulso = df.index[df["EMERREL"] >= umbral_er].tolist()
+    indices_pulso = [idx_primer_pico] if idx_primer_pico is not None else []
 
     # --- CÁLCULO DE FECHA LÍMITE (800 °Cd) ---
     dga_hoy, dga_7dias = 0.0, 0.0
@@ -575,7 +654,10 @@ if df_meteo_raw is not None and modelo_ann is not None:
         idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
         
         dga_7dias = dga_hoy + df.iloc[idx_hoy + 1: idx_hoy + 8]["DG"].sum() if idx_hoy + 8 <= len(df) else dga_hoy
-        msg_estado = f"Pico detectado el {fecha_inicio_ventana.strftime('%d/%m')}"
+        msg_estado = (
+            f"Pico validado > {UMBRAL_PRIMER_PICO:.2f} "
+            f"el {fecha_inicio_ventana.strftime('%d/%m')}"
+        )
 
     # Sincronización Rigurosa por Eventos Variables
     pearson_r, nse_flujos, kge_flujos, rmse_acum, ccc_acum, r2_acum = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -679,7 +761,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 <p style="color:#1e293b; font-weight:bold; margin-top:0; margin-bottom:10px;">🧩 Matriz de Confusión (Intervalos de Monitoreo)</p>
                 <table style="width:100%; text-align:center; border-collapse: collapse; font-family:sans-serif;">
                     <tr>
-                        <th style="border-bottom:2px solid #e2e8f0; padding:10px; color:#475569; width:34%;">Realidad ⬇ \ Simulación ➡</th>
+                        <th style="border-bottom:2px solid #e2e8f0; padding:10px; color:#475569; width:34%;">Realidad ⬇ \\ Simulación ➡</th>
                         <th style="border-bottom:2px solid #e2e8f0; padding:10px; background-color:#eff6ff; color:#1e3a8a; width:33%;">🚨 Modelo Predice FLUJO</th>
                         <th style="border-bottom:2px solid #e2e8f0; padding:10px; background-color:#f8fafc; color:#475569; width:33%;">💤 Modelo Predice INACTIVO</th>
                     </tr>
@@ -743,10 +825,17 @@ if df_meteo_raw is not None and modelo_ann is not None:
             st.plotly_chart(fig_emer, use_container_width=True)
 
             if fecha_inicio_ventana:
-                st.success(f"📅 **Inicio de Conteo Térmico:** {fecha_inicio_ventana.strftime('%d-%m-%Y')} (Detección biológica inicial)")
+                st.success(
+                    f"📅 **Inicio de Conteo Térmico:** "
+                    f"{fecha_inicio_ventana.strftime('%d-%m-%Y')} "
+                    f"(primer pico validado > {UMBRAL_PRIMER_PICO:.2f})"
+                )
                 if fecha_control: st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se acumularon **{dga_optimo} °Cd** post-emergencia.")
             else:
-                st.warning(f"⏳ Esperando primera alerta (Tasa >= {umbral_er}).")
+                st.warning(
+                    f"⏳ Esperando un primer pico de emergencia "
+                    f"estrictamente superior a {UMBRAL_PRIMER_PICO:.2f}."
+                )
 
         col_gauge = col_gauge  # Mantenimiento de estructura visual
         with col_gauge:
@@ -841,7 +930,22 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 'Métrica de Validación': ['PEC (%)', 'Lag Control (días)', 'Lead Time Control (días)', 'Pearson (Flujos)', 'NSE (Flujos Reales Evento)', 'KGE (Flujos)', 'RMSE (Acumulado)', 'R2 (Acumulado)', 'CCC (Acumulado)', 'Desfase T50 Global (días)', 'F1-Score (Coincidencia)', 'Exactitud Global', 'Hits (Aciertos)', 'Misses (Omisiones)', 'Falsos Positivos', 'Correctos Negativos', 'Desfase Primer Flujo (días)'], 
                 'Valor': [pec, peak_lag, lead_time, pearson_r, nse_flujos, kge_flujos, rmse_acum, r2_acum, ccc_acum, desfase_t50, f1_score_coincidencia, exactitud_global, hits_val, misses_val, falsos_pos_val, correctos_neg_val, val_lag]
             }).to_excel(writer, sheet_name='Validacion_Campo', index=False)
-        pd.DataFrame({'Configuracion': ['T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke', 'Mod_Termico', 'Umbral_Termoinhibicion', 'Calentamiento_Suelo_OI'], 'Valor': [t_base_val, t_opt_max, t_critica, w_max_val, ke_val, mod_termico, umbral_termoinhibicion, calentamiento_suelo]}).to_excel(writer, sheet_name='Bio_Params', index=False)
+        pd.DataFrame({
+            'Configuracion': [
+                'T_Base', 'T_Optima', 'T_Critica', 'W_Max', 'Ke',
+                'Mod_Termico', 'Umbral_Termoinhibicion',
+                'Umbral_Choque_Hidrico_3d',
+                'Umbral_Primer_Pico',
+                'Calentamiento_Suelo_OI'
+            ],
+            'Valor': [
+                t_base_val, t_opt_max, t_critica, w_max_val, ke_val,
+                mod_termico, umbral_termoinhibicion,
+                umbral_choque_hidrico,
+                UMBRAL_PRIMER_PICO,
+                calentamiento_suelo
+            ]
+        }).to_excel(writer, sheet_name='Bio_Params', index=False)
 
     st.sidebar.download_button("📥 Descargar Reporte Bordenave", output.getvalue(), "PREDWEEM_Integral_Bordenave_vK4_9_15.xlsx")
 
