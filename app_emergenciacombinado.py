@@ -84,7 +84,7 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
-UMBRAL_PRIMER_PICO = 0.70
+UMBRAL_PRIMER_PICO = 0.80
 
 def set_bg_hack(main_bg_file):
     try:
@@ -452,7 +452,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             )
 
             x_cobertura = [0, 30, 70, 100]
-            ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.95, 0.50, 0.25, 0.10]))
+            ke_val = float(np.interp(cobertura_pct, x_cobertura, [0.85, 0.50, 0.25, 0.10]))
             mod_termico = float(np.interp(cobertura_pct, x_cobertura, [1.00, 0.95, 0.90, 0.80]))
 
             html_card = f"""
