@@ -431,7 +431,7 @@ st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
 
 st.sidebar.markdown("**Ruptura de Dormición (Otoño Temprano)**")
-umbral_choque_hidrico = st.sidebar.slider("Choque Hídrico 3 días (mm)", 10.0, 100.0, 15.0)
+umbral_choque_hidrico = st.sidebar.slider("Choque Hídrico 3 días (mm)", 10.0, 100.0, 30.0)
 
 residualidad = st.sidebar.number_input("Residualidad Herbicida (días)", 0, 60, 0)
 
