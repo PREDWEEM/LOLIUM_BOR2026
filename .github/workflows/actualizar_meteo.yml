@@ -44,7 +44,7 @@ jobs:
 
       - name: Actualizar observaciones SIGA y pronóstico ECMWF ENS
         env:
-          # Si A872817.xls está en la raíz del repositorio, dejar así.
+          # Si el histórico SIGA está en la raíz del repositorio, dejar así.
           # Si está dentro de data/, cambiar a: data/A872817.xls
           SIGA_LOCAL_FILE: A872817.xls
 
@@ -57,14 +57,62 @@ jobs:
 
           # Mantener en false para no mezclar pronósticos vencidos con observaciones.
           RELLENAR_HUECOS_CON_PRONOSTICO_VENCIDO: "false"
-        run: python actualizar_meteo_bordenave.py
+        run: python actualizar_meteo_bordenave.py --check
 
       - name: Guardar archivos actualizados
         run: |
+          set -e
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           mkdir -p data/historico_pronosticos
+
+          # Guardar temporalmente los archivos generados por esta corrida.
+          TMPDIR_GENERADO="$(mktemp -d)"
+
+          if [ -f meteo_daily.csv ]; then
+            cp meteo_daily.csv "$TMPDIR_GENERADO/meteo_daily.csv"
+          fi
+
+          mkdir -p "$TMPDIR_GENERADO/data"
+          mkdir -p "$TMPDIR_GENERADO/data/historico_pronosticos"
+
+          if [ -f data/estado_actualizacion_meteo.json ]; then
+            cp data/estado_actualizacion_meteo.json "$TMPDIR_GENERADO/data/estado_actualizacion_meteo.json"
+          fi
+
+          if [ -f data/siga_bordenave_observado.csv ]; then
+            cp data/siga_bordenave_observado.csv "$TMPDIR_GENERADO/data/siga_bordenave_observado.csv"
+          fi
+
+          if [ -d data/historico_pronosticos ]; then
+            cp -a data/historico_pronosticos/. "$TMPDIR_GENERADO/data/historico_pronosticos/" || true
+          fi
+
+          # Sincronizar con la última versión remota.
+          # Esto evita conflictos de rebase en archivos generados automáticamente.
+          git fetch origin main
+          git reset --hard origin/main
+
+          # Reaplicar los archivos generados por esta corrida.
+          mkdir -p data/historico_pronosticos
+
+          if [ -f "$TMPDIR_GENERADO/meteo_daily.csv" ]; then
+            cp "$TMPDIR_GENERADO/meteo_daily.csv" meteo_daily.csv
+          fi
+
+          if [ -f "$TMPDIR_GENERADO/data/estado_actualizacion_meteo.json" ]; then
+            cp "$TMPDIR_GENERADO/data/estado_actualizacion_meteo.json" data/estado_actualizacion_meteo.json
+          fi
+
+          if [ -f "$TMPDIR_GENERADO/data/siga_bordenave_observado.csv" ]; then
+            cp "$TMPDIR_GENERADO/data/siga_bordenave_observado.csv" data/siga_bordenave_observado.csv
+          fi
+
+          if [ -d "$TMPDIR_GENERADO/data/historico_pronosticos" ]; then
+            cp -a "$TMPDIR_GENERADO/data/historico_pronosticos/." data/historico_pronosticos/ || true
+          fi
 
           git add -A meteo_daily.csv data/
 
@@ -74,8 +122,4 @@ jobs:
           fi
 
           git commit -m "Actualiza SIGA y ECMWF ENS"
-
-          git fetch origin main
-          git rebase origin/main
-
           git push origin HEAD:main
