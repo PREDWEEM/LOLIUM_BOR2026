@@ -1,8 +1,12 @@
+from pathlib import Path
+import textwrap
+
+workflow = r"""
 name: Actualizar SIGA y ECMWF ENS
 
 on:
   schedule:
-    # 07:30 y 15:30 de Argentina
+    # 07:30 y 15:30 hora Argentina (UTC-3)
     - cron: "30 10,18 * * *"
   workflow_dispatch:
 
@@ -20,6 +24,8 @@ jobs:
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -31,18 +37,30 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install requests pandas numpy xlrd openpyxl
 
-      - name: Verificar archivos
+      - name: Verificar archivos disponibles
         run: |
+          echo "Directorio actual:"
           pwd
+          echo "Contenido del repositorio:"
           ls -la
+          echo "Contenido de data, si existe:"
+          ls -la data || true
 
-      - name: Actualizar observaciones y pronóstico
+      - name: Actualizar observaciones SIGA y pronóstico ECMWF ENS
         env:
+          # Si A872817.xls está en la raíz del repositorio, dejar así.
+          # Si está dentro de data/, cambiar a: data/A872817.xls
+          SIGA_LOCAL_FILE: A872817.xls
+
+          # Opcional: usar descarga remota SIGA si luego configura la URL.
           SIGA_DOWNLOAD_URL: ${{ secrets.SIGA_DOWNLOAD_URL }}
           SIGA_METHOD: GET
           SIGA_PARAMS_JSON: ${{ secrets.SIGA_PARAMS_JSON }}
           SIGA_POST_DATA_JSON: ${{ secrets.SIGA_POST_DATA_JSON }}
           SIGA_HEADERS_JSON: ${{ secrets.SIGA_HEADERS_JSON }}
+
+          # Mantener en false para no mezclar pronósticos vencidos con observaciones.
+          RELLENAR_HUECOS_CON_PRONOSTICO_VENCIDO: "false"
         run: python actualizar_meteo_bordenave.py
 
       - name: Guardar archivos actualizados
@@ -56,7 +74,17 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "No hay cambios para guardar."
-          else
-            git commit -m "Actualiza SIGA y ECMWF ENS"
-            git push
+            exit 0
           fi
+
+          git commit -m "Actualiza SIGA y ECMWF ENS"
+
+          git fetch origin main
+          git rebase origin/main
+
+          git push origin HEAD:main
+"""
+
+path = Path("/mnt/data/actualizar_meteo.yml")
+path.write_text(textwrap.dedent(workflow).lstrip(), encoding="utf-8")
+print(f"Archivo generado: {path}")
