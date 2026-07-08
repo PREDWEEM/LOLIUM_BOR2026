@@ -28,9 +28,8 @@ jobs:
           cache: pip
 
       - name: Instalar dependencias
-        run: |
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
+        run: pip install -r requirements.txt   
+            
          
 
       - name: Actualizar observaciones y pronóstico
