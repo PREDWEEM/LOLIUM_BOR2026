@@ -1,7 +1,3 @@
-from pathlib import Path
-import textwrap
-
-workflow = r"""
 name: Actualizar SIGA y ECMWF ENS
 
 on:
@@ -83,8 +79,3 @@ jobs:
           git rebase origin/main
 
           git push origin HEAD:main
-"""
-
-path = Path("/mnt/data/actualizar_meteo.yml")
-path.write_text(textwrap.dedent(workflow).lstrip(), encoding="utf-8")
-print(f"Archivo generado: {path}")
