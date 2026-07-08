@@ -44,13 +44,16 @@ jobs:
 
       - name: Actualizar observaciones SIGA y pronóstico ECMWF ENS
         env:
-          # Si el histórico SIGA está en la raíz del repositorio, dejar así.
-          # Si está dentro de data/, cambiar a: data/A872817.xls
+          # Descarga directa pública de SIGA–INTA para la estación Bordenave.
+          # Esta URL reemplaza al uso manual de A872817.xls y permite
+          # actualizar automáticamente el histórico observado.
+          SIGA_DOWNLOAD_URL: "https://siga.inta.gob.ar/document/series/A872817.xls"
+          SIGA_METHOD: GET
+
+          # Respaldo local opcional si SIGA no responde.
           SIGA_LOCAL_FILE: A872817.xls
 
-          # Opcional: usar descarga remota SIGA si luego configura la URL.
-          SIGA_DOWNLOAD_URL: ${{ secrets.SIGA_DOWNLOAD_URL }}
-          SIGA_METHOD: GET
+          # Variables opcionales si en el futuro SIGA exige parámetros o headers.
           SIGA_PARAMS_JSON: ${{ secrets.SIGA_PARAMS_JSON }}
           SIGA_POST_DATA_JSON: ${{ secrets.SIGA_POST_DATA_JSON }}
           SIGA_HEADERS_JSON: ${{ secrets.SIGA_HEADERS_JSON }}
