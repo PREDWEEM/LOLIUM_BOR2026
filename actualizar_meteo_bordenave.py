@@ -324,8 +324,6 @@ def normalizar_dataframe_siga(tabla: pd.DataFrame, fecha_limite_exclusiva: date)
     tabla = tabla.copy()
     tabla.columns = [normalizar_nombre_columna(c) for c in tabla.columns]
 
-    # Alias explícitos para el XLS real de SIGA Bordenave:
-    # temperatura_abrigo_150cm_maxima / minima / media y precipitacion_pluviometrica.
     alias = {
         "fecha": ["fecha", "date"],
         "tmedia": [
@@ -370,7 +368,10 @@ def normalizar_dataframe_siga(tabla: pd.DataFrame, fecha_limite_exclusiva: date)
         )
 
     fechas_crudas = tabla[seleccion["fecha"]]
-    fechas = pd.to_datetime(fechas_crudas, errors="coerce", yearfirst=True)
+    fechas = pd.Series(
+        pd.to_datetime(fechas_crudas, errors="coerce", yearfirst=True),
+        index=tabla.index,
+    )
     faltantes_fecha = fechas.isna()
     if faltantes_fecha.any():
         fechas.loc[faltantes_fecha] = pd.to_datetime(
@@ -390,6 +391,8 @@ def normalizar_dataframe_siga(tabla: pd.DataFrame, fecha_limite_exclusiva: date)
         salida["TMEDIA"] = (salida["TMAX"] + salida["TMIN"]) / 2.0
 
     salida = salida.dropna(subset=["Fecha", "TMAX", "TMIN"])
+    salida["Fecha"] = pd.to_datetime(salida["Fecha"], errors="coerce")
+    salida = salida.dropna(subset=["Fecha"])
     salida["Fecha"] = salida["Fecha"].dt.normalize()
 
     salida.loc[~salida["TMAX"].between(-25, 55), "TMAX"] = np.nan
@@ -425,7 +428,6 @@ def obtener_siga_dataframe(
     fecha_fin: date,
     archivo_forzado: Path | None = None,
 ) -> tuple[pd.DataFrame, str]:
-    """Intenta: 1) SIGA remoto, 2) archivo local, 3) cache observado."""
     errores: list[str] = []
 
     if SIGA_URL_TEMPLATE and archivo_forzado is None:
@@ -510,7 +512,7 @@ def procesar_ecmwf_ens(datos: dict[str, Any]) -> pd.DataFrame:
     if not hourly or "time" not in hourly:
         raise ValueError("La respuesta de Open-Meteo no contiene datos horarios.")
 
-    tiempos = pd.to_datetime(hourly["time"], errors="coerce")
+    tiempos = pd.Series(pd.to_datetime(hourly["time"], errors="coerce"))
     if tiempos.isna().all():
         raise ValueError("No se pudieron interpretar las fechas del pronóstico.")
 
