@@ -1,0 +1,62 @@
+name: Actualizar SIGA y ECMWF ENS
+
+on:
+  schedule:
+    # 07:30 y 15:30 de Argentina (UTC-3).
+    - cron: "30 10,18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: actualizar-meteo-bordenave
+  cancel-in-progress: true
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install -r requirements_meteo.txt
+
+      - name: Actualizar observaciones y pronóstico
+        env:
+          SIGA_DOWNLOAD_URL: ${{ secrets.SIGA_DOWNLOAD_URL }}
+          SIGA_METHOD: ${{ vars.SIGA_METHOD || 'GET' }}
+          SIGA_PARAMS_JSON: ${{ secrets.SIGA_PARAMS_JSON }}
+          SIGA_POST_DATA_JSON: ${{ secrets.SIGA_POST_DATA_JSON }}
+          SIGA_HEADERS_JSON: ${{ secrets.SIGA_HEADERS_JSON }}
+        run: python actualizar_meteo_bordenave.py
+
+      - name: Guardar archivos actualizados
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            meteo_daily.csv \
+            data/siga_bordenave_observado.csv \
+            data/estado_actualizacion_meteo.json \
+            data/historico_pronosticos/
+
+          if git diff --cached --quiet; then
+            echo "No hay cambios para guardar."
+          else
+            git commit -m "Actualiza SIGA y ECMWF ENS"
+            git push
+          fi
