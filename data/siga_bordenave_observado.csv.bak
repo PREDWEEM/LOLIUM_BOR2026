@@ -1,0 +1,1 @@
+Fecha,TMAX,TMIN,Prec,TMEDIA,TMAX_P10,TMAX_P50,TMAX_P90,TMIN_P10,TMIN_P50,TMIN_P90,TMEDIA_P10,TMEDIA_P50,TMEDIA_P90,Prec_P10,Prec_P50,Prec_P90,Prob_Prec_ge_1mm,Prob_Prec_ge_5mm,Prob_Prec_ge_10mm,Prob_Prec_ge_30mm,GD_Tb2,Fuente,TipoDato,CalidadDato,N_miembros,Latitud_grilla,Longitud_grilla,Elevacion_grilla_m,Emision_UTC

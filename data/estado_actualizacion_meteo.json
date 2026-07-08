@@ -1,6 +1,6 @@
 {
-  "ejecucion_utc": "2026-07-08T01:09:38+00:00",
-  "estado_siga": "no_disponible",
+  "ejecucion_utc": "2026-07-08T01:35:34+00:00",
+  "estado_siga": "cache_por_falla",
   "ultima_observacion_siga": null,
   "fuente_pronostico": "ECMWF_IFS_ENS_025",
   "inicio_pronostico": "2026-07-07",
