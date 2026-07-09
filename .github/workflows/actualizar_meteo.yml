@@ -60,7 +60,9 @@ jobs:
 
           # Mantener en false para no mezclar pronósticos vencidos con observaciones.
           RELLENAR_HUECOS_CON_PRONOSTICO_VENCIDO: "false"
-        run: python actualizar_meteo_bordenave.py
+        run: |
+          python actualizar_meteo_bordenave.py
+          python postprocesar_prec_p50_bordenave.py
 
       - name: Guardar archivos actualizados
         run: |
