@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 👑 PREDWEEM INTEGRAL vK4.9.15 — LOLIUM BORDENAVE 2026
+# 👑 PREDWEEM INTEGRAL vK4.9.15 VISUAL V3 — LOLIUM BORDENAVE 2026
 # Actualización y Rigor Científico:
 # - ADAPTACIÓN BORDENAVE: Coordenadas fijas en -37.761671 para el motor de ET0.
 # - IDENTIDAD: PREDWEEM by GUILLERMO R. CHANTRE.
@@ -434,6 +434,7 @@ def optimizar_parametros_hidricos_2d(
 modelo_ann, cluster_model = load_models()
 
 st.title("🌾 PREDWEEM LOLIUM — BORDENAVE (BA) lat=-37.761671 lon=-63.083717")
+st.caption("Bordenave · VISUAL V3 · ventana eficiente verde · exportación PNG de alta resolución")
 
 with st.expander("📂 1. Datos del Lote", expanded=True):
     col_upload, col_rastrojo = st.columns(2)
@@ -475,7 +476,7 @@ df_campo_raw = load_data(archivo_campo, "bordenave_campo")
 
 # --- SIDEBAR ---
 LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
-st.sidebar.image(LOGO_URL, use_container_width=True)
+st.sidebar.image(LOGO_URL, width="stretch")
 
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.001, 0.80, 0.005)
@@ -723,7 +724,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
 
     # VISUALIZACIÓN FRONT-END
     colorscale_hard = [[0.0, "green"], [0.01, "green"], [0.02, "red"], [1.0, "red"]]
-    st.plotly_chart(go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False)).update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo Temporal (Tasa Diaria Bordenave)"), use_container_width=True)
+    st.plotly_chart(go.Figure(data=go.Heatmap(z=[df["EMERREL"].values], x=df["Fecha"], y=["Emergencia"], colorscale=colorscale_hard, zmin=0, zmax=1, showscale=False)).update_layout(height=120, margin=dict(t=30, b=0, l=10, r=10), title="Mapa de Riesgo Temporal (Tasa Diaria Bordenave)"), width="stretch")
 
     tab1, tab2, tab3, tab4 = st.tabs(["📊 MONITOR DE DECISIÓN", "💧 PRECIPITACIONES Y SUELO", "📈 ANÁLISIS ESTRATÉGICO", "🧪 BIO-CALIBRACIÓN"])
 
@@ -788,41 +789,386 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 l3.metric("Lead Time", f"{lead_time} días", "Ventana de Alerta")
             st.markdown("---")
 
-        col_main, col_gauge = st.columns([2, 1])
+        col_main, col_gauge = st.columns([3.4, 1])
 
         with col_main:
             fig_emer = go.Figure()
-            
-            # --- SOMBREADO DINÁMICO VINCULADO A LAS FECHAS REALES DE MONITOREO ---
+
+            # Bandas alternas según los intervalos reales de monitoreo.
             if df_campo is not None:
-                fechas_reales_lote = df_campo[col_fecha].sort_values().tolist()
+                fechas_reales_lote = (
+                    pd.to_datetime(
+                        df_campo[col_fecha],
+                        errors="coerce"
+                    )
+                    .dropna()
+                    .sort_values()
+                    .tolist()
+                )
                 for i in range(1, len(fechas_reales_lote), 2):
                     fig_emer.add_vrect(
-                        x0=fechas_reales_lote[i-1], x1=fechas_reales_lote[i], 
-                        fillcolor="rgba(148, 163, 184, 0.12)", 
-                        layer="below", line_width=0
+                        x0=fechas_reales_lote[i - 1],
+                        x1=fechas_reales_lote[i],
+                        fillcolor="rgba(148, 163, 184, 0.065)",
+                        layer="below",
+                        line_width=0,
                     )
-            
-            fig_emer.add_trace(go.Scatter(x=df["Fecha"], y=df["EMERREL_LOG"], mode='lines', name='Tasa Diaria Sim. (Log)', line=dict(color='#166534', width=2.5), fill='tozeroy', fillcolor='rgba(22, 101, 52, 0.1)'))
-            fig_emer.add_hline(y=umbral_er_log, line_dash="dash", line_color="orange", annotation_text=f"Umbral Alerta ({umbral_er})")
 
+            # Ventana agronómica eficiente con verde suave.
+            if fecha_control is not None and fecha_limite is not None:
+                fig_emer.add_vrect(
+                    x0=fecha_control,
+                    x1=fecha_limite,
+                    fillcolor="rgba(34, 197, 94, 0.10)",
+                    layer="below",
+                    line_width=0,
+                )
+
+            # Banda de residualidad, si corresponde.
+            if fecha_control is not None and residualidad > 0:
+                fig_emer.add_vrect(
+                    x0=fecha_control,
+                    x1=fecha_control + timedelta(days=int(residualidad)),
+                    fillcolor="rgba(37, 99, 235, 0.055)",
+                    layer="below",
+                    line_width=0,
+                )
+
+            # Serie simulada: sin relleno para mejorar la lectura.
+            fig_emer.add_trace(
+                go.Scatter(
+                    x=df["Fecha"],
+                    y=df["EMERREL_LOG"],
+                    mode="lines",
+                    name="Tasa diaria simulada (log)",
+                    line=dict(
+                        color="#075FCF",
+                        width=2.4,
+                    ),
+                    hovertemplate=(
+                        "<b>%{x|%d-%m-%Y}</b><br>"
+                        "Simulado: %{y:.3f}<extra></extra>"
+                    ),
+                )
+            )
+
+            # Serie observada.
             if df_campo is not None:
-                fig_emer.add_trace(go.Scatter(x=df_campo[col_fecha], y=df_campo['Campo_Normalizado_LOG'], mode='markers+lines', name='Recuentos de Campo Real (Log)', marker=dict(color='#dc2626', size=10, symbol='diamond'), line=dict(color='rgba(220, 38, 38, 0.4)', dash='dot')))
-
-            if fecha_control:
-                fig_emer.add_vline(x=fecha_control.timestamp() * 1000, line_dash="dot", line_color="red", line_width=3, annotation_text=f"Control ({dga_optimo}°Cd)", annotation_position="top left", annotation_font=dict(color="red", size=12))
-                fig_emer.add_vrect(x0=fecha_control.timestamp() * 1000, x1=(fecha_control + timedelta(days=residualidad)).timestamp() * 1000, fillcolor="blue", opacity=0.1, layer="below", line_width=0, annotation_text=f"Protección ({residualidad}d)", annotation_position="top left")
-
-                if fecha_limite:
-                    fig_emer.add_vline(x=fecha_limite.timestamp() * 1000, line_dash="dot", line_color="orange", line_width=3, annotation_text=f"Límite ({dga_critico}°Cd)", annotation_position="top right", annotation_font=dict(color="orange", size=12))
-                    fig_emer.add_vrect(
-                        x0=fecha_control.timestamp() * 1000, x1=fecha_limite.timestamp() * 1000, 
-                        fillcolor="rgba(255, 165, 0, 0.18)", layer="below", line_width=0,
-                        annotation_text="Ventana de Aplicación", annotation_position="top left"
+                fig_emer.add_trace(
+                    go.Scatter(
+                        x=df_campo[col_fecha],
+                        y=df_campo["Campo_Normalizado_LOG"],
+                        mode="markers+lines",
+                        name="Campo normalizado (log)",
+                        marker=dict(
+                            color="#60A5FA",
+                            size=9,
+                            symbol="circle",
+                            line=dict(
+                                color="#FFFFFF",
+                                width=1.4,
+                            ),
+                        ),
+                        line=dict(
+                            color="#60A5FA",
+                            width=2.2,
+                            dash="dash",
+                        ),
+                        hovertemplate=(
+                            "<b>%{x|%d-%m-%Y}</b><br>"
+                            "Campo: %{y:.3f}<extra></extra>"
+                        ),
                     )
+                )
 
-            fig_emer.update_layout(title="Dinámica Fisiológica de Emergencia (Intervalos Reales de Monitoreo)", yaxis_title="Log10(Emergencia + 0.01)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_emer, use_container_width=True)
+            # Umbral de alerta.
+            fig_emer.add_hline(
+                y=umbral_er_log,
+                line_dash="dash",
+                line_color="#111827",
+                line_width=1.7,
+            )
+            fig_emer.add_annotation(
+                x=0.995,
+                xref="paper",
+                y=umbral_er_log,
+                yref="y",
+                text=f"Alerta ({umbral_er:.3f})",
+                showarrow=False,
+                xanchor="right",
+                yanchor="bottom",
+                yshift=7,
+                bgcolor="rgba(255,255,255,0.94)",
+                bordercolor="rgba(148,163,184,0.50)",
+                borderwidth=1,
+                borderpad=4,
+                font=dict(
+                    size=12,
+                    color="#374151",
+                ),
+            )
+
+            # Inicio del recuento térmico.
+            if fecha_inicio_ventana is not None:
+                fig_emer.add_vline(
+                    x=fecha_inicio_ventana,
+                    line_dash="dot",
+                    line_color="#111827",
+                    line_width=1.5,
+                )
+                fig_emer.add_annotation(
+                    x=fecha_inicio_ventana,
+                    xref="x",
+                    y=1.035,
+                    yref="paper",
+                    text="Inicio térmico",
+                    showarrow=False,
+                    xanchor="center",
+                    yanchor="bottom",
+                    bgcolor="rgba(255,255,255,0.96)",
+                    bordercolor="rgba(148,163,184,0.45)",
+                    borderwidth=1,
+                    borderpad=4,
+                    font=dict(
+                        size=12,
+                        color="#111827",
+                    ),
+                )
+
+            # Fecha de control.
+            if fecha_control is not None:
+                fig_emer.add_vline(
+                    x=fecha_control,
+                    line_dash="dot",
+                    line_color="#111827",
+                    line_width=1.5,
+                )
+                fig_emer.add_annotation(
+                    x=fecha_control,
+                    xref="x",
+                    y=1.105,
+                    yref="paper",
+                    text=f"Control ({dga_optimo} °Cd)",
+                    showarrow=False,
+                    xanchor="center",
+                    yanchor="bottom",
+                    bgcolor="rgba(255,255,255,0.96)",
+                    bordercolor="rgba(148,163,184,0.45)",
+                    borderwidth=1,
+                    borderpad=4,
+                    font=dict(
+                        size=12,
+                        color="#111827",
+                    ),
+                )
+
+            # Fecha límite.
+            if fecha_limite is not None:
+                fig_emer.add_vline(
+                    x=fecha_limite,
+                    line_dash="dot",
+                    line_color="#166534",
+                    line_width=1.5,
+                )
+                fig_emer.add_annotation(
+                    x=fecha_limite,
+                    xref="x",
+                    y=1.035,
+                    yref="paper",
+                    text=f"Límite ({dga_critico} °Cd)",
+                    showarrow=False,
+                    xanchor="center",
+                    yanchor="bottom",
+                    bgcolor="rgba(240,253,244,0.96)",
+                    bordercolor="rgba(34,197,94,0.45)",
+                    borderwidth=1,
+                    borderpad=4,
+                    font=dict(
+                        size=12,
+                        color="#166534",
+                    ),
+                )
+
+            # Rótulo de la ventana eficiente.
+            if fecha_control is not None and fecha_limite is not None:
+                fig_emer.add_annotation(
+                    x=fecha_control + (fecha_limite - fecha_control) / 2,
+                    xref="x",
+                    y=0.975,
+                    yref="paper",
+                    text="Ventana eficiente",
+                    showarrow=False,
+                    xanchor="center",
+                    yanchor="top",
+                    bgcolor="rgba(240,253,244,0.94)",
+                    borderpad=3,
+                    font=dict(
+                        size=11,
+                        color="#166534",
+                    ),
+                )
+
+            # Marcas mensuales en español.
+            primer_mes = pd.Timestamp(
+                df["Fecha"].min()
+            ).to_period("M").to_timestamp()
+            ultimo_mes = pd.Timestamp(
+                df["Fecha"].max()
+            ).to_period("M").to_timestamp()
+            marcas_mensuales = pd.date_range(
+                primer_mes,
+                ultimo_mes,
+                freq="MS",
+            )
+            nombres_meses = {
+                1: "Ene",
+                2: "Feb",
+                3: "Mar",
+                4: "Abr",
+                5: "May",
+                6: "Jun",
+                7: "Jul",
+                8: "Ago",
+                9: "Sep",
+                10: "Oct",
+                11: "Nov",
+                12: "Dic",
+            }
+            etiquetas_meses = [
+                f"{nombres_meses[fecha.month]} {fecha.year}"
+                for fecha in marcas_mensuales
+            ]
+
+            fig_emer.update_layout(
+                title=dict(
+                    text=(
+                        "Dinámica fisiológica de emergencia "
+                        "(intervalos reales de monitoreo)"
+                    ),
+                    x=0.0,
+                    xanchor="left",
+                    font=dict(
+                        size=21,
+                        color="#111827",
+                        family="Arial, sans-serif",
+                    ),
+                ),
+                xaxis=dict(
+                    title=dict(
+                        text="Fecha",
+                        font=dict(
+                            size=15,
+                            color="#4B5563",
+                        ),
+                        standoff=14,
+                    ),
+                    tickmode="array",
+                    tickvals=marcas_mensuales,
+                    ticktext=etiquetas_meses,
+                    tickfont=dict(
+                        size=12,
+                        color="#4B5563",
+                    ),
+                    showgrid=False,
+                    showline=True,
+                    linecolor="#6B7280",
+                    linewidth=1,
+                    ticks="outside",
+                    ticklen=6,
+                    zeroline=False,
+                    automargin=True,
+                ),
+                yaxis=dict(
+                    title=dict(
+                        text="Log10(EMERREL + 0,01)",
+                        font=dict(
+                            size=15,
+                            color="#4B5563",
+                        ),
+                        standoff=12,
+                    ),
+                    range=[-2.18, 0.12],
+                    tickmode="array",
+                    tickvals=[-2.0, -1.5, -1.0, -0.5, 0.0],
+                    tickfont=dict(
+                        size=12,
+                        color="#4B5563",
+                    ),
+                    showgrid=True,
+                    gridcolor="rgba(148, 163, 184, 0.28)",
+                    griddash="dash",
+                    gridwidth=1,
+                    showline=True,
+                    linecolor="#6B7280",
+                    linewidth=1,
+                    zeroline=False,
+                    automargin=True,
+                ),
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.17,
+                    xanchor="right",
+                    x=1.0,
+                    bgcolor="rgba(255,255,255,0.92)",
+                    bordercolor="rgba(148,163,184,0.35)",
+                    borderwidth=1,
+                    font=dict(
+                        size=12,
+                        color="#374151",
+                    ),
+                ),
+                hovermode="x unified",
+                hoverlabel=dict(
+                    bgcolor="#FFFFFF",
+                    bordercolor="#CBD5E1",
+                    font=dict(
+                        size=12,
+                        color="#111827",
+                    ),
+                ),
+                height=630,
+                margin=dict(
+                    l=82,
+                    r=28,
+                    t=132,
+                    b=78,
+                ),
+                paper_bgcolor="#FFFFFF",
+                plot_bgcolor="#FFFFFF",
+                font=dict(
+                    family="Arial, sans-serif",
+                    color="#374151",
+                ),
+                dragmode="zoom",
+            )
+
+            fig_emer.update_xaxes(
+                rangeslider_visible=False,
+                fixedrange=False,
+            )
+            fig_emer.update_yaxes(fixedrange=False)
+
+            st.plotly_chart(
+                fig_emer,
+                width="stretch",
+                config={
+                    "displaylogo": False,
+                    "responsive": True,
+                    "scrollZoom": True,
+                    "modeBarButtonsToRemove": [
+                        "lasso2d",
+                        "select2d",
+                    ],
+                    "toImageButtonOptions": {
+                        "format": "png",
+                        "filename": "PREDWEEM_Bordenave_dinamica_emergencia",
+                        "height": 1000,
+                        "width": 2000,
+                        "scale": 2,
+                    },
+                },
+            )
 
             if fecha_inicio_ventana:
                 st.success(
@@ -830,17 +1176,24 @@ if df_meteo_raw is not None and modelo_ann is not None:
                     f"{fecha_inicio_ventana.strftime('%d-%m-%Y')} "
                     f"(primer pico validado > {UMBRAL_PRIMER_PICO:.2f})"
                 )
-                if fecha_control: st.error(f"🎯 **MOMENTO CRÍTICO DE CONTROL:** {fecha_control.strftime('%d-%m-%Y')}. Se acumularon **{dga_optimo} °Cd** post-emergencia.")
+                if fecha_control:
+                    st.error(
+                        f"🎯 **MOMENTO CRÍTICO DE CONTROL:** "
+                        f"{fecha_control.strftime('%d-%m-%Y')}. "
+                        f"Se acumularon **{dga_optimo} °Cd** "
+                        f"post-emergencia."
+                    )
             else:
                 st.warning(
                     f"⏳ Esperando un primer pico de emergencia "
-                    f"estrictamente superior a {UMBRAL_PRIMER_PICO:.2f}."
+                    f"estrictamente superior a "
+                    f"{UMBRAL_PRIMER_PICO:.2f}."
                 )
 
         col_gauge = col_gauge  # Mantenimiento de estructura visual
         with col_gauge:
             max_axis = dga_critico * 1.2
-            st.plotly_chart(go.Figure().add_trace(go.Indicator(mode="gauge+number", value=dga_hoy, domain={'x': [0, 1], 'y': [0, 1]}, title={'text': "<b>TT POST-EMERGENCIA (°Cd)</b>", 'font': {'size': 18}}, gauge={'axis': {'range': [None, max_axis]}, 'bar': {'color': "#1e293b", 'thickness': 0.3}, 'steps': [{'range': [0, dga_optimo], 'color': "#4ade80"}, {'range': [dga_optimo, dga_critico], 'color': "#facc15"}, {'range': [dga_critico, max_axis], 'color': "#f87171"}], 'threshold': {'line': {'color': "#2563eb", 'width': 6}, 'thickness': 0.8, 'value': dga_7dias}})).add_annotation(x=0.5, y=-0.1, text=f"{msg_estado}<br>Pronóstico +7d: <b>{dga_7dias:.1f} °Cd</b>", showarrow=False, font=dict(size=14, color="#1e3a8a"), align="center").update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30)), use_container_width=True)
+            st.plotly_chart(go.Figure().add_trace(go.Indicator(mode="gauge+number", value=dga_hoy, domain={'x': [0, 1], 'y': [0, 1]}, title={'text': "<b>TT POST-EMERGENCIA (°Cd)</b>", 'font': {'size': 18}}, gauge={'axis': {'range': [None, max_axis]}, 'bar': {'color': "#1e293b", 'thickness': 0.3}, 'steps': [{'range': [0, dga_optimo], 'color': "#4ade80"}, {'range': [dga_optimo, dga_critico], 'color': "#facc15"}, {'range': [dga_critico, max_axis], 'color': "#f87171"}], 'threshold': {'line': {'color': "#2563eb", 'width': 6}, 'thickness': 0.8, 'value': dga_7dias}})).add_annotation(x=0.5, y=-0.1, text=f"{msg_estado}<br>Pronóstico +7d: <b>{dga_7dias:.1f} °Cd</b>", showarrow=False, font=dict(size=14, color="#1e3a8a"), align="center").update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30)), width="stretch")
 
         if df_campo is not None and not df_sincronizado.empty:
             st.markdown("---")
@@ -851,7 +1204,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 fig_acum = go.Figure()
                 fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Campo_Acumulado'] * 100, mode='markers+lines', name='Real de Campo (%)', marker=dict(color='#dc2626', size=8, symbol='diamond'), line=dict(color='#dc2626', width=2)))
                 fig_acum.add_trace(go.Scatter(x=df_sincronizado['Fecha'], y=df_sincronizado['Sim_Acumulado'] * 100, mode='lines', name='Simulado PREDWEEM (%)', line=dict(color='#166534', width=3, dash='dash')))
-                st.plotly_chart(fig_acum.update_layout(title="Llenado Cinético (Curvas Acumuladas Puras)", xaxis_title="Calendario", yaxis_title="Emergencia Acumulada (%)", height=430, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
+                st.plotly_chart(fig_acum.update_layout(title="Llenado Cinético (Curvas Acumuladas Puras)", xaxis_title="Calendario", yaxis_title="Emergencia Acumulada (%)", height=430, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), width="stretch")
 
             with col_disp:
                 tab_flujos, tab_acum = st.tabs(["1:1 Flujos", "1:1 Acumulado"])
@@ -866,7 +1219,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                         text=df_sincronizado['Fecha'].dt.strftime('%d-%m-%Y'),
                         hovertemplate="<b>Intervalo fin: %{text}</b><br>Obs: %{x:.3f}<br>Sim: %{y:.3f}<extra></extra>"
                     ))
-                    st.plotly_chart(fig_1to1.update_layout(title="Ajuste 1:1 de Flujos por Evento Real", xaxis_title="Observado Relativo", yaxis_title="Simulado Relativo", height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), use_container_width=True)
+                    st.plotly_chart(fig_1to1.update_layout(title="Ajuste 1:1 de Flujos por Evento Real", xaxis_title="Observado Relativo", yaxis_title="Simulado Relativo", height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), width="stretch")
 
                 with tab_acum:
                     fig_1to1_ac = go.Figure()
@@ -878,7 +1231,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                         text=df_sincronizado['Fecha'].dt.strftime('%d-%m-%Y'),
                         hovertemplate="<b>%{text}</b><br>Obs Acum: %{x:.3f}<br>Sim Acum: %{y:.3f}<extra></extra>"
                     ))
-                    st.plotly_chart(fig_1to1_ac.update_layout(title=f"Ajuste 1:1 Acumulado (R²: {r2_acum:.3f} | RMSE: {rmse_acum:.3f})", xaxis_title="Obs. Acumulada (Norm)", yaxis_title="Sim. Acumulada (Norm)", height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), use_container_width=True)
+                    st.plotly_chart(fig_1to1_ac.update_layout(title=f"Ajuste 1:1 Acumulado (R²: {r2_acum:.3f} | RMSE: {rmse_acum:.3f})", xaxis_title="Obs. Acumulada (Norm)", yaxis_title="Sim. Acumulada (Norm)", height=380, showlegend=False, margin=dict(t=40, b=0, l=0, r=0)), width="stretch")
 
     with tab2:
         st.header("💧 Dinámica Hídrica del Suelo (Bordenave)")
@@ -886,7 +1239,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
         fig_hidrico.add_trace(go.Bar(x=df["Fecha"], y=df["Prec"], name='Lluvia Diaria (mm)', marker_color='#93c5fd', opacity=0.7))
         fig_hidrico.add_trace(go.Scatter(x=df["Fecha"], y=df["W_superficial"], name='Agua en Suelo (0-10cm)', mode='lines', line=dict(color='#0284c7', width=3), fill='tozeroy', fillcolor='rgba(2, 132, 199, 0.2)'))
         fig_hidrico.add_hline(y=w_max_val, line_dash="dot", line_color="#334155", annotation_text=f"Capacidad Máx. Suelo ({w_max_val} mm)", annotation_position="top left")
-        st.plotly_chart(fig_hidrico.update_layout(title="Precipitación vs. Retención Real de Humedad", xaxis_title="Fecha", yaxis_title="Milímetros (mm)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), use_container_width=True)
+        st.plotly_chart(fig_hidrico.update_layout(title="Precipitación vs. Retención Real de Humedad", xaxis_title="Fecha", yaxis_title="Milímetros (mm)", height=450, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)), width="stretch")
 
     with tab3:
         st.header("🔍 Clasificación DTW (Bordenave)")
@@ -906,7 +1259,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
                 fp = go.Figure()
                 fp.add_trace(go.Scatter(x=JD_COM, y=cluster_model["curves_interp"][pred], name="Patrón Histórico", line=dict(dash='dash', color=cols.get(pred))))
                 fp.add_trace(go.Scatter(x=jd_grid, y=obs_norm * cluster_model["curves_interp"][pred].max(), name="2026", line=dict(color='black', width=3)))
-                st.plotly_chart(fp, use_container_width=True)
+                st.plotly_chart(fp, width="stretch")
             with c2:
                 nombres_patrones = {0: "🌾 Bimodal", 1: "🌱 Temprano", 2: "🍂 Tardío"}
                 st.success(f"### {nombres_patrones.get(pred, 'Desconocido')}")
@@ -917,7 +1270,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     with tab4:
         st.subheader("🧪 Curva de Respuesta Fisiológica")
         x_temps = np.linspace(0, 45, 200)
-        st.plotly_chart(go.Figure().add_trace(go.Scatter(x=x_temps, y=[calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps], mode='lines', line=dict(color='#2563eb', width=4), fill='tozeroy')), use_container_width=True)
+        st.plotly_chart(go.Figure().add_trace(go.Scatter(x=x_temps, y=[calculate_tt_scalar(t, t_base_val, t_opt_max, t_critica) for t in x_temps], mode='lines', line=dict(color='#2563eb', width=4), fill='tozeroy')), width="stretch")
 
     # REPORTE EN EXCEL
     output = io.BytesIO()
