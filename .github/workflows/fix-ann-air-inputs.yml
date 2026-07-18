@@ -1,0 +1,79 @@
+name: Fix ANN air temperature inputs
+
+on:
+  push:
+    branches:
+      - agent/ann-air-temperature-20260718
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Correct ANN temperature inputs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          target = Path('app_emergenciacombinado.py')
+          text = target.read_text(encoding='utf-8')
+          old = '["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]'
+          new = '["Julian_days", "TMAX", "TMIN", "Prec"]'
+          count = text.count(old)
+          if count != 2:
+              raise SystemExit(f'Expected 2 ANN input occurrences, found {count}')
+
+          text = text.replace(old, new)
+          text = text.replace(
+              '# Actualización y Rigor Científico:',
+              '# Actualización y Rigor Científico:\n# - ENTRADAS ANN CORREGIDAS: JD, TMAX aire, TMIN aire y precipitación.',
+              1,
+          )
+          text = text.replace(
+              'Modulador Térmico Suelo:',
+              'Modulador térmico diagnóstico:',
+          )
+          text = text.replace(
+              'help="Suma N grados a la T° Max y Min del suelo entre los días julianos 152 (1 de Junio) y 264 para favorecer la emergencia."',
+              'help="Suma N grados a la temperatura estimada del suelo entre JD 152 y 264 solo con fines diagnósticos; no modifica la ANN."',
+          )
+          text = text.replace(
+              '# APLICACIÓN DE CALENTAMIENTO DESDE EL SIDEBAR (Desde el 1 de Junio)',
+              '# CALENTAMIENTO DIAGNÓSTICO DEL SUELO; NO MODIFICA LAS ENTRADAS DE LA ANN',
+          )
+          target.write_text(text, encoding='utf-8')
+
+          Path('.github/workflows/fix-ann-air-inputs.yml').unlink()
+          PY
+
+      - name: Validate Python syntax and ANN inputs
+        shell: bash
+        run: |
+          python -m py_compile app_emergenciacombinado.py
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('app_emergenciacombinado.py').read_text(encoding='utf-8')
+          correct = '["Julian_days", "TMAX", "TMIN", "Prec"]'
+          incorrect = '["Julian_days", "TMAX_suelo", "TMIN_suelo", "Prec"]'
+          assert text.count(correct) == 2
+          assert incorrect not in text
+          assert 'no modifica la ANN' in text
+          PY
+
+      - name: Commit correction
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Use air temperatures as ANN inputs"
+          git push
