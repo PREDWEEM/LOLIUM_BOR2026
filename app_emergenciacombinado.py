@@ -449,7 +449,7 @@ with st.expander("📂 1. Datos del Lote", expanded=True):
             st.markdown("#### 🌾 Manejo de Superficie")
             cobertura_pct = st.slider(
                 "Cobertura de Rastrojo en Suelo (%)",
-                min_value=0, max_value=100, value=65, step=5,
+                min_value=0, max_value=100, value=75, step=5,
                 help="0% = Suelo desnudo / Labranza. 100% = Cobertura total (Ej. Cultivo de Servicio)."
             )
 
@@ -480,7 +480,7 @@ LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.
 st.sidebar.image(LOGO_URL, width="stretch")
 
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.001, 0.80, 0.005)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.001, 0.80, 0.001)
 
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
