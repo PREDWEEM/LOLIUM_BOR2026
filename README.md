@@ -16,6 +16,12 @@ PREDWEEM es una herramienta de apoyo a la toma de decisiones agronómicas basada
 
 La implementación de este repositorio está orientada a **Bordenave** y debe utilizarse considerando el dominio geográfico, climático y agronómico para el cual fue configurada, así como su estado específico de validación.
 
+## Preparación para repositorio privado
+
+La aplicación carga los datos, pesos y modelos desde el checkout local. Antes de cambiar la visibilidad, autorice a Streamlit Community Cloud para acceder a los repositorios privados de `PREDWEEM`. El procedimiento completo se encuentra en [PRIVATE_REPOSITORY.md](PRIVATE_REPOSITORY.md).
+
+La automatización `Actualizar SIGA y ECMWF ENS` continúa descargando datos desde SIGA–INTA y actualizando `meteo_daily.csv` mediante GitHub Actions.
+
 ## Condiciones de uso
 
 No se concede licencia de uso por el solo hecho de acceder al repositorio. Cualquier utilización académica, técnica, institucional o comercial que exceda la visualización del contenido requiere autorización previa y escrita del titular de los derechos correspondientes.
