@@ -1,0 +1,136 @@
+name: Preparar núcleo para repositorio privado
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/prepare_private_repo.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-private-core:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Descargar rama del cambio
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Aplicar ajustes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("app_emergenciacombinado_core.py")
+          text = path.read_text(encoding="utf-8")
+
+          model_pattern = re.compile(
+              r"# ---------------------------------------------------------\n# 3\. ROBUSTEZ Y ARCHIVOS \(MOCKS\)\n# ---------------------------------------------------------\ndef create_mock_files_if_missing\(\):.*?\ncreate_mock_files_if_missing\(\)\n",
+              re.DOTALL,
+          )
+          model_replacement = '''# ---------------------------------------------------------
+          # 3. VALIDACIÓN DE ACTIVOS CIENTÍFICOS
+          # ---------------------------------------------------------
+          REQUIRED_MODEL_FILES = (
+              "IW.npy",
+              "bias_IW.npy",
+              "LW.npy",
+              "bias_out.npy",
+              "modelo_clusters_k3.pkl",
+          )
+
+          def validate_required_model_files():
+              """Detiene la aplicación si falta algún activo científico requerido."""
+              missing = [name for name in REQUIRED_MODEL_FILES if not (BASE / name).is_file()]
+              if missing:
+                  st.error(
+                      "Faltan activos requeridos del modelo PREDWEEM: "
+                      + ", ".join(missing)
+                      + ". Verifique el checkout privado y el despliegue de Streamlit."
+                  )
+                  st.stop()
+
+          validate_required_model_files()
+          '''
+          text, count_models = model_pattern.subn(model_replacement, text, count=1)
+          if count_models != 1:
+              raise RuntimeError("No se pudo reemplazar el bloque de modelos simulados.")
+
+          data_pattern = re.compile(
+              r"def load_data\(file_uploader, default_name\):.*?\n(?=def sincronizar_intervalos_variables)",
+              re.DOTALL,
+          )
+          data_replacement = '''def load_data(file_uploader, default_name):
+              """Carga archivos aportados por el usuario o recursos locales del checkout."""
+              if file_uploader:
+                  suffix = Path(file_uploader.name).suffix.lower()
+                  if suffix in {".xlsx", ".xls"}:
+                      return pd.read_excel(file_uploader)
+                  return pd.read_csv(file_uploader)
+
+              local_candidates = (
+                  BASE / f"{default_name}.csv",
+                  BASE / f"{default_name}.xlsx",
+                  BASE / f"{default_name}.xls",
+              )
+              for candidate in local_candidates:
+                  if candidate.is_file():
+                      if candidate.suffix.lower() in {".xlsx", ".xls"}:
+                          return pd.read_excel(candidate)
+                      return pd.read_csv(candidate)
+
+              st.warning(
+                  f"No se encontró un archivo local para '{default_name}'. "
+                  "Verifique que el recurso esté incluido en el checkout privado."
+              )
+              return None
+
+          '''
+          text, count_data = data_pattern.subn(data_replacement, text, count=1)
+          if count_data != 1:
+              raise RuntimeError("No se pudo reemplazar la carga pública de datos.")
+
+          old_logo = '''LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
+          st.sidebar.image(LOGO_URL, width="stretch")'''
+          new_logo = '''logo_path = BASE / "logo.png"
+          if logo_path.is_file():
+              st.sidebar.image(str(logo_path), width="stretch")
+          else:
+              st.sidebar.markdown("## 🌾 PREDWEEM")
+              st.sidebar.caption("Motor predictivo Lolium — Bordenave")'''
+          if old_logo not in text:
+              raise RuntimeError("No se encontró la referencia pública del logo.")
+          text = text.replace(old_logo, new_logo, 1)
+
+          if "raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026" in text:
+              raise RuntimeError("Persisten referencias públicas al propio repositorio.")
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Verificar sintaxis
+        run: |
+          python -m py_compile app_emergenciacombinado_core.py
+          git diff --check
+
+      - name: Guardar ajuste
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app_emergenciacombinado_core.py
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Adaptar recursos para repositorio privado"
+          git push origin HEAD:${{ github.head_ref }}
