@@ -101,24 +101,28 @@ def set_bg_hack(main_bg_file):
 set_bg_hack("fondo_predweem_v3.png") 
 
 # ---------------------------------------------------------
-# 3. ROBUSTEZ Y ARCHIVOS (MOCKS)
+# 3. VALIDACIÓN DE ACTIVOS CIENTÍFICOS
 # ---------------------------------------------------------
-def create_mock_files_if_missing():
-    if not (BASE / "IW.npy").exists():
-        np.save(BASE / "IW.npy", np.random.rand(4, 10))
-        np.save(BASE / "bias_IW.npy", np.random.rand(10))
-        np.save(BASE / "LW.npy", np.random.rand(1, 10))
-        np.save(BASE / "bias_out.npy", np.random.rand(1))
+REQUIRED_MODEL_FILES = (
+    "IW.npy",
+    "bias_IW.npy",
+    "LW.npy",
+    "bias_out.npy",
+    "modelo_clusters_k3.pkl",
+)
 
-    if not (BASE / "modelo_clusters_k3.pkl").exists():
-        jd = np.arange(1, 366)
-        p1 = np.exp(-((jd - 100) ** 2) / 600)
-        p2 = np.exp(-((jd - 160) ** 2) / 900) + 0.3 * np.exp(-((jd - 260) ** 2) / 1200)
-        p3 = np.exp(-((jd - 230) ** 2) / 1500)
-        with open(BASE / "modelo_clusters_k3.pkl", "wb") as f:
-            pickle.dump({"JD_common": jd, "curves_interp": [p2, p1, p3], "medoids_k3": [0, 1, 2]}, f)
+def validate_required_model_files():
+    """Detiene la aplicación si falta algún activo científico requerido."""
+    missing = [name for name in REQUIRED_MODEL_FILES if not (BASE / name).is_file()]
+    if missing:
+        st.error(
+            "Faltan activos requeridos del modelo PREDWEEM: "
+            + ", ".join(missing)
+            + ". Verifique el checkout privado y el despliegue de Streamlit."
+        )
+        st.stop()
 
-create_mock_files_if_missing()
+validate_required_model_files()
 
 # ---------------------------------------------------------
 # 4. LÓGICA TÉCNICA E INTEGRACIÓN DINÁMICA POR EVENTO REAL
@@ -204,18 +208,29 @@ def load_models():
         return None, None
 
 def load_data(file_uploader, default_name):
+    """Carga archivos aportados por el usuario o recursos locales del checkout."""
     if file_uploader:
-        return pd.read_excel(file_uploader) if file_uploader.name.endswith((".xlsx", ".xls")) else pd.read_csv(file_uploader)
-    elif (BASE / f"{default_name}.csv").exists():
-        return pd.read_csv(BASE / f"{default_name}.csv")
-    elif (BASE / f"{default_name}.xlsx").exists():
-        return pd.read_excel(BASE / f"{default_name}.xlsx")
-    
-    github_url = f"https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/{default_name}.csv"
-    try:
-        return pd.read_csv(github_url)
-    except:
-        return None
+        suffix = Path(file_uploader.name).suffix.lower()
+        if suffix in {".xlsx", ".xls"}:
+            return pd.read_excel(file_uploader)
+        return pd.read_csv(file_uploader)
+
+    local_candidates = (
+        BASE / f"{default_name}.csv",
+        BASE / f"{default_name}.xlsx",
+        BASE / f"{default_name}.xls",
+    )
+    for candidate in local_candidates:
+        if candidate.is_file():
+            if candidate.suffix.lower() in {".xlsx", ".xls"}:
+                return pd.read_excel(candidate)
+            return pd.read_csv(candidate)
+
+    st.warning(
+        f"No se encontró un archivo local para '{default_name}'. "
+        "Verifique que el recurso esté incluido en el checkout privado."
+    )
+    return None
 
 def sincronizar_intervalos_variables(df_sim, df_campo, col_fecha, col_plm2):
     df_campo = df_campo.sort_values(col_fecha).copy()
@@ -476,8 +491,12 @@ df_meteo_raw = load_data(archivo_meteo, "meteo_daily")
 df_campo_raw = load_data(archivo_campo, "bordenave_campo")
 
 # --- SIDEBAR ---
-LOGO_URL = "https://raw.githubusercontent.com/PREDWEEM/LOLIUM_BOR2026/main/logo.png"
-st.sidebar.image(LOGO_URL, width="stretch")
+logo_path = BASE / "logo.png"
+if logo_path.is_file():
+    st.sidebar.image(str(logo_path), width="stretch")
+else:
+    st.sidebar.markdown("## 🌾 PREDWEEM")
+    st.sidebar.caption("Motor predictivo Lolium — Bordenave")
 
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
 umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.001, 0.80, 0.001)
