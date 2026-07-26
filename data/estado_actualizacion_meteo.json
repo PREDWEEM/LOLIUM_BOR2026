@@ -1,10 +1,10 @@
 {
-  "ejecucion_utc": "2026-07-25T19:46:17+00:00",
+  "ejecucion_utc": "2026-07-26T11:46:41+00:00",
   "estado_siga": "SIGA_remoto",
   "ultima_observacion_siga": "2026-07-21",
   "fuente_pronostico": "ECMWF_IFS_ENS_025",
-  "inicio_pronostico": "2026-07-25",
-  "fin_pronostico": "2026-07-31",
+  "inicio_pronostico": "2026-07-26",
+  "fin_pronostico": "2026-08-01",
   "huecos_observados": [
     "2026-06-04",
     "2026-06-05",
@@ -15,6 +15,7 @@
     "2026-06-10",
     "2026-07-22",
     "2026-07-23",
-    "2026-07-24"
+    "2026-07-24",
+    "2026-07-25"
   ]
 }
