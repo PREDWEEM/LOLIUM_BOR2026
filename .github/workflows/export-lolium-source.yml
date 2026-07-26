@@ -1,0 +1,33 @@
+name: Exportar código LOLIUM
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout de la rama
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Preparar manifiesto
+        shell: bash
+        run: |
+          find . -maxdepth 2 -type f \( -name '*.py' -o -name 'requirements*.txt' \) -print | sort > source_manifest.txt
+          cat source_manifest.txt
+
+      - name: Exportar fuentes
+        uses: actions/upload-artifact@v4
+        with:
+          name: lolium-source
+          path: |
+            *.py
+            requirements*.txt
+            source_manifest.txt
+          if-no-files-found: error
