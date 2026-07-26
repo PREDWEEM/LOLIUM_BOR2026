@@ -8,7 +8,7 @@
 # - LATENCIA INICIAL: Bloqueo estricto de emergencia los primeros 15 días del año.
 # - ESCUDO TERMOFISIOLÓGICO: Horizonte de termoinhibición dinámico ajustado a 5 días.
 # - UMBRAL HÍDRICO: Choque hídrico de 3 días fijado en 45 mm.
-# - PRIMER PICO VÁLIDO: La campaña se habilita únicamente cuando EMERREL > 0.70.
+# - PRIMER PICO VÁLIDO: La campaña se habilita únicamente cuando EMERREL > 0.20.
 # - VALIDACIÓN DE FRECUENCIA VARIABLE: Incorporación del método de Integración 
 #   Dinámica por Intervalo Real (Event-to-Event), eliminando artefactos de interpolación.
 # - OPTIMIZADOR 2D BIO-FÍSICO: Barrido de parámetros de suelo (W_Max y Ke) ajustado a ventanas de campo.
@@ -85,7 +85,7 @@ st.markdown("""
 
 BASE = Path(__file__).parent if "__file__" in globals() else Path.cwd()
 
-UMBRAL_PRIMER_PICO = 0.70
+UMBRAL_PRIMER_PICO = 0.20
 
 def set_bg_hack(main_bg_file):
     try:
@@ -640,7 +640,7 @@ if df_meteo_raw is not None and modelo_ann is not None:
     df.loc[df["Julian_days"] <= 15, "EMERREL"] = 0.0
 
     # 6. VALIDACIÓN DEL PRIMER PICO
-    # La campaña comienza en el primer valor estrictamente superior a 0.70.
+    # La campaña comienza en el primer valor estrictamente superior a 0.20.
     df, idx_primer_pico = aplicar_filtro_primer_pico(
         df,
         umbral=UMBRAL_PRIMER_PICO
