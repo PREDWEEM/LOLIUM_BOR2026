@@ -55,6 +55,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
                 "Cobertura de rastrojo (%)",
                 "Wmax superficial (mm)",
                 "Ke aplicado",
+                "Exponente Kr configurable",
                 "Calentamiento diagnóstico del suelo (°C)",
             ],
             "Valor": [
@@ -69,6 +70,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
                 globals().get("cobertura_pct", ""),
                 globals().get("w_max_val", ""),
                 globals().get("ke_val", ""),
+                globals().get("exponente_kr", ""),
                 globals().get("calentamiento_suelo", ""),
             ],
         }
@@ -131,6 +133,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
                 "Cobertura de rastrojo (%)",
                 "Wmax superficial (mm)",
                 "Ke",
+                "Exponente Kr",
                 "Modulador térmico diagnóstico",
                 "Calentamiento diagnóstico del suelo (°C)",
                 "Temperatura base (°C)",
@@ -153,6 +156,7 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
                 globals().get("cobertura_pct", ""),
                 globals().get("w_max_val", ""),
                 globals().get("ke_val", ""),
+                globals().get("exponente_kr", ""),
                 globals().get("mod_termico", ""),
                 globals().get("calentamiento_suelo", ""),
                 globals().get("t_base_val", ""),
