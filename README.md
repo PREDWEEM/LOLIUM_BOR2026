@@ -20,7 +20,38 @@ La implementación de este repositorio está orientada a **Bordenave** y debe ut
 
 La aplicación carga los datos, pesos y modelos desde el checkout local. Antes de cambiar la visibilidad, autorice a Streamlit Community Cloud para acceder a los repositorios privados de `PREDWEEM`. El procedimiento completo se encuentra en [PRIVATE_REPOSITORY.md](PRIVATE_REPOSITORY.md).
 
-La automatización `Actualizar SIGA y ECMWF ENS` continúa descargando datos desde SIGA–INTA y actualizando `meteo_daily.csv` mediante GitHub Actions.
+La automatización `Actualizar SIGA Bordenave y ECMWF ENS` continúa descargando datos desde SIGA–INTA y actualizando `meteo_daily.csv` mediante GitHub Actions.
+
+## Arquitectura meteorológica operativa
+
+La serie diaria mantiene una jerarquía explícita de fuentes:
+
+1. **SIGA–INTA Bordenave:** fuente observada prioritaria y definitiva.
+2. **ECMWF IFS histórico:** completa provisionalmente cualquier fecha vencida que todavía no tenga una observación SIGA válida, incluidos huecos internos.
+3. **ECMWF IFS ENS 0,25°:** pronóstico desde el día actual hasta seis días posteriores.
+
+Las filas provisionales se identifican mediante:
+
+- `Fuente=ECMWF_IFS_HISTORICO`
+- `TipoDato=Provisional`
+- `CalidadDato=Provisional_hasta_reemplazo_SIGA`
+
+Cuando SIGA publica posteriormente una fecha provisional, la observación de estación tiene prioridad y reemplaza automáticamente el valor modelado.
+
+### Estadístico operativo del pronóstico
+
+Para las filas futuras, PREDWEEM utiliza coherentemente la mediana del ensamble:
+
+- `TMAX = TMAX_P50`
+- `TMIN = TMIN_P50`
+- `TMEDIA = TMEDIA_P50`
+- `Prec = Prec_P50`
+
+Las medias del ensamble se conservan en `TMAX_Media_Ens`, `TMIN_Media_Ens`, `TMEDIA_Media_Ens` y `Prec_Media_Ens`.
+
+La precipitación horaria faltante no se convierte en cero. Temperatura y precipitación se emparejan por identificador de miembro; cada miembro y día debe aportar 24 horas válidas. El pronóstico exige al menos 30 miembros válidos y el 80 % de los miembros emparejados disponibles.
+
+Antes de guardar `meteo_daily.csv`, el workflow verifica continuidad diaria, ausencia de nulos, precipitación no negativa, `TMAX >= TMIN`, ubicación temporal de observados/provisionales/pronósticos y correspondencia exacta entre las variables operativas y sus P50.
 
 ## Condiciones de uso
 
