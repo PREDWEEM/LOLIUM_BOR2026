@@ -1,15 +1,9 @@
 # -*- coding: utf-8 -*-
-"""
-Postproceso PREDWEEM — Bordenave.
+"""Compatibilidad PREDWEEM — Bordenave.
 
-Objetivo:
-- Mantener SIGA observado sin cambios.
-- Para filas futuras ECMWF ENS, usar la mediana del ensamble como lluvia operativa:
-      Prec = Prec_P50
-- Conservar la media original del ensamble en:
-      Prec_Media_Ens
-
-Este archivo se ejecuta después de actualizar_meteo_bordenave.py dentro del workflow.
+El actualizador principal ya genera el pronóstico con P50 operativo para
+TMAX, TMIN, TMEDIA y Prec. Este script queda como herramienta manual para
+normalizar archivos antiguos sin inventar valores ni completar datos nulos.
 """
 
 from __future__ import annotations
@@ -20,73 +14,67 @@ import numpy as np
 import pandas as pd
 
 
-ARCHIVOS = [Path("meteo_daily.csv")]
-ARCHIVOS.extend(sorted(Path("data/historico_pronosticos").glob("ecmwf_ifs_ens_025*.csv")))
+ARCHIVO = Path("meteo_daily.csv")
+
+PARES = (
+    ("TMAX", "TMAX_P50", "TMAX_Media_Ens"),
+    ("TMIN", "TMIN_P50", "TMIN_Media_Ens"),
+    ("TMEDIA", "TMEDIA_P50", "TMEDIA_Media_Ens"),
+    ("Prec", "Prec_P50", "Prec_Media_Ens"),
+)
 
 
-def reordenar_columnas(df: pd.DataFrame) -> pd.DataFrame:
-    """Ubica Prec_Media_Ens inmediatamente después de Prec_P90."""
-    columnas = list(df.columns)
-    if "Prec_Media_Ens" not in columnas:
-        return df
-
-    columnas.remove("Prec_Media_Ens")
-    if "Prec_P90" in columnas:
-        idx = columnas.index("Prec_P90") + 1
-        columnas.insert(idx, "Prec_Media_Ens")
-    else:
-        columnas.append("Prec_Media_Ens")
-    return df[columnas]
-
-
-def corregir_archivo(path: Path) -> bool:
+def aplicar_p50_coherente(path: Path = ARCHIVO) -> bool:
     if not path.exists():
-        return False
+        raise FileNotFoundError(f"No existe {path}.")
 
     df = pd.read_csv(path)
-    if df.empty or "Prec" not in df.columns or "Prec_P50" not in df.columns:
+    if df.empty:
+        raise ValueError(f"{path} está vacío.")
+
+    tipo = df.get("TipoDato", pd.Series("", index=df.index)).astype(str)
+    mascara = tipo.str.lower().eq("pronostico")
+    if not mascara.any():
+        print("ℹ️ No hay filas de pronóstico para normalizar.")
         return False
 
-    if "Prec_Media_Ens" not in df.columns:
-        df["Prec_Media_Ens"] = np.nan
+    for operativo, percentil, media in PARES:
+        if operativo not in df.columns or percentil not in df.columns:
+            raise ValueError(
+                f"Faltan columnas requeridas para {operativo}: "
+                f"{operativo}, {percentil}."
+            )
+        valores_p50 = pd.to_numeric(df.loc[mascara, percentil], errors="coerce")
+        if valores_p50.isna().any():
+            raise ValueError(
+                f"{percentil} contiene valores nulos; no se modificó {path}."
+            )
 
-    tipo = df.get("TipoDato", pd.Series("", index=df.index)).astype(str).str.lower()
-    mascara_pronostico = tipo.eq("pronostico") & df["Prec_P50"].notna()
-
-    if not mascara_pronostico.any():
-        df = reordenar_columnas(df)
-        df.to_csv(path, index=False, float_format="%.3f")
-        return True
-
-    # Antes de reemplazar Prec por Prec_P50, guardar la media original del ensamble.
-    faltante_media = mascara_pronostico & df["Prec_Media_Ens"].isna()
-    df.loc[faltante_media, "Prec_Media_Ens"] = df.loc[faltante_media, "Prec"]
-
-    # Lluvia operativa futura: mediana del ensamble.
-    df.loc[mascara_pronostico, "Prec"] = df.loc[mascara_pronostico, "Prec_P50"]
+        if media not in df.columns:
+            df[media] = np.nan
+        original = pd.to_numeric(df.loc[mascara, operativo], errors="coerce")
+        faltan_medias = df.loc[mascara, media].isna()
+        indices = df.index[mascara][faltan_medias]
+        df.loc[indices, media] = original.loc[indices]
+        df.loc[mascara, operativo] = valores_p50.to_numpy()
 
     if "CalidadDato" in df.columns:
-        df.loc[mascara_pronostico, "CalidadDato"] = "Mediana_ensamble"
+        df.loc[mascara, "CalidadDato"] = "Mediana_ensamble_P50"
 
-    df = reordenar_columnas(df)
-    df.to_csv(path, index=False, float_format="%.3f")
+    temporal = path.with_suffix(path.suffix + ".tmp")
+    df.to_csv(temporal, index=False, float_format="%.3f")
+    temporal.replace(path)
+    print(f"✅ P50 aplicado coherentemente a TMAX, TMIN, TMEDIA y Prec en {path}.")
     return True
 
 
 def main() -> int:
-    corregidos = []
-    for path in ARCHIVOS:
-        if corregir_archivo(path):
-            corregidos.append(str(path))
-
-    if corregidos:
-        print("✅ Prec corregida a Prec_P50 en:")
-        for item in corregidos:
-            print(f"   - {item}")
-    else:
-        print("ℹ️ No hubo archivos para corregir.")
-
-    return 0
+    try:
+        aplicar_p50_coherente()
+        return 0
+    except Exception as error:
+        print(f"❌ Error: {error}")
+        return 1
 
 
 if __name__ == "__main__":
