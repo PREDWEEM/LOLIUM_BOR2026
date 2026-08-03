@@ -642,7 +642,7 @@ else:
     st.sidebar.caption("Motor predictivo Lolium — Bordenave")
 
 st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")
-umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.001, 0.80, 0.001)
+umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.0001, 0.80, 0.0001)
 
 st.sidebar.markdown("**Ruptura de Dormición Estival (Escudo)**")
 umbral_termoinhibicion = st.sidebar.number_input("Umbral Termoinhibición (°C)", 15.0, 35.0, 24.0, 0.5)
