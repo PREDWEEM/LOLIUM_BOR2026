@@ -1,5 +1,5 @@
 {
-  "ejecucion_utc": "2026-08-29T21:06:31+00:00",
+  "ejecucion_utc": "2026-08-30T14:56:22+00:00",
   "sitio": "Bordenave / INTA",
   "latitud": -37.85,
   "longitud": -63.02,
@@ -23,16 +23,17 @@
     "2026-08-25",
     "2026-08-26",
     "2026-08-27",
-    "2026-08-28"
+    "2026-08-28",
+    "2026-08-29"
   ],
   "fuente_provisional": "ECMWF_IFS_HISTORICO",
-  "filas_provisionales": 18,
+  "filas_provisionales": 19,
   "inicio_provisional": "2026-06-04",
-  "fin_provisional": "2026-08-28",
+  "fin_provisional": "2026-08-29",
   "fuente_pronostico": "ECMWF_IFS_ENS_025",
   "estadistico_operativo": "P50",
-  "inicio_pronostico": "2026-08-29",
-  "fin_pronostico": "2026-09-04",
+  "inicio_pronostico": "2026-08-30",
+  "fin_pronostico": "2026-09-05",
   "miembros_validos_min": 51,
   "huecos_finales": []
 }
