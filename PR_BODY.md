@@ -1,0 +1,1 @@
+Reemplaza el decaimiento general post-pico por un decaimiento que sólo actúa desde el 1 de junio; enero-mayo quedan idénticos a la versión previa.
