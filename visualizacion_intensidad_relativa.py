@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Parche visual para expresar la emergencia como intensidad relativa 0–100 %.
+"""Parche de ejecución Bordenave: modelo + visualización 0–100 %.
 
-La transformación se aplica solamente a la capa gráfica. EMERREL permanece en
-su escala original para el motor, los umbrales, la validación y las métricas.
+Primero integra el decaimiento post-pico en EMERREL operativo. Luego reemplaza
+la escala logarítmica del gráfico principal por intensidad relativa 0–100 %.
+La normalización porcentual continúa siendo exclusivamente visual, pero el
+decaimiento sí forma parte del modelo y afecta acumulación y validación.
 """
 
 from __future__ import annotations
+
+from modelo_decaimiento_postpico import parchear_modelo_decaimiento_postpico
 
 
 def _reemplazar_unico(source: str, old: str, new: str, etiqueta: str) -> str:
@@ -29,15 +33,9 @@ def _reemplazar_n(source: str, old: str, new: str, cantidad_esperada: int, etiqu
 
 
 def parchear_visualizacion_intensidad_relativa(source: str) -> str:
-    """Reemplaza la escala logarítmica del gráfico principal por 0–100 %.
+    """Integra decaimiento en el motor y expresa el gráfico principal en 0–100 %."""
 
-    Definición visual:
-        Intensidad relativa (%) = 100 * EMERREL / max(EMERREL de la campaña)
-
-    La serie observada, ya normalizada por su máximo, se expresa como porcentaje.
-    El umbral de alerta se lleva a la misma referencia para conservar su posición
-    relativa. La simulación subyacente no se modifica.
-    """
+    source = parchear_modelo_decaimiento_postpico(source)
 
     transformacion_old = '''    # Transformación Logarítmica Analítica
     c_log = 0.01
