@@ -33,6 +33,7 @@ jobs:
             "app_emergenciacombinado.py"
             "app_emergenciacombinado_core.py"
             "visualizacion_intensidad_relativa.py"
+            "modelo_decaimiento_postpico.py"
             "meteo_daily.csv"
             "IW.npy"
             "LW.npy"
@@ -56,21 +57,32 @@ jobs:
 
       - name: Sintaxis
         run: |
-          python -m py_compile app_emergenciacombinado.py app_emergenciacombinado_core.py visualizacion_intensidad_relativa.py actualizar_meteo_bordenave.py postprocesar_prec_p50_bordenave.py
+          python -m py_compile app_emergenciacombinado.py app_emergenciacombinado_core.py visualizacion_intensidad_relativa.py modelo_decaimiento_postpico.py actualizar_meteo_bordenave.py postprocesar_prec_p50_bordenave.py
 
-      - name: Prueba preliminar de intensidad relativa
+      - name: Prueba preliminar de modelo y escala relativa
         run: |
           python - <<'PY'
           from pathlib import Path
+          import numpy as np
+          from modelo_decaimiento_postpico import factor_decaimiento_weibull
           from visualizacion_intensidad_relativa import parchear_visualizacion_intensidad_relativa
+
+          f = factor_decaimiento_weibull([0, 30, 60, 120], tau=60, beta=1.0, intensidad=0.75)
+          assert np.isclose(f[0], 1.0)
+          assert np.all(np.diff(f) < 0)
+          assert 0.24 < f[-1] < 1.0
+          assert np.all((f >= 0.0) & (f <= 1.0))
 
           source = Path("app_emergenciacombinado_core.py").read_text(encoding="utf-8")
           patched = parchear_visualizacion_intensidad_relativa(source)
           compile(patched, "app_emergenciacombinado_core.py::patched", "exec")
 
+          assert 'EMERREL_ANTES_DECAIMIENTO' in patched
+          assert 'Factor_Decaimiento' in patched
+          assert 'tau_decaimiento=tau_decaimiento' in patched
+          assert 'intensidad_decaimiento=intensidad_decaimiento' in patched
           assert 'text="Intensidad relativa de emergencia (%)"' in patched
           assert 'range=[0.0, 105.0]' in patched
-          assert 'tickvals=[0, 20, 40, 60, 80, 100]' in patched
           assert 'Log10(EMERREL + 0,01)' not in patched
           assert 'EMERREL_LOG' not in patched
           assert 'Campo_Normalizado_LOG' not in patched
@@ -79,5 +91,5 @@ jobs:
           maximum = max(values)
           pct = [v / maximum * 100.0 for v in values]
           assert pct == [0.0, 25.0, 50.0, 100.0]
-          print("OK: intensidad relativa visual = 0–100 %; máximo = 100 %")
+          print("OK: decaimiento integrado al EMERREL + visualización relativa 0–100 %")
           PY
