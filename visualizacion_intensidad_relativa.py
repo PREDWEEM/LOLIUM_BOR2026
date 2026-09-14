@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Parche de ejecución Bordenave: modelo + visualización 0–100 %.
+"""Parche de ejecución Bordenave: decaimiento tardío + visualización 0–100 %.
 
-Primero integra el decaimiento post-pico en EMERREL operativo. Luego reemplaza
-la escala logarítmica del gráfico principal por intensidad relativa 0–100 %.
-La normalización porcentual continúa siendo exclusivamente visual, pero el
-decaimiento sí forma parte del modelo y afecta acumulación y validación.
+Primero integra un decaimiento del EMERREL únicamente desde el 1 de junio.
+Entre enero y mayo el modelo queda exactamente igual a la versión anterior.
+Luego reemplaza la escala logarítmica del gráfico principal por intensidad
+relativa 0–100 %.
 """
 
 from __future__ import annotations
 
-from modelo_decaimiento_postpico import parchear_modelo_decaimiento_postpico
+from modelo_decaimiento_junio import parchear_modelo_decaimiento_junio
 
 
 def _reemplazar_unico(source: str, old: str, new: str, etiqueta: str) -> str:
@@ -33,9 +33,9 @@ def _reemplazar_n(source: str, old: str, new: str, cantidad_esperada: int, etiqu
 
 
 def parchear_visualizacion_intensidad_relativa(source: str) -> str:
-    """Integra decaimiento en el motor y expresa el gráfico principal en 0–100 %."""
+    """Aplica decaimiento desde junio y expresa el gráfico principal en 0–100 %."""
 
-    source = parchear_modelo_decaimiento_postpico(source)
+    source = parchear_modelo_decaimiento_junio(source)
 
     transformacion_old = '''    # Transformación Logarítmica Analítica
     c_log = 0.01
