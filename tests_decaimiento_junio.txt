@@ -1,0 +1,5 @@
+Criterio esperado:
+- enero–mayo: Factor_Decaimiento_Junio = 1.0
+- 1-jun: Factor_Decaimiento_Junio = 1.0
+- después de 1-jun: factor decreciente en función de tau, beta e intensidad
+- EMERREL de enero–mayo idéntico a la versión previa
