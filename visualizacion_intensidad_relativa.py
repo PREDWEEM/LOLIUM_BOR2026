@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Parche de ejecución Bordenave: decaimiento tardío + visualización 0–100 %.
 
-Primero integra un decaimiento del EMERREL únicamente desde el 1 de junio.
-Entre enero y mayo el modelo queda exactamente igual a la versión anterior.
+Primero integra un decaimiento del EMERREL únicamente desde el 15 de abril.
+Hasta el 14 de abril el modelo queda exactamente igual a la versión anterior.
 Luego reemplaza la escala logarítmica del gráfico principal por intensidad
 relativa 0–100 %.
 """
@@ -33,7 +33,7 @@ def _reemplazar_n(source: str, old: str, new: str, cantidad_esperada: int, etiqu
 
 
 def parchear_visualizacion_intensidad_relativa(source: str) -> str:
-    """Aplica decaimiento desde junio y expresa el gráfico principal en 0–100 %."""
+    """Aplica decaimiento desde 15-abr y expresa el gráfico principal en 0–100 %."""
 
     source = parchear_modelo_decaimiento_junio(source)
 

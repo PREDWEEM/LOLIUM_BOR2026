@@ -62,7 +62,7 @@ jobs:
         run: |
           python -m py_compile app_emergenciacombinado.py app_emergenciacombinado_core.py visualizacion_intensidad_relativa.py modelo_decaimiento_junio.py actualizar_meteo_bordenave.py postprocesar_prec_p50_bordenave.py
 
-      - name: Prueba preliminar de techo y decaimiento desde junio
+      - name: Prueba preliminar de techo y decaimiento desde 15 de abril
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -70,6 +70,7 @@ jobs:
           from modelo_decaimiento_junio import factor_decaimiento_desde_junio
           from visualizacion_intensidad_relativa import parchear_visualizacion_intensidad_relativa
 
+          # Tres fechas previas al 15-abr quedan intactas; el 15-abr F=1.
           dias = [0, 0, 0, 0, 30, 60]
           activo = [False, False, False, True, True, True]
           f = factor_decaimiento_desde_junio(
@@ -84,27 +85,27 @@ jobs:
           assert f[4] < 1.0 and f[5] < f[4]
           assert np.all((f >= 0.0) & (f <= 1.0))
 
-          # Si el máximo previo es 1.0, el techo el 1-jun debe ser 0.50.
+          # Si el máximo previo al 15-abr es 1.0, el techo inicial debe ser 0.50.
           max_pre = 1.0
-          techo_1jun = 0.50 * max_pre * f[3]
-          techo_1jul = 0.50 * max_pre * f[4]
-          assert np.isclose(techo_1jun, 0.50)
-          assert techo_1jul < 0.50
+          techo_15abr = 0.50 * max_pre * f[3]
+          techo_15may = 0.50 * max_pre * f[4]
+          assert np.isclose(techo_15abr, 0.50)
+          assert techo_15may < 0.50
 
-          # Un pulso tardío alto queda capado al techo; uno menor se conserva.
-          assert np.isclose(min(0.90, techo_1jun), 0.50)
-          assert np.isclose(min(0.20, techo_1jun), 0.20)
+          # Un pulso alto queda capado al techo; uno menor se conserva.
+          assert np.isclose(min(0.90, techo_15abr), 0.50)
+          assert np.isclose(min(0.20, techo_15abr), 0.20)
 
           source = Path("app_emergenciacombinado_core.py").read_text(encoding="utf-8")
           patched = parchear_visualizacion_intensidad_relativa(source)
           compile(patched, "app_emergenciacombinado_core.py::patched", "exec")
 
-          assert 'EMERREL_ANTES_DECAIMIENTO_JUNIO' in patched
-          assert 'Factor_Decaimiento_Junio' in patched
-          assert 'Techo_EMERREL_Junio' in patched
-          assert 'Fraccion_Maxima_Junio' in patched
+          assert 'EMERREL_ANTES_DECAIMIENTO_15ABR' in patched
+          assert 'Factor_Decaimiento_15Abr' in patched
+          assert 'Techo_EMERREL_15Abr' in patched
+          assert 'Fraccion_Maxima_15Abr' in patched
           assert '0.50 * max_pre' in patched
-          assert 'Decaimiento tardío (desde junio)' in patched
+          assert 'Decaimiento tardío (desde 15 de abril)' in patched
           assert 'text="Intensidad relativa de emergencia (%)"' in patched
           assert 'range=[0.0, 105.0]' in patched
           assert 'Log10(EMERREL + 0,01)' not in patched
@@ -115,5 +116,5 @@ jobs:
           maximum = max(values)
           pct = [v / maximum * 100.0 for v in values]
           assert pct == [0.0, 25.0, 50.0, 100.0]
-          print("OK: enero-mayo intactos; junio <= 50 % del máximo previo; luego decaimiento progresivo")
+          print("OK: hasta 14-abr intacto; desde 15-abr <= 50 % del máximo previo y decaimiento progresivo")
           PY
