@@ -1,6 +1,6 @@
 # Decaimiento tardío desde junio
 
-La versión operativa conserva **sin modificaciones** la simulación entre enero y mayo.
+La versión operativa conserva **sin modificaciones** la simulación entre enero y mayo. En ese período `Factor_Decaimiento_Junio = 1.0`, por lo que `EMERREL` es exactamente el mismo que en la versión previa sin decaimiento.
 
 A partir del 1 de junio se aplica:
 
