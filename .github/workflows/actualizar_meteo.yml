@@ -66,6 +66,7 @@ jobs:
 
           import numpy as np
           import pandas as pd
+          from actualizar_meteo_bordenave import CAMPANIA_END, hoy_argentina
 
           archivo = Path("meteo_daily.csv")
           estado_path = Path("data/estado_actualizacion_meteo.json")
@@ -120,7 +121,9 @@ jobs:
           pron = df["TipoDato"].astype(str).eq("Pronostico")
           if not observado.any():
               raise SystemExit("No hay observaciones SIGA.")
-          if not pron.any():
+          if (df["Fecha"].dt.date > CAMPANIA_END).any():
+              raise SystemExit("Hay fechas posteriores al 1 de octubre de 2026.")
+          if not pron.any() and hoy_argentina() <= CAMPANIA_END:
               raise SystemExit("No hay filas de pronóstico.")
 
           if not df.loc[observado, "Fuente"].astype(str).eq("SIGA_INTA_BORDENAVE").all():
@@ -160,7 +163,7 @@ jobs:
               raise SystemExit(f"El estado registra huecos finales: {estado['huecos_finales']}")
           if int(estado.get("filas_provisionales", -1)) != int(provisional.sum()):
               raise SystemExit("El número de provisionales no coincide con el estado.")
-          if int(estado.get("miembros_validos_min", 0)) < 30:
+          if pron.any() and int(estado.get("miembros_validos_min") or 0) < 30:
               raise SystemExit("El estado registra menos de 30 miembros válidos.")
 
           huecos_siga = set(estado.get("huecos_siga", []))
