@@ -78,7 +78,8 @@ Combina, con la información disponible a la fecha de emisión:
    térmico de suelo y mayor respuesta sobre suelo seco);
 3. opcionalmente, la **fecha en que se vieron las primeras plántulas** del lote (un solo dato por campaña), que además
    ancla el reloj térmico de la ventana de control (600–800 °Cd);
-4. opcionalmente, los **conteos** del lote.
+4. opcionalmente, los **conteos** del lote: se cargan en la sección de la alerta (tabla o planilla Excel/CSV con una
+   columna «Fecha» y una por marco; se pueden elegir los marcos a usar).
 
 Validación dejando cada campaña afuera (17 campañas: 2015, 2017–2022 y 2026 del ensayo de Bordenave; 2008–2014, 2023
 y 2024 de las curvas históricas de PREDWEEM; 386 semanas, 97 flushes):
