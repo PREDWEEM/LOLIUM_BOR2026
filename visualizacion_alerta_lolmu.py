@@ -109,35 +109,42 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         st.info("Sin fecha de primeras plántulas: la alerta usa solo el clima. Cuando aparezcan las primeras plántulas "
                 "en el lote, cargue esa fecha arriba: ancla el reloj térmico de la ventana de control y mejora la alerta.")
 
-    # gráficos: probabilidad semanal emitida en cada fecha y calendario de la campaña
+    # gráfico único: alerta emitida cada semana + ventana de control en tiempo térmico
     s = al.serie(meteo, pd.Timestamp(anio, 2, 2), emision, primeras, conteos, modelo, paso=7, **tt)
-    left, right = st.columns(2)
-    with left:
-        fig = go.Figure()
-        fig.add_hrect(y0=100 * al.ATENCION, y1=100 * al.ALERTA, fillcolor=COLOR["atencion"], opacity=0.08, line_width=0)
-        fig.add_hrect(y0=100 * al.ALERTA, y1=100, fillcolor=COLOR["alerta"], opacity=0.06, line_width=0)
-        fig.add_trace(go.Scatter(x=s["Fecha"], y=100 * s["probabilidad"], mode="lines+markers", name="Probabilidad de flush",
-                                 line=dict(color="#2a78d6", width=2),
-                                 marker=dict(size=8, color=[COLOR[al.nivel_de(v)] for v in s["probabilidad"]], line=dict(color="white", width=1)),
-                                 customdata=[INFO[v] for v in s["nivel_info"]],
-                                 hovertemplate="%{x|%d/%m}: %{y:.0f} %<br>%{customdata}<extra></extra>"))
-        if ancla is not None:
-            fig.add_vline(x=ancla, line_dash="dot", line_color="#6b7280")
-        fig.update_layout(height=320, yaxis_title="Prob. de flush (%)", yaxis_range=[0, 100], margin=dict(t=10, b=10, l=10, r=10),
-                          showlegend=False, title=dict(text="Alerta emitida cada semana", font=dict(size=14)))
-        st.plotly_chart(fig, width="stretch")
-    with right:
-        fr = pd.date_range(pd.Timestamp(anio, 1, 15), pd.Timestamp(anio, 10, 31))
-        cv = modelo.curva(fr)
-        fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(x=cv["Fecha"], y=100 * cv["p90"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"))
-        fig2.add_trace(go.Scatter(x=cv["Fecha"], y=100 * cv["p10"], mode="lines", line=dict(width=0), fill="tonexty",
-                                  fillcolor="rgba(21,128,61,0.15)", name="Rango 10–90 % (17 campañas)", hoverinfo="skip"))
-        fig2.add_trace(go.Scatter(x=cv["Fecha"], y=100 * cv["media"], mode="lines", name="Curva media", line=dict(color="#15803d", width=2.5)))
-        fig2.add_vline(x=emision, line_dash="dash", line_color="#6b7280")
-        fig2.update_layout(height=320, yaxis_title="% de la campaña", yaxis_range=[0, 100], margin=dict(t=10, b=10, l=10, r=10),
-                           legend=dict(orientation="h", y=-0.2), title=dict(text="Calendario de emergencia de LOLMU", font=dict(size=14)))
-        st.plotly_chart(fig2, width="stretch")
+    fig = go.Figure()
+    fig.add_hrect(y0=100 * al.ATENCION, y1=100 * al.ALERTA, fillcolor=COLOR["atencion"], opacity=0.08, line_width=0)
+    fig.add_hrect(y0=100 * al.ALERTA, y1=100, fillcolor=COLOR["alerta"], opacity=0.06, line_width=0)
+    fig.add_hline(y=100 * al.ATENCION, line_dash="dot", line_color=COLOR["atencion"], annotation_text=f"Atención ≥ {al.ATENCION:.0%}",
+                  annotation_position="bottom left", annotation_font_color=COLOR["atencion"])
+    fig.add_hline(y=100 * al.ALERTA, line_dash="dash", line_color=COLOR["alerta"], annotation_text=f"Alerta ≥ {al.ALERTA:.0%}",
+                  annotation_position="top left", annotation_font_color=COLOR["alerta"])
+    x_fin = emision + pd.Timedelta(days=7)
+    if ancla is not None:
+        estimado = r["primeras_plantulas"] is None
+        f_ctl, f_lim = _fecha_tt(dg, ancla, tt_control), _fecha_tt(dg, ancla, tt_limite)
+        if f_ctl is not None:
+            fin_ventana = f_lim if f_lim is not None else dg.index.max()
+            x_fin = max(x_fin, fin_ventana + pd.Timedelta(days=5))
+            fig.add_vrect(x0=f_ctl, x1=fin_ventana, fillcolor="#7c3aed", opacity=0.13, line_width=0, layer="below")
+            fig.add_annotation(x=f_ctl + (fin_ventana - f_ctl) / 2, y=97, showarrow=False, font=dict(size=12, color="#5b21b6"),
+                               text=f"Ventana de control {tt_control:.0f}–{tt_limite:.0f} °Cd" + (" (estimada)" if estimado else "")
+                                    + f"<br>{f_ctl:%d/%m} – " + (f"{f_lim:%d/%m}" if f_lim is not None else "fuera del clima disponible"))
+        fig.add_vline(x=ancla, line_dash="dot", line_color="#374151")
+        fig.add_annotation(x=ancla, y=97, showarrow=False, xanchor="left", font=dict(size=11, color="#374151"),
+                           text=f" Inicio {ancla:%d/%m} ({'estimado' if estimado else 'primeras plántulas'})")
+    fig.add_vline(x=emision, line_dash="dash", line_color="#9ca3af")
+    fig.add_annotation(x=emision, y=103, showarrow=False, font=dict(size=11, color="#6b7280"), text=f"emisión {emision:%d/%m}")
+    fig.add_trace(go.Scatter(x=s["Fecha"], y=100 * s["probabilidad"], mode="lines+markers", name="Probabilidad de flush (7 días)",
+                             line=dict(color="#2a78d6", width=2),
+                             marker=dict(size=9, color=[COLOR[al.nivel_de(v)] for v in s["probabilidad"]], line=dict(color="white", width=1)),
+                             customdata=np.c_[[INFO[v] for v in s["nivel_info"]], [NOMBRE[al.nivel_de(v)] for v in s["probabilidad"]]],
+                             hovertemplate="%{x|%d/%m}: %{y:.0f} % · %{customdata[1]}<br>%{customdata[0]}<extra></extra>"))
+    fig.update_layout(height=420, yaxis_title="Probabilidad de flush en 7 días (%)", yaxis_range=[0, 106],
+                      xaxis_range=[pd.Timestamp(anio, 2, 1), x_fin], xaxis_tickformat="%d/%m", margin=dict(t=30, b=10, l=10, r=10), showlegend=False,
+                      title=dict(text="Alerta de flushes y ventana de control", font=dict(size=15)))
+    st.plotly_chart(fig, width="stretch")
+    st.caption("Cada punto es la alerta emitida ese día con la información disponible en ese momento (color = nivel). "
+               "La franja violeta es la ventana de control post-emergente en tiempo térmico desde el inicio.")
 
     with st.expander("Cómo se validó esta alerta"):
         v = modelo.p.get("validacion", {})
