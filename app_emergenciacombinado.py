@@ -15,6 +15,22 @@ from visualizacion_intensidad_relativa import parchear_visualizacion_intensidad_
 _CORE_APP = Path(__file__).with_name("app_emergenciacombinado_core.py")
 _core_source = _CORE_APP.read_text(encoding="utf-8")
 _core_source = parchear_visualizacion_intensidad_relativa(_core_source)
+
+# Se ocultan el mapa de riesgo y el gráfico de dinámica principal del motor; la alerta validada
+# (al final de la página) muestra la alerta y la ventana de control. El cálculo no cambia.
+_GRAFICOS_OCULTOS = (
+    "st.plotly_chart(go.Figure(data=go.Heatmap(",   # mapa de riesgo temporal
+    "st.plotly_chart(\n                fig_emer,",  # dinámica principal de emergencia
+)
+for _llamada in _GRAFICOS_OCULTOS:
+    if _llamada in _core_source:
+        _core_source = _core_source.replace(_llamada, _llamada.replace("st.plotly_chart(", "_omitir_grafico("), 1)
+
+
+def _omitir_grafico(*_args, **_kwargs):
+    """No dibuja el gráfico (se conserva la figura y todos los cálculos del motor)."""
+    return None
+
 exec(
     compile(_core_source, str(_CORE_APP), "exec"),
     globals(),
