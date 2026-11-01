@@ -3,9 +3,15 @@
 Punto de entrada de PREDWEEM Bordenave.
 
 La aplicación científica original se conserva en
-``app_emergenciacombinado_core.py``. Antes de ejecutarla se aplica un parche
-exclusivamente visual para expresar el gráfico principal como intensidad
-relativa de emergencia 0–100 %. La lógica científica de EMERREL no se altera.
+``app_emergenciacombinado_core.py``. Antes de ejecutarla:
+
+* ``parchear_visualizacion_intensidad_relativa`` incorpora al motor el techo y el
+  decaimiento de EMERREL desde el 15 de abril (y ajustes de formato de su gráfico);
+* se ocultan los elementos que reemplaza la alerta validada del final de la página:
+  mapa de riesgo, gráfico de dinámica principal, mensajes de inicio y momento de
+  control del motor, control "Umbral Alerta Temprana" y la leyenda de versión visual.
+
+Los cálculos del motor no cambian.
 """
 from pathlib import Path
 
@@ -16,8 +22,7 @@ _CORE_APP = Path(__file__).with_name("app_emergenciacombinado_core.py")
 _core_source = _CORE_APP.read_text(encoding="utf-8")
 _core_source = parchear_visualizacion_intensidad_relativa(_core_source)
 
-# Se ocultan el mapa de riesgo y el gráfico de dinámica principal del motor; la alerta validada
-# (al final de la página) muestra la alerta y la ventana de control. El cálculo no cambia.
+# Elementos del motor que reemplaza la alerta validada (al final de la página). El cálculo no cambia.
 _GRAFICOS_OCULTOS = (
     "st.plotly_chart(go.Figure(data=go.Heatmap(",   # mapa de riesgo temporal
     "st.plotly_chart(\n                fig_emer,",  # dinámica principal de emergencia
@@ -25,6 +30,22 @@ _GRAFICOS_OCULTOS = (
 for _llamada in _GRAFICOS_OCULTOS:
     if _llamada in _core_source:
         _core_source = _core_source.replace(_llamada, _llamada.replace("st.plotly_chart(", "_omitir_grafico("), 1)
+
+_REEMPLAZOS_TEXTO = (
+    # control del umbral del gráfico retirado: se fija su valor por defecto (lo usa la métrica Lead Time)
+    ('umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.0001, 0.80, 0.0001)',
+     "umbral_er = 0.0001  # control retirado; valor por defecto"),
+    # leyenda que describía el gráfico retirado
+    ('st.caption("Bordenave · VISUAL V3 · ventana eficiente verde · exportación PNG de alta resolución")', "pass"),
+)
+for _viejo, _nuevo in _REEMPLAZOS_TEXTO:
+    _core_source = _core_source.replace(_viejo, _nuevo, 1)
+
+# mensajes de inicio de conteo térmico y momento crítico de control del motor
+_ini = _core_source.find("            if fecha_inicio_ventana:\n                st.success(")
+_fin = _core_source.find("        col_gauge = col_gauge", _ini) if _ini >= 0 else -1
+if _ini >= 0 and _fin > _ini:
+    _core_source = _core_source[:_ini] + "            pass\n\n" + _core_source[_fin:]
 
 
 def _omitir_grafico(*_args, **_kwargs):
