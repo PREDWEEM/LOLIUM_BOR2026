@@ -96,6 +96,10 @@ Las probabilidades están calibradas. Con las mismas campañas, el motor PREDWEE
 anticipa bien la **primera cohorte**; por eso se usa como inicio estimado del reloj térmico hasta que se informa la fecha
 de las primeras plántulas. Límites: un sitio, lotes sin labranza; no anticipa flushes sin lluvia registrada.
 
+La barra lateral conserva solo los parámetros que usa la alerta: temperaturas base, óptima y crítica del tiempo
+térmico y los objetivos de la ventana de control (600 y 800 °Cd). Los parámetros del motor PREDWEEM quedan en sus
+valores por defecto.
+
 ## Condiciones de uso
 
 No se concede licencia de uso por el solo hecho de acceder al repositorio. Cualquier utilización académica, técnica, institucional o comercial que exceda la visualización del contenido requiere autorización previa y escrita del titular de los derechos correspondientes.

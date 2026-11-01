@@ -11,8 +11,10 @@ La aplicación científica original se conserva en
   mapa de riesgo, gráfico de dinámica principal, mensajes de inicio y momento de
   control del motor, control "Umbral Alerta Temprana", la leyenda de versión visual y
   las pestañas Monitor de decisión, Precipitaciones y suelo, Análisis estratégico y
-  Bio-calibración (incluido el indicador de tiempo térmico) y la sección "Datos del lote"
-  (se usa el clima SIGA del repositorio y la cobertura de rastrojo por defecto, 75 %).
+  Bio-calibración (incluido el indicador de tiempo térmico), la sección "Datos del lote"
+  (se usa el clima SIGA del repositorio y la cobertura de rastrojo por defecto, 75 %) y, en la
+  barra lateral, los parámetros del motor (quedan en sus valores por defecto), sus avisos y el
+  calibrador 2D; la barra lateral conserva los parámetros de la ventana de control.
 
 Los cálculos del motor no cambian.
 """
@@ -54,6 +56,34 @@ if _ini_lote >= 0 and _fin_lote > _ini_lote:
         + _core_source[_fin_lote:]
     )
     _core_source = _core_source.replace('df_campo_raw = load_data(archivo_campo, "bordenave_campo")', "df_campo_raw = None", 1)
+
+# barra lateral: solo los parámetros que usa la alerta (tiempo térmico y ventana de control). Los del motor
+# PREDWEEM, que ahora solo estima el inicio cuando no se informan las primeras plántulas, quedan en sus valores
+# por defecto; se quitan también los avisos del motor y el calibrador 2D (requería conteos del formato anterior).
+_ini_lateral = _core_source.find('st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")')
+_fin_lateral = _core_source.find("# ---------------------------------------------------------\n# 6. MOTOR DE CÁLCULO", _ini_lateral) if _ini_lateral >= 0 else -1
+if _ini_lateral >= 0 and _fin_lateral > _ini_lateral:
+    _core_source = _core_source[:_ini_lateral] + """st.sidebar.markdown("## ⚙️ Ventana de control")
+st.sidebar.caption("Tiempo térmico sobre la temperatura media del aire y objetivos de la ventana post-emergente.")
+col_t1, col_t2 = st.sidebar.columns(2)
+with col_t1: t_base_val = st.number_input("T Base", value=2.0, step=0.5)
+with col_t2: t_opt_max = st.number_input("T Óptima Max", value=20.0, step=1.0)
+t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
+st.sidebar.markdown("**Objetivos (°Cd)**")
+dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10)
+dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
+
+# parámetros del motor PREDWEEM en sus valores por defecto (controles retirados de la página)
+umbral_er = 0.0001
+umbral_termoinhibicion = 24.0
+umbral_choque_hidrico = 45.0
+tau_decaimiento, beta_decaimiento, intensidad_decaimiento = 60.0, 1.0, 0.75
+residualidad = 0
+calentamiento_suelo = 0.0
+w_max_val = 18.81
+exponente_kr = 0.0
+
+""" + _core_source[_fin_lateral:]
 
 _REEMPLAZOS_TEXTO = (
     # botón lateral del reporte del motor: la descarga final reúne los resultados de la alerta validada
