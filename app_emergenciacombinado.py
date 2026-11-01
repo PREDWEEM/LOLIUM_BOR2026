@@ -142,7 +142,16 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
 if "df_meteo_raw" in globals() and isinstance(df_meteo_raw, pd.DataFrame) and not df_meteo_raw.empty:
     st.divider()
     try:
-        from visualizacion_alerta_lolmu import mostrar_alerta_lolmu
+        import importlib
+
+        import alerta_lolmu as _alerta_lolmu
+        import visualizacion_alerta_lolmu as _vis_alerta
+
+        # Streamlit conserva en memoria los módulos ya importados entre ejecuciones: tras una actualización del
+        # repositorio, recargarlos evita usar una versión vieja
+        importlib.reload(_alerta_lolmu)
+        importlib.reload(_vis_alerta)
+        mostrar_alerta_lolmu = _vis_alerta.mostrar_alerta_lolmu
 
         _idx_pico = globals().get("idx_primer_pico")
         _inicio_predicho = (
@@ -161,6 +170,8 @@ if "df_meteo_raw" in globals() and isinstance(df_meteo_raw, pd.DataFrame) and no
             t_crit=float(globals().get("t_critica", 30.0)),
             tt_control=float(globals().get("dga_optimo", 600.0)),
             tt_limite=float(globals().get("dga_critico", 800.0)),
+            cero_reciente_dias=10,  # conteo en cero en los últimos 10 días y sin plántulas: como máximo Atención
+            curva_desde_ultimo_cero=True,  # la curva acumulada arranca después del último conteo en cero
         )
     except Exception as _error_alerta:  # noqa: BLE001
         st.warning(f"No se pudo calcular la alerta validada: {_error_alerta}")
