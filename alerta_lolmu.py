@@ -24,6 +24,7 @@ from scipy.special import gammainc
 
 PARAMS_FILE = Path(__file__).with_name("alerta_lolmu_params.json")
 ATENCION, ALERTA = 0.15, 0.25
+HORIZONTE_DIAS = 7  # semana de la alerta
 TOPE_CERO = 0.14  # con un conteo reciente en cero y sin plántulas, la probabilidad queda debajo de Atención
 
 # balance de agua y temperatura de suelo (5 cm) del modelo de pulsos de Bordenave
@@ -181,9 +182,11 @@ def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd
       * ``cero_reciente_dias``: si todavía no se vieron plántulas y el último conteo (hasta ``fecha``) fue en cero hace
         como mucho esos días, la probabilidad queda por debajo del umbral de *Atención* (``TOPE_CERO``; *Sin alerta*);
         la probabilidad por clima se conserva en ``probabilidad_clima``;
-      * ``tope_hasta_ultimo_cero``: hasta la fecha del último conteo en cero anterior a cualquier plántula (inclusive),
-        la probabilidad queda por debajo de *Atención* (el conteo confirma que hasta ese día no hubo emergencia); desde
-        el día siguiente la alerta funciona normalmente.
+      * ``tope_hasta_ultimo_cero``: la probabilidad queda por debajo de *Atención* solo en las emisiones cuya semana
+        (``fecha`` a ``fecha`` + 7 días) terminó antes del último conteo en cero anterior a cualquier plántula: el conteo
+        confirma que en esa semana no hubo emergencia. La semana que sigue a un conteo en cero se evalúa normalmente,
+        porque un cero no anticipa que no vaya a emerger (en la validación de las 7 localidades, 37 % de las semanas
+        que siguieron a un conteo en cero tuvieron flush).
     """
     modelo = modelo or AlertaLolmu()
     clima = limpiar_clima(clima_raw)
@@ -223,8 +226,9 @@ def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd
         if primeras_plantulas is not None:
             limite = min(limite, pd.Timestamp(primeras_plantulas)) if limite is not None else pd.Timestamp(primeras_plantulas)
         ceros = cc.loc[(cc["PLM2"] == 0) & ((cc["Fecha"] < limite) if limite is not None else True), "Fecha"]
-        if not ceros.empty and fecha <= ceros.max():
-            cero_reciente = pd.Timestamp(ceros[ceros >= fecha].min())
+        fin_semana = fecha + pd.Timedelta(days=HORIZONTE_DIAS)
+        if not ceros.empty and fin_semana <= ceros.max():
+            cero_reciente = pd.Timestamp(ceros[ceros >= fin_semana].min())
             p = min(p, TOPE_CERO)
             nivel_alerta, tope = nivel_de(p), False
     if cero_reciente is None and cero_reciente_dias is not None and not iniciada and conteos is not None and not conteos.empty:
