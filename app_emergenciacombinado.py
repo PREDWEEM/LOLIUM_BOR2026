@@ -24,6 +24,33 @@ if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
     st.divider()
     mostrar_horizonte_pronostico(df, "Bordenave")
 
+# Alerta validada de flushes (independiente del motor científico; no modifica sus resultados)
+if "df_meteo_raw" in globals() and isinstance(df_meteo_raw, pd.DataFrame) and not df_meteo_raw.empty:
+    st.divider()
+    try:
+        from visualizacion_alerta_lolmu import mostrar_alerta_lolmu
+
+        _idx_pico = globals().get("idx_primer_pico")
+        _inicio_predicho = (
+            df.loc[_idx_pico, "Fecha"]
+            if _idx_pico is not None and "df" in globals() and isinstance(df, pd.DataFrame) and _idx_pico in df.index
+            else None
+        )
+        mostrar_alerta_lolmu(
+            df_meteo_raw,
+            campo=globals().get("df_campo"),
+            col_fecha=globals().get("col_fecha"),
+            col_plm2=globals().get("col_plm2"),
+            inicio_predicho=_inicio_predicho,
+            t_base=float(globals().get("t_base_val", 2.0)),
+            t_opt=float(globals().get("t_opt_max", 20.0)),
+            t_crit=float(globals().get("t_critica", 30.0)),
+            tt_control=float(globals().get("dga_optimo", 600.0)),
+            tt_limite=float(globals().get("dga_critico", 800.0)),
+        )
+    except Exception as _error_alerta:  # noqa: BLE001
+        st.warning(f"No se pudo calcular la alerta validada: {_error_alerta}")
+
 
 def _fecha_reporte(valor):
     """Convierte una fecha a texto legible y admite valores ausentes."""
