@@ -28,6 +28,37 @@ def _ultima_observada(meteo: pd.DataFrame) -> pd.Timestamp:
     return fechas.max().normalize()
 
 
+def _leer_planilla_conteos(archivo, columnas: list | None = None) -> tuple[pd.DataFrame, list]:
+    """Lee una planilla de conteos (Excel o CSV): una columna de fechas y una o más columnas de marcos.
+
+    Busca la fila de encabezado con «Fecha»; promedia las columnas numéricas de cada fila (plántulas por marco).
+    """
+    nombre = getattr(archivo, "name", "").lower()
+    crudo = pd.read_csv(archivo, header=None) if nombre.endswith(".csv") else pd.read_excel(archivo, header=None)
+    fila = next((i for i, r in crudo.iterrows() if any(str(v).strip().lower().startswith("fecha") for v in r.values)), None)
+    tabla = crudo.iloc[fila + 1:].copy() if fila is not None else crudo.copy()
+    if fila is not None:
+        tabla.columns = [str(int(c)) if isinstance(c, float) and c.is_integer() else str(c) for c in crudo.iloc[fila].values]
+    fechas = None
+    for c in tabla.columns:
+        f = pd.to_datetime(tabla[c], errors="coerce", dayfirst=True)
+        if f.notna().mean() > 0.5:
+            fechas = f
+            otras = [k for k in tabla.columns if k != c]
+            break
+    if fechas is None:
+        raise ValueError("no se encontró una columna de fechas")
+    num = tabla[otras].apply(pd.to_numeric, errors="coerce")
+    num = num.loc[:, [k for k in num.columns if num[k].notna().any()
+                      and not any(p in str(k).lower() for p in ("prom", "media", "acum", "%", "total"))]]
+    num.columns = [str(c) for c in num.columns]
+    disponibles = list(num.columns)
+    if columnas:
+        num = num[[c for c in columnas if c in num.columns]]
+    out = pd.DataFrame({"Fecha": fechas.dt.normalize(), "PLM2": num.mean(axis=1)}).dropna()
+    return out.sort_values("Fecha").drop_duplicates("Fecha", keep="last").reset_index(drop=True), disponibles
+
+
 def _fecha_tt(dg: pd.Series, desde: pd.Timestamp, objetivo: float):
     acum = dg[dg.index >= desde].cumsum()
     hit = acum[acum >= objetivo]
@@ -83,8 +114,44 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                 key="alerta_lolmu_primeras",
                 help="Un solo dato por campaña: el día en que aparecieron las primeras plántulas en el lote. Ancla el reloj "
                      "térmico de la ventana de control y mejora la alerta. Para borrarla, vacíe el campo.")
+        with st.expander("🌱 Conteos de plántulas (opcional)", expanded=False):
+            st.caption("Si se pueden hacer recorridas, cargue las plántulas nuevas en cada fecha (por marco o por m²; solo "
+                       "importa la proporción entre fechas). Con conteos semanales la alerta mejora (AUC 0,87 contra 0,84 "
+                       "solo con la fecha de primeras plántulas) y, si no se informó esa fecha, se toma del primer conteo con plántulas.")
+            base = st.session_state.get("alerta_lolmu_tabla_base",
+                                        pd.DataFrame({"Fecha": pd.Series([pd.NaT] * 4, dtype="datetime64[ns]"),
+                                                      "Plántulas": pd.Series([np.nan] * 4, dtype="float")}))
+            tabla = st.data_editor(base, num_rows="dynamic", width="stretch", key="alerta_lolmu_tabla",
+                                   column_config={"Fecha": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
+                                                  "Plántulas": st.column_config.NumberColumn("Plántulas nuevas", min_value=0.0)})
+            archivo = st.file_uploader("…o subir una planilla (Excel o CSV: columna «Fecha» y una columna por marco)",
+                                       type=["xlsx", "xls", "csv"], key="alerta_lolmu_archivo")
         st.form_submit_button("Actualizar alerta", type="primary")
     emision = pd.Timestamp(emision).normalize()
+    cargados = None
+    if archivo is not None:
+        try:
+            _, disponibles = _leer_planilla_conteos(archivo)
+            archivo.seek(0)
+            elegidas = disponibles
+            if len(disponibles) > 1:
+                elegidas = st.multiselect(
+                    "Marcos de la planilla a usar", disponibles, default=disponibles, key="alerta_lolmu_columnas",
+                    help="Si la planilla tiene varios tratamientos (por ejemplo, con y sin remoción), deje solo los marcos "
+                         "del lote que quiere evaluar.") or disponibles
+            cargados, _ = _leer_planilla_conteos(archivo, elegidas)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"No se pudo leer la planilla de conteos: {e}")
+    if cargados is None and tabla is not None and not tabla.empty:
+        t = pd.DataFrame({"Fecha": pd.to_datetime(tabla["Fecha"], errors="coerce").dt.normalize(),
+                          "PLM2": pd.to_numeric(tabla["Plántulas"], errors="coerce")}).dropna()
+        cargados = t.sort_values("Fecha").drop_duplicates("Fecha", keep="last") if not t.empty else None
+    if cargados is not None:
+        cargados = cargados[cargados["Fecha"].dt.year == anio]
+        conteos = cargados if not cargados.empty else conteos
+        if not cargados.empty:
+            st.caption(f"Conteos cargados: {len(cargados)} fechas ({cargados['Fecha'].min():%d/%m} – {cargados['Fecha'].max():%d/%m}); "
+                       "se usan los que son anteriores o iguales a la fecha de emisión.")
     primeras = pd.Timestamp(primeras) if primeras else None
 
     tt = dict(t_base=t_base, t_opt=t_opt, t_crit=t_crit)
@@ -154,6 +221,13 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                              marker=dict(size=9, color=[COLOR[al.nivel_de(v)] for v in s["probabilidad"]], line=dict(color="white", width=1)),
                              customdata=np.c_[[INFO[v] for v in s["nivel_info"]], [NOMBRE[al.nivel_de(v)] for v in s["probabilidad"]]],
                              hovertemplate="%{x|%d/%m}: %{y:.0f} % · %{customdata[1]}<br>%{customdata[0]}<extra></extra>"), row=1, col=1)
+    if conteos is not None and not conteos.empty:
+        cc = conteos[conteos["Fecha"] <= emision]
+        fig.add_trace(go.Scatter(x=cc["Fecha"], y=[2] * len(cc), mode="markers", name="Conteo",
+                                 marker=dict(symbol="triangle-up", size=10, color=np.where(cc["PLM2"] > 0, "#15803d", "#9ca3af"),
+                                             line=dict(color="white", width=1)),
+                                 customdata=cc["PLM2"], hovertemplate="Conteo %{x|%d/%m}: %{customdata:.0f} plántulas<extra></extra>"),
+                      row=1, col=1)
     # emergencia acumulada: curva media y rango 10–90 % de las 17 campañas; marca del valor esperado a la fecha de emisión
     cv = modelo.curva(pd.date_range(pd.Timestamp(anio, 1, 15), x_fin))
     fig.add_trace(go.Scatter(x=cv["Fecha"], y=100 * cv["p90"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
