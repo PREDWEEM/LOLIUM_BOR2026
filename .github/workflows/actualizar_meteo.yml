@@ -122,7 +122,7 @@ jobs:
           if not observado.any():
               raise SystemExit("No hay observaciones SIGA.")
           if (df["Fecha"].dt.date > CAMPANIA_END).any():
-              raise SystemExit("Hay fechas posteriores al 1 de octubre de 2026.")
+              raise SystemExit(f"Hay fechas posteriores al cierre de campaña ({CAMPANIA_END}).")
           if not pron.any() and hoy_argentina() <= CAMPANIA_END:
               raise SystemExit("No hay filas de pronóstico.")
 

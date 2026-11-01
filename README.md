@@ -53,16 +53,14 @@ La precipitación horaria faltante no se convierte en cero. Temperatura y precip
 
 Antes de guardar `meteo_daily.csv`, el workflow verifica continuidad diaria, ausencia de nulos, precipitación no negativa, `TMAX >= TMIN`, ubicación temporal de observados/provisionales/pronósticos y correspondencia exacta entre las variables operativas y sus P50.
 
-### Fin de carga de la campaña 2026
+### Campaña vigente y actualización automática
 
-La última fecha meteorológica es el **1 de octubre de 2026, inclusive**.
-El pronóstico de siete días se recorta al alcanzar ese límite, tanto en la
-serie operativa como en los nuevos archivos de pronóstico. Desde el 2 de
-octubre no se consulta el ensamble; las actualizaciones de SIGA y del puente
-provisional quedan limitadas al 1 de octubre, permitiendo incorporar la
-observación de ese día cuando se publique y reemplazar datos provisionales.
-La validación admite una serie cerrada sin pronóstico y rechaza fechas
-posteriores al cierre. Los archivos históricos existentes se conservan.
+La serie meteorológica corresponde a la **campaña del año en curso** (1 de enero a 31 de diciembre, hora de
+Argentina) y se actualiza automáticamente dos veces por día (07:30 y 15:30): SIGA–INTA hasta ayer, puente
+provisional ECMWF IFS para los días que SIGA todavía no publicó y pronóstico ECMWF ENS (P50) de los siete días
+siguientes. El 1 de enero comienza automáticamente la campaña nueva. Si hace falta cerrar una campaña en una
+fecha determinada, se pueden definir las variables `CAMPANIA_INICIO` y `CAMPANIA_FIN` (AAAA-MM-DD) en el
+workflow. Los archivos de pronóstico históricos se conservan.
 
 ## Alerta validada de flushes (sección independiente)
 

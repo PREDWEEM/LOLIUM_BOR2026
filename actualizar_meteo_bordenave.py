@@ -37,8 +37,20 @@ LATITUD = float(os.getenv("LATITUD", "-37.85"))
 LONGITUD = float(os.getenv("LONGITUD", "-63.02"))
 ZONA_HORARIA = "America/Argentina/Buenos_Aires"
 
-CAMPANIA_START = date(2026, 1, 1)
-CAMPANIA_END = date(2026, 10, 1)  # Última fecha meteorológica, inclusive.
+def _campania_vigente() -> tuple[date, date]:
+    """Campaña meteorológica operativa: el año calendario en curso (hora de Argentina).
+
+    Sin fecha de cierre fija: la serie se actualiza automáticamente todo el año. Para cerrar una campaña en
+    una fecha determinada se pueden definir las variables de entorno CAMPANIA_INICIO y CAMPANIA_FIN (AAAA-MM-DD).
+    """
+    hoy = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
+    inicio = os.getenv("CAMPANIA_INICIO", "").strip()
+    fin = os.getenv("CAMPANIA_FIN", "").strip()
+    return (date.fromisoformat(inicio) if inicio else date(hoy.year, 1, 1),
+            date.fromisoformat(fin) if fin else date(hoy.year, 12, 31))
+
+
+CAMPANIA_START, CAMPANIA_END = _campania_vigente()  # Última fecha meteorológica, inclusive.
 HORIZONTE_DIAS = 7
 TBASE = 2.0
 
