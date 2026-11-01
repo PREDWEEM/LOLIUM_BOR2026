@@ -170,7 +170,7 @@ if "df_meteo_raw" in globals() and isinstance(df_meteo_raw, pd.DataFrame) and no
             t_crit=float(globals().get("t_critica", 30.0)),
             tt_control=float(globals().get("dga_optimo", 600.0)),
             tt_limite=float(globals().get("dga_critico", 800.0)),
-            cero_reciente_dias=10,  # conteo en cero en los últimos 10 días y sin plántulas: como máximo Atención
+            tope_hasta_ultimo_cero=True,  # hasta el último conteo en cero (sin plántulas), probabilidad por debajo de Atención
             curva_desde_ultimo_cero=True,  # la curva acumulada arranca después del último conteo en cero
         )
     except Exception as _error_alerta:  # noqa: BLE001
