@@ -217,11 +217,11 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     st.markdown(
         f"<div style='background:{COLOR[nivel]};color:white;padding:0.9rem 1.1rem;border-radius:0.6rem;margin:0.4rem 0 0.8rem 0;"
         f"font-size:1.05rem'><b>{emision:%d/%m/%Y}</b> · <b>{NOMBRE[nivel]}</b> · probabilidad de flush en los próximos 7 días: "
-        + (f"<b>{p:.0%}</b>. Conteo en cero el {r['cero_reciente']:%d/%m}: sin plántulas en el lote hasta esa fecha, por eso la "
+        + (f"<b>{p:.0%}</b>. Conteo en cero el {r['cero_reciente']:%d/%m}: esta semana ya pasó sin plántulas en el lote, por eso la "
            f"probabilidad queda por debajo de Atención (por clima sería {r['probabilidad_clima']:.0%}). "
-           "Seguir contando: la alerta vuelve a funcionar con el primer conteo con plántulas.<br>" if r.get("cero_reciente") is not None else
+           "La semana que sigue al último conteo en cero se evalúa normalmente.<br>" if r.get("cero_reciente") is not None else
            f"<b>{p:.0%}</b>. {TEXTO_TOPE if r.get('tope_aplicado') else TEXTO[nivel]}<br>")
-        + f"<span style='font-size:0.9rem;opacity:0.9'>Información usada: {'clima + conteos en cero (todavía sin plántulas)' if r.get('cero_reciente') is not None else INFO[r['nivel_info']]}.</span></div>",
+        + f"<span style='font-size:0.9rem;opacity:0.9'>Información usada: {'clima + conteo en cero posterior (semana sin plántulas)' if r.get('cero_reciente') is not None else INFO[r['nivel_info']]}.</span></div>",
         unsafe_allow_html=True)
 
     clima = al.limpiar_clima(meteo)
@@ -231,7 +231,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         else (None, None))
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Probabilidad de flush (7 días)", f"{p:.0%}", help="Tasa histórica: ~25 % de las semanas de campaña."
-              + (f" Conteo en cero el {r['cero_reciente']:%d/%m}: por debajo de Atención hasta esa fecha (por clima {r['probabilidad_clima']:.0%})."
+              + (f" Conteo en cero el {r['cero_reciente']:%d/%m}: semana ya pasada sin plántulas, por debajo de Atención (por clima {r['probabilidad_clima']:.0%})."
                  if r.get("cero_reciente") is not None else ""))
     m2.metric("Emergencia esperada por lluvias", f"{100 * r['senales']['lluvia']:.1f} %",
               help="Respuesta relativa a las lluvias registradas hasta la fecha (señal, no % de la campaña).")
@@ -281,10 +281,10 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         fig.add_vline(x=emision, line_dash="dash", line_color="#9ca3af", exclude_empty_subplots=False, row=fila, col=1)
     fig.add_annotation(x=emision, y=4, xref="x", yref="y", showarrow=False, xanchor="left", font=dict(size=11, color="#6b7280"),
                        text=f" emisión {emision:%d/%m}")
-    # semanas con un conteo reciente en cero y sin plántulas: probabilidad por debajo de Atención
+    # semanas ya cerradas por un conteo posterior en cero (sin plántulas): probabilidad por debajo de Atención
     sin_inicio = s["cero_reciente"].astype(bool) if "cero_reciente" in s else pd.Series(False, index=s.index)
     y_plot = 100 * s["probabilidad"]
-    etiqueta = [f"sin plántulas hasta el conteo en cero (por clima {100 * pc:.0f} %)" if z else INFO[n]
+    etiqueta = [f"semana sin plántulas según el conteo en cero (por clima {100 * pc:.0f} %)" if z else INFO[n]
                 for z, pc, n in zip(sin_inicio, s.get("probabilidad_clima", s["probabilidad"]), s["nivel_info"])]
     fig.add_trace(go.Scatter(x=s["Fecha"], y=y_plot, mode="lines+markers", name="Probabilidad de flush (7 días)",
                              line=dict(color="#2a78d6", width=2),
