@@ -55,12 +55,16 @@ Antes de guardar `meteo_daily.csv`, el workflow verifica continuidad diaria, aus
 
 ### Campaña vigente y actualización automática
 
-La serie meteorológica corresponde a la **campaña del año en curso** (1 de enero a 31 de diciembre, hora de
-Argentina) y se actualiza automáticamente dos veces por día (07:30 y 15:30): SIGA–INTA hasta ayer, puente
-provisional ECMWF IFS para los días que SIGA todavía no publicó y pronóstico ECMWF ENS (P50) de los siete días
-siguientes. El 1 de enero comienza automáticamente la campaña nueva. Si hace falta cerrar una campaña en una
-fecha determinada, se pueden definir las variables `CAMPANIA_INICIO` y `CAMPANIA_FIN` (AAAA-MM-DD) en el
-workflow. Los archivos de pronóstico históricos se conservan.
+Cada campaña carga clima del **1 de enero al 1 de octubre** (inclusive) del año en curso, hora de Argentina. Mientras
+la campaña está abierta, la serie se actualiza automáticamente dos veces por día (07:30 y 15:30): SIGA–INTA hasta
+ayer, puente provisional ECMWF IFS para los días que SIGA todavía no publicó y pronóstico ECMWF ENS (P50) de los
+siete días siguientes; el pronóstico se recorta al 1 de octubre.
+
+Del 2 de octubre al 31 de diciembre la campaña queda cerrada: no se consulta el ensamble y la serie se conserva. El
+**1 de enero se reinicia automáticamente la carga** con la campaña nueva (la de 2027 empieza el 1/01/2027). Durante
+las primeras tres semanas se admite una serie sin observaciones SIGA del año, cubierta con el puente provisional y
+el pronóstico ECMWF, porque SIGA publica con demora. Las variables `CAMPANIA_INICIO` y `CAMPANIA_FIN` (AAAA-MM-DD)
+permiten fijar otras fechas. Los archivos de pronóstico históricos se conservan.
 
 ## Alerta validada de flushes (sección independiente)
 

@@ -38,17 +38,22 @@ LONGITUD = float(os.getenv("LONGITUD", "-63.02"))
 ZONA_HORARIA = "America/Argentina/Buenos_Aires"
 
 def _campania_vigente() -> tuple[date, date]:
-    """Campaña meteorológica operativa: el año calendario en curso (hora de Argentina).
+    """Campaña meteorológica operativa: del 1 de enero al 1 de octubre del año en curso (hora de Argentina).
 
-    Sin fecha de cierre fija: la serie se actualiza automáticamente todo el año. Para cerrar una campaña en
-    una fecha determinada se pueden definir las variables de entorno CAMPANIA_INICIO y CAMPANIA_FIN (AAAA-MM-DD).
+    Del 2 de octubre al 31 de diciembre la campaña del año queda cerrada (la serie se conserva sin pronóstico) y el
+    1 de enero comienza automáticamente la carga de la campaña nueva. Las variables de entorno CAMPANIA_INICIO y
+    CAMPANIA_FIN (AAAA-MM-DD) permiten fijar otras fechas.
     """
     hoy = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
     inicio = os.getenv("CAMPANIA_INICIO", "").strip()
     fin = os.getenv("CAMPANIA_FIN", "").strip()
     return (date.fromisoformat(inicio) if inicio else date(hoy.year, 1, 1),
-            date.fromisoformat(fin) if fin else date(hoy.year, 12, 31))
+            date.fromisoformat(fin) if fin else date(hoy.year, 10, 1))
 
+
+# Días desde el comienzo de la campaña en que se admite una serie sin observaciones SIGA del año
+# (SIGA publica con demora; mientras tanto se usan el puente provisional y el pronóstico ECMWF).
+DIAS_TOLERANCIA_INICIO = 21
 
 CAMPANIA_START, CAMPANIA_END = _campania_vigente()  # Última fecha meteorológica, inclusive.
 HORIZONTE_DIAS = 7
@@ -1081,7 +1086,12 @@ def construir_meteo_daily(
         archivo_forzado=siga_file,
     )
     if observaciones.empty:
-        raise ValueError("SIGA no aportó ninguna observación válida.")
+        if (hoy - CAMPANIA_START).days <= DIAS_TOLERANCIA_INICIO:
+            print("ℹ️ Comienzo de campaña: SIGA todavía no publicó observaciones del año; "
+                  "se usan el puente provisional y el pronóstico ECMWF.")
+            observaciones = asegurar_columnas(pd.DataFrame(columns=COLUMNAS_COMPLETAS))
+        else:
+            raise ValueError("SIGA no aportó ninguna observación válida.")
 
     huecos_siga = fechas_faltantes_siga(
         observaciones,
@@ -1129,14 +1139,14 @@ def construir_meteo_daily(
     escribir_csv_atomico(combinado, output)
 
     fechas_obs = pd.to_datetime(observaciones["Fecha"], errors="coerce").dropna()
-    ultima_observacion = fechas_obs.max().date()
+    ultima_observacion = fechas_obs.max().date() if not fechas_obs.empty else None
     estado = {
         "ejecucion_utc": fecha_utc_iso(),
         "sitio": "Bordenave / INTA",
         "latitud": LATITUD,
         "longitud": LONGITUD,
         "estado_siga": estado_siga,
-        "ultima_observacion_siga": ultima_observacion.isoformat(),
+        "ultima_observacion_siga": ultima_observacion.isoformat() if ultima_observacion else None,
         "huecos_siga": [fecha.isoformat() for fecha in huecos_siga],
         "fuente_provisional": (
             "ECMWF_IFS_HISTORICO" if not provisionales.empty else None
