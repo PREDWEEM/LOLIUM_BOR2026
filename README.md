@@ -100,6 +100,12 @@ La barra lateral conserva solo los parámetros que usa la alerta: temperaturas b
 térmico y los objetivos de la ventana de control (600 y 800 °Cd). Los parámetros del motor PREDWEEM quedan en sus
 valores por defecto.
 
+## Datos de la campaña 2026
+
+`data/campania_2026/` guarda una copia fija de la emergencia de *Lolium* (planilla original y CSV por marco, sin y con
+remoción, con fracción y acumulada) y del clima de la campaña 2026 (01/01–01/10, SIGA–INTA). La actualización automática no
+los modifica; ver `data/campania_2026/README.md`.
+
 ## Condiciones de uso
 
 No se concede licencia de uso por el solo hecho de acceder al repositorio. Cualquier utilización académica, técnica, institucional o comercial que exceda la visualización del contenido requiere autorización previa y escrita del titular de los derechos correspondientes.
