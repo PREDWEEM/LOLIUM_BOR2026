@@ -66,7 +66,7 @@ jobs:
 
           import numpy as np
           import pandas as pd
-          from actualizar_meteo_bordenave import CAMPANIA_END, hoy_argentina
+          from actualizar_meteo_bordenave import CAMPANIA_END, CAMPANIA_START, DIAS_TOLERANCIA_INICIO, hoy_argentina
 
           archivo = Path("meteo_daily.csv")
           estado_path = Path("data/estado_actualizacion_meteo.json")
@@ -119,10 +119,10 @@ jobs:
           observado = df["TipoDato"].astype(str).eq("Observado")
           provisional = df["TipoDato"].astype(str).eq("Provisional")
           pron = df["TipoDato"].astype(str).eq("Pronostico")
-          if not observado.any():
+          if not observado.any() and (hoy_argentina() - CAMPANIA_START).days > DIAS_TOLERANCIA_INICIO:
               raise SystemExit("No hay observaciones SIGA.")
           if (df["Fecha"].dt.date > CAMPANIA_END).any():
-              raise SystemExit("Hay fechas posteriores al 1 de octubre de 2026.")
+              raise SystemExit(f"Hay fechas posteriores al cierre de campaña ({CAMPANIA_END}).")
           if not pron.any() and hoy_argentina() <= CAMPANIA_END:
               raise SystemExit("No hay filas de pronóstico.")
 

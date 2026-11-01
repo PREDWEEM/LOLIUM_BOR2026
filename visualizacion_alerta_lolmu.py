@@ -103,7 +103,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         c1, c2 = st.columns(2)
         with c1:
             emision = st.date_input(
-                "Fecha de emisión", value=ultima.date(), min_value=pd.Timestamp(anio, 2, 1).date(),
+                "Fecha de emisión", value=ultima.date(), min_value=min(pd.Timestamp(anio, 2, 1), ultima).date(),
                 max_value=ultima.date(), format="DD/MM/YYYY", key="alerta_lolmu_emision",
                 help=f"Por defecto, el último día con clima observado ({ultima:%d/%m/%Y}).")
         with c2:
@@ -188,6 +188,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
 
     # gráfico único: alerta semanal (arriba) y emergencia acumulada (abajo), con la ventana de control en tiempo térmico
     s = al.serie(meteo, pd.Timestamp(anio, 2, 2), emision, primeras, conteos, modelo, paso=7, **tt)
+    if s.empty:  # comienzo de campaña (antes del 2 de febrero): todavía no hay emisiones semanales
+        s = pd.DataFrame({"Fecha": pd.DatetimeIndex([]), "probabilidad": pd.Series(dtype=float), "nivel_info": pd.Series(dtype=int)})
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.56, 0.44], vertical_spacing=0.06,
                         subplot_titles=("Probabilidad de flush en los próximos 7 días", "Emergencia acumulada esperada (calendario de 17 campañas)"))
     fig.add_hrect(y0=100 * al.ATENCION, y1=100 * al.ALERTA, fillcolor=COLOR["atencion"], opacity=0.08, line_width=0, exclude_empty_subplots=False, row=1, col=1)
