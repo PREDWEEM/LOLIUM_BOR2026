@@ -56,6 +56,8 @@ if _ini_lote >= 0 and _fin_lote > _ini_lote:
     _core_source = _core_source.replace('df_campo_raw = load_data(archivo_campo, "bordenave_campo")', "df_campo_raw = None", 1)
 
 _REEMPLAZOS_TEXTO = (
+    # botón lateral del reporte del motor: la descarga final reúne los resultados de la alerta validada
+    ('st.sidebar.download_button("📥 Descargar Reporte Bordenave"', '_omitir_grafico("📥 Descargar Reporte Bordenave"'),
     # control del umbral del gráfico retirado: se fija su valor por defecto (lo usa la métrica Lead Time)
     ('umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.0001, 0.80, 0.0001)',
      "umbral_er = 0.0001  # control retirado; valor por defecto"),
@@ -105,7 +107,7 @@ if "df_meteo_raw" in globals() and isinstance(df_meteo_raw, pd.DataFrame) and no
             if _idx_pico is not None and "df" in globals() and isinstance(df, pd.DataFrame) and _idx_pico in df.index
             else None
         )
-        mostrar_alerta_lolmu(
+        _resultados_alerta = mostrar_alerta_lolmu(
             df_meteo_raw,
             campo=globals().get("df_campo"),
             col_fecha=globals().get("col_fecha"),
@@ -142,167 +144,27 @@ def _escribir_hoja(writer, dataframe, nombre):
     hoja.set_column(0, ultima_columna, 18)
 
 
-# El botón final se muestra únicamente si el motor completó la simulación.
-if "df" in globals() and isinstance(df, pd.DataFrame) and not df.empty:
+# Descarga final: los resultados que muestra la app (alerta validada, emergencia acumulada y ventana de control)
+_resultados_alerta = globals().get("_resultados_alerta")
+if isinstance(_resultados_alerta, dict) and _resultados_alerta:
     reporte_excel_final = io.BytesIO()
-
-    resumen_decision = pd.DataFrame(
-        {
-            "Indicador": [
-                "Localidad",
-                "Fecha de generación",
-                "Inicio del conteo térmico",
-                "Fecha objetivo de control",
-                "Fecha límite de la ventana",
-                "TT acumulado actual (°Cd)",
-                "TT pronosticado +7 días (°Cd)",
-                "Estado operativo",
-                "Cobertura de rastrojo (%)",
-                "Wmax superficial (mm)",
-                "Ke aplicado",
-                "Exponente Kr configurable",
-                "Calentamiento diagnóstico del suelo (°C)",
-            ],
-            "Valor": [
-                "Bordenave (Buenos Aires)",
-                pd.Timestamp.now().strftime("%d/%m/%Y %H:%M"),
-                _fecha_reporte(globals().get("fecha_inicio_ventana")),
-                _fecha_reporte(globals().get("fecha_control")),
-                _fecha_reporte(globals().get("fecha_limite")),
-                globals().get("dga_hoy", 0.0),
-                globals().get("dga_7dias", 0.0),
-                globals().get("msg_estado", ""),
-                globals().get("cobertura_pct", ""),
-                globals().get("w_max_val", ""),
-                globals().get("ke_val", ""),
-                globals().get("exponente_kr", ""),
-                globals().get("calentamiento_suelo", ""),
-            ],
-        }
-    )
-
-    metricas_reporte = pd.DataFrame(
-        {
-            "Métrica": [
-                "PEC (%)",
-                "Lag control vs. pico de campo (días)",
-                "Lead time (días)",
-                "Pearson de flujos",
-                "NSE de flujos",
-                "KGE de flujos",
-                "RMSE acumulado",
-                "R2 acumulado",
-                "CCC acumulado",
-                "Desfase T50 (días)",
-                "F1-Score de coincidencia",
-                "Exactitud global",
-                "Hits",
-                "Misses",
-                "Falsos positivos",
-                "Correctos negativos",
-                "Desfase del primer flujo (días)",
-            ],
-            "Valor": [
-                globals().get("pec", 0.0),
-                globals().get("peak_lag", 0),
-                globals().get("lead_time", 0),
-                globals().get("pearson_r", 0.0),
-                globals().get("nse_flujos", 0.0),
-                globals().get("kge_flujos", 0.0),
-                globals().get("rmse_acum", 0.0),
-                globals().get("r2_acum", 0.0),
-                globals().get("ccc_acum", 0.0),
-                globals().get("desfase_t50", 0),
-                globals().get("f1_score_coincidencia", 0.0),
-                globals().get("exactitud_global", 0.0),
-                globals().get("hits_val", 0),
-                globals().get("misses_val", 0),
-                globals().get("falsos_pos_val", 0),
-                globals().get("correctos_neg_val", 0),
-                globals().get("lag_inicio_dias", "N/A"),
-            ],
-        }
-    )
-
-    parametros_reporte = pd.DataFrame(
-        {
-            "Parámetro": [
-                "Latitud",
-                "Latencia fija (JD)",
-                "Ventana termoinhibición (días)",
-                "Umbral termoinhibición (°C)",
-                "Ventana de lluvia (días)",
-                "Choque hídrico (mm)",
-                "Fin choque hídrico (JD)",
-                "Umbral del primer pico",
-                "Cobertura de rastrojo (%)",
-                "Wmax superficial (mm)",
-                "Ke",
-                "Exponente Kr",
-                "Modulador térmico diagnóstico",
-                "Calentamiento diagnóstico del suelo (°C)",
-                "Temperatura base (°C)",
-                "Temperatura óptima (°C)",
-                "Temperatura crítica (°C)",
-                "TT objetivo de control (°Cd)",
-                "TT límite de ventana (°Cd)",
-                "Residualidad del herbicida (días)",
-                "Umbral de alerta temprana",
-            ],
-            "Valor": [
-                -37.761671,
-                15,
-                5,
-                globals().get("umbral_termoinhibicion", ""),
-                3,
-                globals().get("umbral_choque_hidrico", ""),
-                110,
-                globals().get("UMBRAL_PRIMER_PICO", ""),
-                globals().get("cobertura_pct", ""),
-                globals().get("w_max_val", ""),
-                globals().get("ke_val", ""),
-                globals().get("exponente_kr", ""),
-                globals().get("mod_termico", ""),
-                globals().get("calentamiento_suelo", ""),
-                globals().get("t_base_val", ""),
-                globals().get("t_opt_max", ""),
-                globals().get("t_critica", ""),
-                globals().get("dga_optimo", ""),
-                globals().get("dga_critico", ""),
-                globals().get("residualidad", ""),
-                globals().get("umbral_er", ""),
-            ],
-        }
-    )
-
-    with pd.ExcelWriter(
-        reporte_excel_final,
-        engine="xlsxwriter",
-        datetime_format="dd/mm/yyyy",
-        date_format="dd/mm/yyyy",
-    ) as writer:
-        _escribir_hoja(writer, df, "Resultados_Diarios")
-        _escribir_hoja(writer, globals().get("df_sincronizado"), "Validacion_Intervalos")
-        _escribir_hoja(writer, globals().get("df_campo"), "Observaciones_Campo")
-        _escribir_hoja(writer, resumen_decision, "Resumen_Decision")
-        _escribir_hoja(writer, metricas_reporte, "Metricas_Validacion")
-        _escribir_hoja(writer, parametros_reporte, "Parametros_Modelo")
-        _escribir_hoja(writer, globals().get("df_desde_pico"), "Tiempo_Termico")
-        _escribir_hoja(writer, globals().get("tabla_optima"), "Optimizador_2D")
-
+    with pd.ExcelWriter(reporte_excel_final, engine="xlsxwriter", datetime_format="dd/mm/yyyy", date_format="dd/mm/yyyy") as writer:
+        for _hoja, _tabla in _resultados_alerta.items():
+            _escribir_hoja(writer, _tabla, _hoja)
     reporte_excel_final.seek(0)
+    _emision = _resultados_alerta["Resumen"].set_index("Indicador")["Valor"].get("Fecha de emisión", "")
 
     st.divider()
-    st.subheader("📥 Descarga final de resultados")
+    st.subheader("📥 Descarga de resultados")
     st.caption(
-        "El archivo reúne los resultados diarios, la validación Event-to-Event, "
-        "las observaciones de campo, las métricas, los parámetros, el tiempo "
-        "térmico y, cuando está disponible, el calibrador biofísico 2D."
+        "Excel con los resultados que muestra la app para la fecha de emisión elegida: resumen (nivel y probabilidad de "
+        "flush, inicio y ventana de control 600–800 °Cd, emergencia acumulada esperada), alerta semanal, emergencia "
+        "acumulada con su rango, tiempo térmico diario desde el inicio, conteos usados, clima, parámetros y validación."
     )
     st.download_button(
-        label="📊 Descargar resultados completos en Excel",
+        label="📊 Descargar resultados en Excel",
         data=reporte_excel_final.getvalue(),
-        file_name="PREDWEEM_Bordenave_Resultados_Completos.xlsx",
+        file_name=f"PREDWEEM_Lolium_Bordenave_alerta_{str(_emision).replace('/', '-') or 'resultados'}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         width="stretch",
         key="descarga_excel_resultados_final_bordenave",
