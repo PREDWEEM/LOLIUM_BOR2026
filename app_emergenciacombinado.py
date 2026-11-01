@@ -9,7 +9,8 @@ La aplicación científica original se conserva en
   decaimiento de EMERREL desde el 15 de abril (y ajustes de formato de su gráfico);
 * se ocultan los elementos que reemplaza la alerta validada del final de la página:
   mapa de riesgo, gráfico de dinámica principal, mensajes de inicio y momento de
-  control del motor, control "Umbral Alerta Temprana", la leyenda de versión visual y
+  control del motor, control "Umbral Alerta Temprana", la leyenda de versión visual, la imagen de
+  fondo (reemplazada por un fondo liso claro, de mejor contraste) y
   las pestañas Monitor de decisión, Precipitaciones y suelo, Análisis estratégico y
   Bio-calibración (incluido el indicador de tiempo térmico), la sección "Datos del lote"
   (se usa el clima SIGA del repositorio y la cobertura de rastrojo por defecto, 75 %) y, en la
@@ -91,6 +92,8 @@ _REEMPLAZOS_TEXTO = (
     # control del umbral del gráfico retirado: se fija su valor por defecto (lo usa la métrica Lead Time)
     ('umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.0001, 0.80, 0.0001)',
      "umbral_er = 0.0001  # control retirado; valor por defecto"),
+    # fondo: la imagen de plantas sobre verde medio restaba contraste a textos y gráficos; se usa un fondo liso claro
+    ('set_bg_hack("fondo_predweem_v3.png")', "st.markdown(_FONDO_CSS, unsafe_allow_html=True)"),
     # leyenda que describía el gráfico retirado
     ('st.caption("Bordenave · VISUAL V3 · ventana eficiente verde · exportación PNG de alta resolución")', "pass"),
 )
@@ -110,6 +113,16 @@ _ini_tabs = _core_source.find("    tab1, tab2, tab3, tab4 = st.tabs(")
 _fin_tabs = _core_source.find("    output = io.BytesIO()", _ini_tabs) if _ini_tabs >= 0 else -1
 if _ini_tabs >= 0 and _fin_tabs > _ini_tabs:
     _core_source = _core_source[:_ini_tabs] + _core_source[_fin_tabs:]
+
+
+_FONDO_CSS = """<style>
+.stApp { background: #f4f6f3; }
+[data-testid="stAppViewContainer"] > .main, [data-testid="stMain"] { background: transparent; }
+[data-testid="stSidebar"] { background-color: #e8f3ea; border-right: 1px solid #cfe3d3; }
+[data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p, [data-testid="stSidebar"] label { color: #14532d !important; }
+[data-testid="stCaptionContainer"], .stCaption { color: #4b5563 !important; }
+h1, h2, h3, h4 { color: #1f2937; }
+</style>"""
 
 
 def _omitir_grafico(*_args, **_kwargs):
