@@ -64,17 +64,24 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         conteos = conteos if not conteos.empty else None
     vistas_conteo = conteos[conteos["PLM2"] > 0]["Fecha"].min() if conteos is not None and (conteos["PLM2"] > 0).any() else None
 
-    c1, c2 = st.columns(2)
-    with c1:
-        emision = pd.Timestamp(st.date_input(
-            "Fecha de emisión", value=ultima.date(), min_value=pd.Timestamp(anio, 2, 1).date(), max_value=ultima.date(),
-            key="alerta_lolmu_emision", help="Por defecto, el último día con clima observado.")).normalize()
-    with c2:
-        primeras = st.date_input(
-            "Fecha en que se vieron las primeras plántulas (opcional)", value=vistas_conteo.date() if vistas_conteo is not None else None,
-            min_value=pd.Timestamp(anio, 1, 1).date(), max_value=ultima.date(), key="alerta_lolmu_primeras",
-            help="Un solo dato por campaña: el día en que aparecieron las primeras plántulas en el lote. Ancla el reloj "
-                 "térmico de la ventana de control y mejora la alerta. Si hay conteos cargados se toma el primero con plántulas.")
+    with st.form("alerta_lolmu_fechas", border=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            emision = st.date_input(
+                "Fecha de emisión", value=ultima.date(), min_value=pd.Timestamp(anio, 2, 1).date(),
+                max_value=ultima.date(), format="DD/MM/YYYY", key="alerta_lolmu_emision",
+                help=f"Por defecto, el último día con clima observado ({ultima:%d/%m/%Y}).")
+        with c2:
+            primeras = st.date_input(
+                "Fecha en que se vieron las primeras plántulas (opcional)",
+                value=vistas_conteo.date() if vistas_conteo is not None else None,
+                min_value=pd.Timestamp(anio, 1, 1).date(), max_value=ultima.date(), format="DD/MM/YYYY",
+                key="alerta_lolmu_primeras",
+                help="Un solo dato por campaña: el día en que aparecieron las primeras plántulas en el lote. Ancla el reloj "
+                     "térmico de la ventana de control y mejora la alerta. Si hay conteos cargados se toma el primero con "
+                     "plántulas. Para borrarla, vacíe el campo.")
+        st.form_submit_button("Actualizar alerta", type="primary")
+    emision = pd.Timestamp(emision).normalize()
     primeras = pd.Timestamp(primeras) if primeras else None
 
     tt = dict(t_base=t_base, t_opt=t_opt, t_crit=t_crit)
@@ -133,7 +140,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         fig.add_annotation(x=ancla, y=97, showarrow=False, xanchor="left", font=dict(size=11, color="#374151"),
                            text=f" Inicio {ancla:%d/%m} ({'estimado' if estimado else 'primeras plántulas'})")
     fig.add_vline(x=emision, line_dash="dash", line_color="#9ca3af")
-    fig.add_annotation(x=emision, y=103, showarrow=False, font=dict(size=11, color="#6b7280"), text=f"emisión {emision:%d/%m}")
+    fig.add_annotation(x=emision, y=4, showarrow=False, xanchor="right", font=dict(size=11, color="#6b7280"), text=f"emisión {emision:%d/%m} ")
     fig.add_trace(go.Scatter(x=s["Fecha"], y=100 * s["probabilidad"], mode="lines+markers", name="Probabilidad de flush (7 días)",
                              line=dict(color="#2a78d6", width=2),
                              marker=dict(size=9, color=[COLOR[al.nivel_de(v)] for v in s["probabilidad"]], line=dict(color="white", width=1)),
