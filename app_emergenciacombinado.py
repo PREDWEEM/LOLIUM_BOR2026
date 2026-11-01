@@ -33,6 +33,14 @@ for _llamada in _GRAFICOS_OCULTOS:
     if _llamada in _core_source:
         _core_source = _core_source.replace(_llamada, _llamada.replace("st.plotly_chart(", "_omitir_grafico("), 1)
 
+# la regla de estilo "header {visibility: hidden;}" del motor ocultaba también el encabezado de los
+# calendarios desplegables (mes y flechas de navegación); se restringe a la barra superior de Streamlit
+_core_source = _core_source.replace(
+    "    header {visibility: hidden;}",
+    '    header[data-testid="stHeader"] {visibility: hidden;}',
+    1,
+)
+
 _REEMPLAZOS_TEXTO = (
     # control del umbral del gráfico retirado: se fija su valor por defecto (lo usa la métrica Lead Time)
     ('umbral_er = st.sidebar.slider("Umbral Alerta Temprana", 0.0001, 0.80, 0.0001)',
