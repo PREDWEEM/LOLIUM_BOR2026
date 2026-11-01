@@ -68,7 +68,7 @@ def _fecha_tt(dg: pd.Series, desde: pd.Timestamp, objetivo: float):
 def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = None, col_fecha: str | None = None,
                          col_plm2: str | None = None, inicio_predicho: pd.Timestamp | None = None,
                          t_base: float = 2.0, t_opt: float = 20.0, t_crit: float = 30.0,
-                         tt_control: float = 600.0, tt_limite: float = 800.0) -> None:
+                         tt_control: float = 600.0, tt_limite: float = 800.0) -> dict | None:
     st.subheader("🔔 Alerta de flushes validada (17 campañas)")
     st.caption("Probabilidad de que en los próximos 7 días emerja ≥ 5 % de la campaña. Combina el calendario medio de "
                "LOLMU, la respuesta a las lluvias ya registradas y, si se informa, la fecha de las primeras plántulas "
@@ -266,3 +266,49 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
             "usa como inicio estimado del reloj térmico hasta que se informan las primeras plántulas.\n\n"
             "**Límites.** Un sitio y lotes sin labranza. La fecha de primeras plántulas mejora la alerta en forma moderada "
             "(AUC +0,04); los conteos semanales, en forma más clara (+0,07). No anticipa flushes sin lluvia registrada.")
+
+    # ---------------------------------------------------------------
+    # resultados de la sección, para la descarga final
+    # ---------------------------------------------------------------
+    f_ctl_r, f_lim_r = (_fecha_tt(dg, ancla, tt_control), _fecha_tt(dg, ancla, tt_limite)) if ancla is not None else (None, None)
+    tt_r = float(dg[(dg.index >= ancla) & (dg.index <= emision)].sum()) if ancla is not None else None
+    fmt_f = lambda d: pd.Timestamp(d).strftime("%d/%m/%Y") if d is not None and not pd.isna(d) else ""  # noqa: E731
+    resumen = pd.DataFrame({"Indicador": [
+        "Localidad", "Fecha de generación", "Fecha de emisión", "Nivel de alerta", "Probabilidad de flush en 7 días (%)",
+        "Información usada", "Inicio del reloj térmico", "Origen del inicio", "Tiempo térmico desde el inicio (°Cd)",
+        f"Fecha de control post-emergente ({tt_control:.0f} °Cd)", f"Fecha límite de la ventana ({tt_limite:.0f} °Cd)",
+        "Emergencia acumulada esperada a la fecha (%)", "Rango 10–90 % de la emergencia acumulada (%)",
+        "Señal de calendario (emergencia esperada en 7 días, %)", "Señal de lluvia (respuesta relativa, %)",
+        "Conteos usados (fechas)", "Primeras plántulas informadas", "Inicio estimado por PREDWEEM"],
+        "Valor": [
+        "Bordenave (Buenos Aires)", pd.Timestamp.now().strftime("%d/%m/%Y %H:%M"), fmt_f(emision), NOMBRE[nivel], round(100 * p, 1),
+        INFO[r["nivel_info"]], fmt_f(ancla), ancla_txt or "sin inicio", round(tt_r, 1) if tt_r is not None else "",
+        fmt_f(f_ctl_r), fmt_f(f_lim_r) if f_lim_r is not None else ("fuera del clima disponible" if f_ctl_r is not None else ""),
+        round(100 * hoy["media"], 1), f"{100 * hoy['p10']:.0f}–{100 * hoy['p90']:.0f}",
+        round(100 * r["senales"]["cal"], 2), round(100 * r["senales"]["lluvia"], 2),
+        int((conteos["Fecha"] <= emision).sum()) if conteos is not None else 0, fmt_f(r["primeras_plantulas"]),
+        fmt_f(inicio_predicho)]})
+    serie_out = s.assign(**{"Probabilidad de flush (%)": (100 * s["probabilidad"]).round(1),
+                            "Nivel": [NOMBRE[al.nivel_de(v)] for v in s["probabilidad"]],
+                            "Información usada": [INFO[v] for v in s["nivel_info"]]})[["Fecha", "Probabilidad de flush (%)", "Nivel", "Información usada"]]
+    curva_out = cv.assign(**{"Emergencia acumulada media (%)": (100 * cv["media"]).round(2), "P10 (%)": (100 * cv["p10"]).round(2),
+                             "P90 (%)": (100 * cv["p90"]).round(2)})[["Fecha", "Emergencia acumulada media (%)", "P10 (%)", "P90 (%)"]]
+    if ancla is not None:
+        dd = dg[dg.index >= ancla]
+        tt_out = pd.DataFrame({"Fecha": dd.index, "TT diario (°Cd)": dd.values.round(2), "TT acumulado desde el inicio (°Cd)": dd.cumsum().values.round(1)})
+        tt_out["Etapa"] = np.where(tt_out["TT acumulado desde el inicio (°Cd)"] < tt_control, "antes de la ventana",
+                                   np.where(tt_out["TT acumulado desde el inicio (°Cd)"] <= tt_limite, "ventana de control", "después de la ventana"))
+    else:
+        tt_out = pd.DataFrame()
+    clima_out = clima[clima["Fecha"] <= emision + pd.Timedelta(days=7)].rename(columns={"Prec": "Lluvia (mm)"})
+    params = pd.DataFrame({"Parámetro": [
+        "Umbral de Atención (%)", "Umbral de Alerta (%)", "Definición de flush", "Horizonte de la alerta (días)",
+        "Temperatura base (°C)", "Temperatura óptima (°C)", "Temperatura crítica (°C)", "TT de control (°Cd)", "TT límite (°Cd)",
+        "Calibración"], "Valor": [
+        100 * al.ATENCION, 100 * al.ALERTA, "≥ 5 % de la emergencia de la campaña en 7 días", 7,
+        t_base, t_opt, t_crit, tt_control, tt_limite, modelo.p.get("fuente", "")]})
+    val = pd.DataFrame([{"Información disponible": k, "AUC": d["auc"], "Flushes detectados con Alerta (%)": round(100 * d["det_at"], 1),
+                         "Semanas marcadas con Alerta (%)": round(100 * d["vis_at"], 1)} for k, d in modelo.p.get("validacion", {}).items()])
+    return {"Resumen": resumen, "Alerta_semanal": serie_out, "Emergencia_acumulada": curva_out, "Tiempo_termico": tt_out,
+            "Conteos": conteos.rename(columns={"PLM2": "Plántulas"}) if conteos is not None else pd.DataFrame(),
+            "Clima": clima_out, "Parametros": params, "Validacion": val}
