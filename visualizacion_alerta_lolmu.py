@@ -65,6 +65,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         conteos = conteos if not conteos.empty else None
     vistas_conteo = conteos[conteos["PLM2"] > 0]["Fecha"].min() if conteos is not None and (conteos["PLM2"] > 0).any() else None
 
+    # asegura que el calendario desplegable muestre el mes y las flechas de navegación
+    st.markdown("<style>[data-baseweb='calendar'] header, [data-baseweb='popover'] header {visibility: visible !important;}</style>",
+                unsafe_allow_html=True)
     with st.form("alerta_lolmu_fechas", border=True):
         c1, c2 = st.columns(2)
         with c1:
