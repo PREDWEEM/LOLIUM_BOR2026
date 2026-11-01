@@ -11,7 +11,8 @@ La aplicación científica original se conserva en
   mapa de riesgo, gráfico de dinámica principal, mensajes de inicio y momento de
   control del motor, control "Umbral Alerta Temprana", la leyenda de versión visual y
   las pestañas Monitor de decisión, Precipitaciones y suelo, Análisis estratégico y
-  Bio-calibración (incluido el indicador de tiempo térmico).
+  Bio-calibración (incluido el indicador de tiempo térmico) y la sección "Datos del lote"
+  (se usa el clima SIGA del repositorio y la cobertura de rastrojo por defecto, 75 %).
 
 Los cálculos del motor no cambian.
 """
@@ -40,6 +41,19 @@ _core_source = _core_source.replace(
     '    header[data-testid="stHeader"] {visibility: hidden;}',
     1,
 )
+
+# sección "Datos del lote" (carga de clima y de conteos, cobertura de rastrojo): se retira de la página;
+# se usa el clima SIGA del repositorio, sin conteos de campo y con la cobertura por defecto (75 %)
+_ini_lote = _core_source.find('with st.expander("📂 1. Datos del Lote", expanded=True):')
+_fin_lote = _core_source.find('df_meteo_raw = load_data(archivo_meteo, "meteo_daily")', _ini_lote) if _ini_lote >= 0 else -1
+if _ini_lote >= 0 and _fin_lote > _ini_lote:
+    _core_source = (
+        _core_source[:_ini_lote]
+        + "archivo_meteo = None\narchivo_campo = None\ncobertura_pct = 75\n"
+        + "ke_val, mod_termico = parametros_superficie(cobertura_pct)\n\n"
+        + _core_source[_fin_lote:]
+    )
+    _core_source = _core_source.replace('df_campo_raw = load_data(archivo_campo, "bordenave_campo")', "df_campo_raw = None", 1)
 
 _REEMPLAZOS_TEXTO = (
     # control del umbral del gráfico retirado: se fija su valor por defecto (lo usa la métrica Lead Time)

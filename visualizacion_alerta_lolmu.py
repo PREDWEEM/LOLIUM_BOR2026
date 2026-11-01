@@ -40,8 +40,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                          tt_control: float = 600.0, tt_limite: float = 800.0) -> None:
     st.subheader("🔔 Alerta de flushes validada (17 campañas)")
     st.caption("Probabilidad de que en los próximos 7 días emerja ≥ 5 % de la campaña. Combina el calendario medio de "
-               "LOLMU, la respuesta a las lluvias ya registradas y, si se informan, la fecha de las primeras plántulas "
-               "y los conteos del lote. Independiente del motor PREDWEEM de arriba.")
+               "LOLMU, la respuesta a las lluvias ya registradas y, si se informa, la fecha de las primeras plántulas "
+               "del lote. Independiente del motor PREDWEEM de arriba.")
     if meteo_raw is None or meteo_raw.empty:
         st.info("Sin datos meteorológicos.")
         return
@@ -82,8 +82,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                 min_value=pd.Timestamp(anio, 1, 1).date(), max_value=ultima.date(), format="DD/MM/YYYY",
                 key="alerta_lolmu_primeras",
                 help="Un solo dato por campaña: el día en que aparecieron las primeras plántulas en el lote. Ancla el reloj "
-                     "térmico de la ventana de control y mejora la alerta. Si hay conteos cargados se toma el primero con "
-                     "plántulas. Para borrarla, vacíe el campo.")
+                     "térmico de la ventana de control y mejora la alerta. Para borrarla, vacíe el campo.")
         st.form_submit_button("Actualizar alerta", type="primary")
     emision = pd.Timestamp(emision).normalize()
     primeras = pd.Timestamp(primeras) if primeras else None
