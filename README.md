@@ -64,6 +64,35 @@ observación de ese día cuando se publique y reemplazar datos provisionales.
 La validación admite una serie cerrada sin pronóstico y rechaza fechas
 posteriores al cierre. Los archivos históricos existentes se conservan.
 
+## Alerta validada de flushes (sección independiente)
+
+Debajo del motor PREDWEEM, la app muestra una **alerta de flushes validada**: la probabilidad de que en los
+próximos 7 días emerja ≥ 5 % de la campaña, con dos niveles fijos (*Atención* desde 15 %, *Alerta* desde 25 %).
+No modifica el motor científico ni sus resultados (`alerta_lolmu.py`, `visualizacion_alerta_lolmu.py`,
+`alerta_lolmu_params.json`).
+
+Combina, con la información disponible a la fecha de emisión:
+
+1. el **calendario medio** de emergencia de LOLMU (17 campañas);
+2. la **respuesta a las lluvias ya registradas** (núcleo del modelo de pulsos de Bordenave: rezago gamma en tiempo
+   térmico de suelo y mayor respuesta sobre suelo seco);
+3. opcionalmente, la **fecha en que se vieron las primeras plántulas** del lote (un solo dato por campaña), que además
+   ancla el reloj térmico de la ventana de control (600–800 °Cd);
+4. opcionalmente, los **conteos** del lote.
+
+Validación dejando cada campaña afuera (17 campañas: 2015, 2017–2022 y 2026 del ensayo de Bordenave; 2008–2014, 2023
+y 2024 de las curvas históricas de PREDWEEM; 386 semanas, 97 flushes):
+
+| Información disponible | AUC | Flushes detectados con Alerta | Semanas marcadas |
+|---|---|---|---|
+| Solo clima | 0,80 | 71 % | 41 % |
+| + fecha de primeras plántulas | 0,84 | 77 % | 41 % |
+| + conteos semanales | 0,87 | 84 % | 40 % |
+
+Las probabilidades están calibradas. Con las mismas campañas, el motor PREDWEEM anticipa flushes con AUC ~0,70, pero
+anticipa bien la **primera cohorte**; por eso se usa como inicio estimado del reloj térmico hasta que se informa la fecha
+de las primeras plántulas. Límites: un sitio, lotes sin labranza; no anticipa flushes sin lluvia registrada.
+
 ## Condiciones de uso
 
 No se concede licencia de uso por el solo hecho de acceder al repositorio. Cualquier utilización académica, técnica, institucional o comercial que exceda la visualización del contenido requiere autorización previa y escrita del titular de los derechos correspondientes.

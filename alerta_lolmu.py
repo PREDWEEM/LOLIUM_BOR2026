@@ -1,0 +1,193 @@
+# -*- coding: utf-8 -*-
+"""Alerta validada de flushes de Lolium multiflorum (Bordenave) por niveles de información.
+
+Señales, todas disponibles a la fecha de emisión:
+  * calendario: emergencia esperada en los próximos 7 días según la curva media de 17 campañas de LOLMU;
+  * lluvia: respuesta a las lluvias registradas hasta la fecha (rezago gamma en tiempo térmico de suelo y
+    mayor respuesta sobre suelo seco; sin estacionalidad), con el núcleo del modelo de pulsos de Bordenave;
+  * inicio: tiempo térmico desde la fecha en que se vieron las primeras plántulas (si se informó);
+  * conteos: fracción de lo contado que emergió en el último intervalo (si hay conteos).
+
+Niveles: 1 = sin datos del lote; 2 = con la fecha de primeras plántulas; 3 = con conteos.
+Cada señal se expresa como percentil de su distribución en las campañas de calibración y una regresión
+logística da la probabilidad de flush (≥ 5 % de la emergencia de la campaña en los próximos 7 días).
+Los coeficientes, percentiles y la curva de calendario están en ``alerta_lolmu_params.json``.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from scipy.special import gammainc
+
+PARAMS_FILE = Path(__file__).with_name("alerta_lolmu_params.json")
+ATENCION, ALERTA = 0.15, 0.25
+
+# balance de agua y temperatura de suelo (5 cm) del modelo de pulsos de Bordenave
+SUELO = dict(ema_alpha=0.426, ts_a0=3.39, ts_a1=-0.66, W=75.6, k_loss=0.0327, Tb=5.0)
+# núcleo de respuesta a la lluvia (parámetros del modelo de pulsos; sin término estacional)
+NUCLEO = dict(a0=-4.6261, delta=1.4302, k=float(np.exp(0.9924)), escala=float(np.exp(4.0088)))
+
+
+def limpiar_clima(df: pd.DataFrame) -> pd.DataFrame:
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    out = df.rename(columns={cols["fecha"]: "Fecha", cols["tmax"]: "TMAX", cols["tmin"]: "TMIN",
+                             cols["prec"]: "Prec"})[["Fecha", "TMAX", "TMIN", "Prec"]].copy()
+    out["Fecha"] = pd.to_datetime(out["Fecha"], errors="coerce").dt.tz_localize(None).dt.normalize()
+    out = out.dropna(subset=["Fecha"]).sort_values("Fecha").drop_duplicates("Fecha", keep="last")
+    for c in ("TMAX", "TMIN", "Prec"):
+        out[c] = pd.to_numeric(out[c], errors="coerce")
+    out = out.set_index("Fecha").asfreq("D")
+    out[["TMAX", "TMIN"]] = out[["TMAX", "TMIN"]].interpolate(limit_direction="both")
+    out["Prec"] = out["Prec"].fillna(0.0).clip(lower=0.0)
+    swap = out["TMIN"] > out["TMAX"]
+    out.loc[swap, ["TMAX", "TMIN"]] = out.loc[swap, ["TMIN", "TMAX"]].values
+    return out.reset_index()
+
+
+def modelo_suelo(clima: pd.DataFrame) -> pd.DataFrame:
+    """Temperatura de suelo, agua del balde antes de cada día y tiempo térmico acumulado de suelo."""
+    p = SUELO
+    tmax, tmin, rain = (clima[c].to_numpy(float) for c in ("TMAX", "TMIN", "Prec"))
+    doy = clima["Fecha"].dt.dayofyear.to_numpy()
+    tmean = (tmax + tmin) / 2
+    dtr = np.clip(tmax - tmin, 0, None)
+    n = len(clima)
+    ema, s_prev = np.empty(n), np.empty(n)
+    e, s = tmean[0], p["W"] / 2
+    for i in range(n):
+        e = p["ema_alpha"] * tmean[i] + (1 - p["ema_alpha"]) * e if i else tmean[0]
+        ema[i] = e
+        s_prev[i] = s
+        s = min(s + rain[i], p["W"])
+        s = max(s - p["k_loss"] * max(tmean[i] + 5, 0) * np.sqrt(dtr[i]), 0.0)
+    ts = ema + p["ts_a0"] + p["ts_a1"] * np.cos(2 * np.pi * (doy - 196) / 365.0)
+    out = clima.copy()
+    out["S_prev"] = s_prev
+    out["C_TT"] = np.cumsum(np.clip(ts - p["Tb"], 0, None))
+    return out
+
+
+def senal_lluvia(suelo: pd.DataFrame, fecha: pd.Timestamp, horizonte: int = 7) -> float:
+    """Emergencia relativa esperada en los próximos días por las lluvias registradas hasta ``fecha``."""
+    fechas = suelo["Fecha"]
+    pos = np.flatnonzero(fechas.to_numpy() <= np.datetime64(pd.Timestamp(fecha)))
+    if len(pos) == 0:
+        return 0.0
+    s = int(pos[-1])
+    e = min(s + horizonte, len(suelo) - 1)
+    if e <= s:
+        return 0.0
+    C, P, Sp = (suelo[c].to_numpy(float) for c in ("C_TT", "Prec", "S_prev"))
+    wet = np.flatnonzero(P > 0.25)
+    us = wet[(wet >= s - 60) & (wet <= s)]
+    if len(us) == 0:
+        return 0.0
+    cap = us + 60
+    t_s = np.where(s >= us, np.clip(C[np.minimum(s, cap)] - C[us], 0, None), 0.0)
+    t_e = np.clip(C[np.minimum(e, cap)] - C[us], 0, None)
+    ok = t_e > t_s
+    us, t_s, t_e = us[ok], t_s[ok], t_e[ok]
+    W = SUELO["W"]
+    x = np.log1p(np.clip(np.minimum(P[us], W - Sp[us]), 0, None))
+    A = np.exp(NUCLEO["a0"] + NUCLEO["delta"] * (1 - Sp[us] / W))
+    G = gammainc(NUCLEO["k"], t_e / NUCLEO["escala"]) - gammainc(NUCLEO["k"], t_s / NUCLEO["escala"])
+    return float(1 - np.exp(-np.sum(A * x * G)))
+
+
+def tiempo_termico(clima: pd.DataFrame, t_base=2.0, t_opt=20.0, t_crit=30.0) -> pd.Series:
+    """Tiempo térmico diario triangular sobre la temperatura media del aire (mismo esquema que la app)."""
+    t = (clima["TMAX"] + clima["TMIN"]) / 2
+    dg = np.where(t <= t_base, 0.0, np.where(t <= t_opt, t - t_base,
+                  np.where(t < t_crit, (t - t_base) * (t_crit - t) / (t_crit - t_opt), 0.0)))
+    return pd.Series(dg, index=pd.DatetimeIndex(clima["Fecha"]))
+
+
+def senal_conteos(conteos: pd.DataFrame | None, fecha: pd.Timestamp) -> tuple[float, int, int]:
+    """(fracción del último intervalo sobre lo acumulado, primer conteo con plántulas, nº de conteos)."""
+    if conteos is None or conteos.empty:
+        return 0.0, 0, 0
+    c = conteos[conteos["Fecha"] <= fecha]
+    if c.empty:
+        return 0.0, 0, 0
+    acum = float(c["PLM2"].sum())
+    g1 = float(c["PLM2"].iloc[-1]) / acum if acum > 0 else 0.0
+    n_pos = int((c["PLM2"] > 0).sum())
+    return g1, int(n_pos == 1 and g1 >= 0.999), len(c)
+
+
+class AlertaLolmu:
+    def __init__(self, path: str | Path = PARAMS_FILE):
+        self.p = json.loads(Path(path).read_text(encoding="utf-8"))
+        cal = self.p["calendario"]
+        self.doy = np.asarray(cal["dia"], float)
+        self.cal_media = np.asarray(cal["media"], float)
+        self.cal_p10 = np.asarray(cal["p10"], float)
+        self.cal_p90 = np.asarray(cal["p90"], float)
+
+    def calendario(self, fecha: pd.Timestamp, horizonte: int = 7) -> float:
+        d0, d1 = pd.Timestamp(fecha).dayofyear, (pd.Timestamp(fecha) + pd.Timedelta(days=horizonte)).dayofyear
+        return float(np.interp(d1, self.doy, self.cal_media) - np.interp(d0, self.doy, self.cal_media))
+
+    def curva(self, fechas: pd.DatetimeIndex) -> pd.DataFrame:
+        d = pd.DatetimeIndex(fechas).dayofyear
+        return pd.DataFrame({"Fecha": fechas, "media": np.interp(d, self.doy, self.cal_media),
+                             "p10": np.interp(d, self.doy, self.cal_p10), "p90": np.interp(d, self.doy, self.cal_p90)})
+
+    def _ecdf(self, nombre: str, valor: float) -> float:
+        ref = np.asarray(self.p["referencias"][nombre], float)
+        return float(np.searchsorted(ref, valor, side="right") / len(ref))
+
+    def probabilidad(self, nivel: int, senales: dict) -> float:
+        m = self.p["modelos"][str(nivel)]
+        z = m["intercepto"]
+        for f, b in zip(m["variables"], m["coeficientes"]):
+            if f.endswith("^2"):
+                z += b * self._ecdf(f[:-2], senales[f[:-2]]) ** 2
+            elif f in ("primer",):
+                z += b * float(senales[f])
+            else:
+                z += b * self._ecdf(f, senales[f])
+        return float(1 / (1 + np.exp(-z)))
+
+
+def nivel_de(p: float) -> str:
+    return "alerta" if p >= ALERTA else ("atencion" if p >= ATENCION else "baja")
+
+
+def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd.Timestamp | None = None,
+            conteos: pd.DataFrame | None = None, modelo: AlertaLolmu | None = None,
+            t_base=2.0, t_opt=20.0, t_crit=30.0) -> dict:
+    """Probabilidad de flush para los 7 días posteriores a ``fecha`` con la información disponible."""
+    modelo = modelo or AlertaLolmu()
+    clima = limpiar_clima(clima_raw)
+    clima = clima[clima["Fecha"] >= pd.Timestamp(pd.Timestamp(fecha).year, 1, 1)].reset_index(drop=True)
+    suelo = modelo_suelo(clima)
+    fecha = pd.Timestamp(fecha).normalize()
+    dg = tiempo_termico(clima, t_base, t_opt, t_crit)
+    senales = {"cal": modelo.calendario(fecha), "lluvia": senal_lluvia(suelo, fecha)}
+    g1, primer, n_conteos = senal_conteos(conteos, fecha)
+    if primeras_plantulas is None and conteos is not None and not conteos.empty:
+        vistas = conteos[(conteos["PLM2"] > 0) & (conteos["Fecha"] <= fecha)]
+        primeras_plantulas = vistas["Fecha"].min() if not vistas.empty else None
+    iniciada = primeras_plantulas is not None and pd.Timestamp(primeras_plantulas) <= fecha
+    senales["tt_inicio"] = float(dg[(dg.index > pd.Timestamp(primeras_plantulas)) & (dg.index <= fecha)].sum()) if iniciada else 0.0
+    senales["g1"], senales["primer"] = g1, primer
+    nivel = 3 if (iniciada and n_conteos >= 2) else (2 if iniciada else 1)
+    p = modelo.probabilidad(nivel, senales)
+    return {"fecha": fecha, "nivel_info": nivel, "probabilidad": p, "nivel": nivel_de(p), "senales": senales,
+            "primeras_plantulas": pd.Timestamp(primeras_plantulas) if iniciada else None}
+
+
+def serie(clima_raw: pd.DataFrame, desde: pd.Timestamp, hasta: pd.Timestamp, primeras_plantulas=None,
+          conteos=None, modelo: AlertaLolmu | None = None, paso: int = 7, **tt) -> pd.DataFrame:
+    """Probabilidad emitida cada ``paso`` días entre dos fechas (cada emisión usa solo lo disponible)."""
+    modelo = modelo or AlertaLolmu()
+    filas = []
+    for f in pd.date_range(desde, hasta, freq=f"{paso}D"):
+        r = evaluar(clima_raw, f, primeras_plantulas if (primeras_plantulas is not None and pd.Timestamp(primeras_plantulas) <= f) else None,
+                    conteos, modelo, **tt)
+        filas.append({"Fecha": f, "probabilidad": r["probabilidad"], "nivel_info": r["nivel_info"]})
+    return pd.DataFrame(filas)
