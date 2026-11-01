@@ -22,10 +22,27 @@ def _ultima_observada(meteo: pd.DataFrame) -> pd.Timestamp:
     m = meteo.copy()
     fechas = pd.to_datetime(m["Fecha"], errors="coerce")
     if "TipoDato" in m.columns:
-        obs = fechas[~m["TipoDato"].astype(str).str.contains("Pronostico", case=False, na=False)]
+        # solo el tramo de pronóstico vigente; "Historico_pronostico" (pronósticos archivados) cuenta como serie usada
+        obs = fechas[m["TipoDato"].astype(str).str.strip().str.lower() != "pronostico"]
         if not obs.empty:
             return obs.max().normalize()
     return fechas.max().normalize()
+
+
+def _parsear_fechas(valores: pd.Series) -> pd.Series:
+    """Fechas de una columna de planilla: fechas de Excel, texto ISO (AAAA-MM-DD) o texto DD/MM/AAAA.
+
+    Las columnas numéricas (conteos) no se interpretan como fechas.
+    """
+    v = valores.dropna()
+    if v.empty:
+        return pd.Series(pd.NaT, index=valores.index)
+    if pd.to_numeric(v, errors="coerce").notna().mean() > 0.5:
+        return pd.Series(pd.NaT, index=valores.index)
+    texto = valores.astype(str).str.strip()
+    iso = pd.to_datetime(texto.where(texto.str.match(r"^\d{4}-\d{1,2}-\d{1,2}")), errors="coerce", format="ISO8601")
+    otros = pd.to_datetime(valores.where(iso.isna()), errors="coerce", dayfirst=True, format="mixed")
+    return iso.fillna(otros)
 
 
 def _leer_planilla_conteos(archivo, columnas: list | None = None) -> tuple[pd.DataFrame, list]:
@@ -41,7 +58,7 @@ def _leer_planilla_conteos(archivo, columnas: list | None = None) -> tuple[pd.Da
         tabla.columns = [str(int(c)) if isinstance(c, float) and c.is_integer() else str(c) for c in crudo.iloc[fila].values]
     fechas = None
     for c in tabla.columns:
-        f = pd.to_datetime(tabla[c], errors="coerce", dayfirst=True)
+        f = _parsear_fechas(tabla[c])
         if f.notna().mean() > 0.5:
             fechas = f
             otras = [k for k in tabla.columns if k != c]
@@ -68,8 +85,11 @@ def _fecha_tt(dg: pd.Series, desde: pd.Timestamp, objetivo: float):
 def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = None, col_fecha: str | None = None,
                          col_plm2: str | None = None, inicio_predicho: pd.Timestamp | None = None,
                          t_base: float = 2.0, t_opt: float = 20.0, t_crit: float = 30.0,
-                         tt_control: float = 600.0, tt_limite: float = 800.0) -> dict | None:
-    st.subheader("🔔 Alerta de flushes validada (17 campañas)")
+                         tt_control: float = 600.0, tt_limite: float = 800.0, localidad: str = "Bordenave",
+                         nota_sitio: str | None = None) -> dict | None:
+    calibrada_aqui = localidad == "Bordenave"
+    st.subheader("🔔 Alerta de flushes validada (17 campañas)" if calibrada_aqui
+                 else f"🔔 Alerta de flushes · {localidad} (modelo calibrado en Bordenave, 17 campañas)")
     st.caption("Probabilidad de que en los próximos 7 días emerja ≥ 5 % de la campaña. Combina el calendario medio de "
                "LOLMU, la respuesta a las lluvias ya registradas y, si se informa, la fecha de las primeras plántulas "
                "del lote. Independiente del motor PREDWEEM de arriba.")
@@ -252,10 +272,14 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     fig.update_annotations(selector=dict(text="Emergencia acumulada esperada (calendario de 17 campañas)"), font_size=12)
     st.plotly_chart(fig, width="stretch")
     st.caption("Arriba, la alerta emitida cada semana con la información disponible en ese momento (color = nivel). Abajo, la "
-               "emergencia acumulada esperada para Bordenave: curva media y rango 10–90 % de 17 campañas (error típico ±13 puntos). "
-               "La franja violeta es la ventana de control post-emergente en tiempo térmico desde el inicio.")
+               + ("emergencia acumulada esperada para Bordenave: curva media y rango 10–90 % de 17 campañas (error típico ±13 puntos). "
+                  if calibrada_aqui else "emergencia acumulada esperada según el calendario de Bordenave (curva media y rango 10–90 % "
+                  "de 17 campañas), usado como referencia regional. ")
+               + "La franja violeta es la ventana de control post-emergente en tiempo térmico desde el inicio.")
 
     with st.expander("Cómo se validó esta alerta"):
+        if nota_sitio:
+            st.markdown(nota_sitio)
         v = modelo.p.get("validacion", {})
         filas = [(k, d) for k, d in v.items()]
         if filas:
@@ -283,7 +307,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         "Señal de calendario (emergencia esperada en 7 días, %)", "Señal de lluvia (respuesta relativa, %)",
         "Conteos usados (fechas)", "Primeras plántulas informadas", "Inicio estimado por PREDWEEM"],
         "Valor": [
-        "Bordenave (Buenos Aires)", pd.Timestamp.now().strftime("%d/%m/%Y %H:%M"), fmt_f(emision), NOMBRE[nivel], round(100 * p, 1),
+        f"{localidad} (Buenos Aires)", pd.Timestamp.now().strftime("%d/%m/%Y %H:%M"), fmt_f(emision), NOMBRE[nivel], round(100 * p, 1),
         INFO[r["nivel_info"]], fmt_f(ancla), ancla_txt or "sin inicio", round(tt_r, 1) if tt_r is not None else "",
         fmt_f(f_ctl_r), fmt_f(f_lim_r) if f_lim_r is not None else ("fuera del clima disponible" if f_ctl_r is not None else ""),
         round(100 * hoy["media"], 1), f"{100 * hoy['p10']:.0f}–{100 * hoy['p90']:.0f}",
