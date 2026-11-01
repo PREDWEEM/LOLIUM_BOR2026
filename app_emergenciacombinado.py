@@ -9,7 +9,9 @@ La aplicación científica original se conserva en
   decaimiento de EMERREL desde el 15 de abril (y ajustes de formato de su gráfico);
 * se ocultan los elementos que reemplaza la alerta validada del final de la página:
   mapa de riesgo, gráfico de dinámica principal, mensajes de inicio y momento de
-  control del motor, control "Umbral Alerta Temprana" y la leyenda de versión visual.
+  control del motor, control "Umbral Alerta Temprana", la leyenda de versión visual y
+  las pestañas Monitor de decisión, Precipitaciones y suelo, Análisis estratégico y
+  Bio-calibración (incluido el indicador de tiempo térmico).
 
 Los cálculos del motor no cambian.
 """
@@ -46,6 +48,14 @@ _ini = _core_source.find("            if fecha_inicio_ventana:\n                
 _fin = _core_source.find("        col_gauge = col_gauge", _ini) if _ini >= 0 else -1
 if _ini >= 0 and _fin > _ini:
     _core_source = _core_source[:_ini] + "            pass\n\n" + _core_source[_fin:]
+
+
+# pestañas del motor (Monitor de decisión, Precipitaciones y suelo, Análisis estratégico, Bio-calibración):
+# se omite su contenido visual; el reporte Excel y la alerta validada no dependen de él
+_ini_tabs = _core_source.find("    tab1, tab2, tab3, tab4 = st.tabs(")
+_fin_tabs = _core_source.find("    output = io.BytesIO()", _ini_tabs) if _ini_tabs >= 0 else -1
+if _ini_tabs >= 0 and _fin_tabs > _ini_tabs:
+    _core_source = _core_source[:_ini_tabs] + _core_source[_fin_tabs:]
 
 
 def _omitir_grafico(*_args, **_kwargs):
