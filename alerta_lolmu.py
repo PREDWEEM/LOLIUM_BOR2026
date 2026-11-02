@@ -24,6 +24,7 @@ from scipy.special import gammainc
 
 PARAMS_FILE = Path(__file__).with_name("alerta_lolmu_params.json")
 ATENCION, ALERTA = 0.15, 0.25
+UMBRAL_TARDIA = 0.20  # aviso de emergencia tardía (≥ 2 % de la campaña en 7 días), del 1/05 al 31/08
 HORIZONTE_DIAS = 7  # semana de la alerta
 TOPE_CERO = 0.14  # con un conteo reciente en cero y sin plántulas, la probabilidad queda debajo de Atención
 
@@ -129,6 +130,19 @@ class AlertaLolmu:
         self.cal_p10 = np.asarray(cal["p10"], float)
         self.cal_p90 = np.asarray(cal["p90"], float)
 
+    def probabilidad_tardia(self, p_flush: float, nivel: int, fecha: pd.Timestamp) -> float | None:
+        """Probabilidad de que en los próximos 7 días emerja ≥ 2 % de la campaña (emergencia tardía).
+
+        Solo dentro de la ventana de siembra (``desde_mes``–``hasta_mes``; 1/05–31/08); fuera de ella devuelve None.
+        Recalibra la probabilidad de flush con logit(p) = a + b·logit(p_flush), con a y b por nivel de información.
+        """
+        t = self.p.get("tardia")
+        if not t or not (t["desde_mes"] <= pd.Timestamp(fecha).month <= t["hasta_mes"]):
+            return None
+        a, b = t["coef"][str(int(nivel))]
+        q = float(np.clip(p_flush, 1e-4, 1 - 1e-4))
+        return float(1.0 / (1.0 + np.exp(-(a + b * np.log(q / (1 - q))))))
+
     def calendario(self, fecha: pd.Timestamp, horizonte: int = 7) -> float:
         d0, d1 = pd.Timestamp(fecha).dayofyear, (pd.Timestamp(fecha) + pd.Timedelta(days=horizonte)).dayofyear
         return float(np.interp(d1, self.doy, self.cal_media) - np.interp(d0, self.doy, self.cal_media))
@@ -214,6 +228,7 @@ def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd
         senales["agotamiento"] = factor_agotamiento((fecha - pd.Timestamp(primeras_plantulas)).days, **agotamiento)
         p *= senales["agotamiento"]
     p_clima = p
+    p_tardia = modelo.probabilidad_tardia(p, nivel, fecha)
     nivel_alerta = nivel_de(p)
     tope = bool(tope_sin_inicio and not iniciada and nivel_alerta == "alerta")
     if tope:
@@ -230,6 +245,7 @@ def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd
         if not ceros.empty and fin_semana <= ceros.max():
             cero_reciente = pd.Timestamp(ceros[ceros >= fin_semana].min())
             p = min(p, TOPE_CERO)
+            p_tardia = min(p_tardia, TOPE_CERO) if p_tardia is not None else None
             nivel_alerta, tope = nivel_de(p), False
     if cero_reciente is None and cero_reciente_dias is not None and not iniciada and conteos is not None and not conteos.empty:
         previos = conteos[conteos["Fecha"] <= fecha].sort_values("Fecha")
@@ -237,8 +253,10 @@ def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd
                 and (fecha - pd.Timestamp(previos["Fecha"].iloc[-1])).days <= cero_reciente_dias:
             cero_reciente = pd.Timestamp(previos["Fecha"].iloc[-1])
             p = min(p, TOPE_CERO)
+            p_tardia = min(p_tardia, TOPE_CERO) if p_tardia is not None else None
             nivel_alerta, tope = nivel_de(p), False
     return {"fecha": fecha, "nivel_info": nivel, "probabilidad": p, "probabilidad_clima": p_clima, "nivel": nivel_alerta, "tope_aplicado": tope,
+            "probabilidad_tardia": p_tardia,
             "cero_reciente": cero_reciente, "senales": senales,
             "primeras_plantulas": pd.Timestamp(primeras_plantulas) if iniciada else None}
 
@@ -253,5 +271,6 @@ def serie(clima_raw: pd.DataFrame, desde: pd.Timestamp, hasta: pd.Timestamp, pri
                     conteos, modelo, **tt)
         filas.append({"Fecha": f, "probabilidad": r["probabilidad"], "probabilidad_clima": r["probabilidad_clima"],
                       "nivel_info": r["nivel_info"], "nivel": r["nivel"],
-                      "cero_reciente": r["cero_reciente"] is not None})
+                      "cero_reciente": r["cero_reciente"] is not None,
+                      "probabilidad_tardia": r["probabilidad_tardia"] if r["probabilidad_tardia"] is not None else np.nan})
     return pd.DataFrame(filas)

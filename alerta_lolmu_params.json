@@ -2372,5 +2372,55 @@
    "vis_ate": 0.503
   }
  },
- "fuente": "Calibrado con 17 campañas de Lolium multiflorum sin remoción: 2015, 2017–2022 y 2026 (conteos semanales del ensayo de Bordenave) y 2008–2014, 2023 y 2024 (curvas históricas de PREDWEEM agregadas por semana; lluvia ERA5 en 2023–2024). 386 semanas, 97 flushes (≥ 5 % de la campaña en 7 días). Validación dejando cada campaña afuera."
+ "fuente": "Calibrado con 17 campañas de Lolium multiflorum sin remoción: 2015, 2017–2022 y 2026 (conteos semanales del ensayo de Bordenave) y 2008–2014, 2023 y 2024 (curvas históricas de PREDWEEM agregadas por semana; lluvia ERA5 en 2023–2024). 386 semanas, 97 flushes (≥ 5 % de la campaña en 7 días). Validación dejando cada campaña afuera.",
+ "tardia": {
+  "descripcion": "Probabilidad de emergencia tardía: que en los próximos 7 días emerja al menos 2 % de la emergencia de la campaña. Se calcula del 1/05 al 31/08 recalibrando la probabilidad de flush: logit(p_tardía) = a + b·logit(p_flush), con a y b por nivel de información (1 solo clima, 2 + primeras plántulas, 3 + conteos).",
+  "coef": {
+   "1": [
+    1.3679113270282006,
+    1.1627524507729678
+   ],
+   "2": [
+    1.950602969299909,
+    1.318510483237042
+   ],
+   "3": [
+    2.778667417986048,
+    1.6258483630202878
+   ]
+  },
+  "umbral": 0.2,
+  "desde_mes": 5,
+  "hasta_mes": 8,
+  "validacion_bordenave": {
+   "Solo clima": {
+    "auc": 0.69,
+    "det": 0.72,
+    "marcadas": 0.52
+   },
+   "+ fecha de primeras plántulas": {
+    "auc": 0.78,
+    "det": 0.82,
+    "marcadas": 0.49
+   },
+   "+ conteos semanales": {
+    "auc": 0.84,
+    "det": 0.74,
+    "marcadas": 0.39
+   }
+  },
+  "validacion_otras": {
+   "+ fecha de primeras plántulas": {
+    "auc": 0.89,
+    "det": 0.92,
+    "marcadas": 0.33
+   },
+   "+ conteos": {
+    "auc": 0.91,
+    "det": 0.83,
+    "marcadas": 0.25
+   }
+  },
+  "fuente": "17 campañas de Bordenave, semanas del 1/05 al 31/08 (196 semanas, 50 con ≥ 2 %), cada campaña predicha con el ajuste sin ella; verificado en Lartigau, Tres Arroyos, Azul, Olavarría, Balcarce, Pergamino y San Pedro (115 intervalos entre conteos, 12 con ≥ 2 % por semana)."
+ }
 }

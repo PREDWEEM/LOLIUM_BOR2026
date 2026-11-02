@@ -100,6 +100,24 @@ La barra lateral conserva solo los parámetros que usa la alerta: temperaturas b
 térmico y los objetivos de la ventana de control (600 y 800 °Cd). Los parámetros del motor PREDWEEM quedan en sus
 valores por defecto.
 
+## Aviso de emergencia tardía (ventana de siembra)
+
+Del 1 de mayo al 31 de agosto, debajo de la alerta de flushes, la app muestra la **probabilidad de emergencia tardía**:
+que en los próximos 7 días emerja al menos 2 % de la campaña, con aviso desde 20 %. En esa época los flushes de ≥ 5 %
+son raros, pero pocas plantas por semana importan para decidir la fecha de siembra. Es la misma alerta recalibrada por
+nivel de información (`tardia` en `alerta_lolmu_params.json`); también aparece en el gráfico (línea punteada violeta) y
+en la descarga en Excel.
+
+| Información | AUC Bordenave (17 campañas, 196 semanas, 50 con ≥ 2 %) | Detectadas con el aviso | Semanas marcadas |
+|---|---|---|---|
+| Solo clima | 0,69 | 72 % | 52 % |
+| + primeras plántulas | 0,78 | 82 % | 49 % |
+| + conteos semanales | 0,84 | 74 % | 39 % |
+
+Cada campaña se predijo con el ajuste sin ella. En las otras siete localidades (115 intervalos de mayo a agosto, 12 con
+≥ 2 % por semana) la AUC fue 0,89 con primeras plántulas y 0,91 con conteos, con 92 % y 83 % de detección; allí la
+probabilidad tiende a ser alta (19 % en promedio contra 10 % observado), por lo que hay más falsas alarmas.
+
 ## Datos de la campaña 2026
 
 `data/campania_2026/` guarda una copia fija de la emergencia de *Lolium* (planilla original y CSV por marco, sin y con
