@@ -252,7 +252,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     # gráfico único: alerta semanal (arriba) y emergencia acumulada (abajo), con la ventana de control en tiempo térmico
     s = al.serie(meteo, pd.Timestamp(anio, 2, 2), emision, primeras, conteos, modelo, paso=7, **tt, **opc)
     if s.empty:  # comienzo de campaña (antes del 2 de febrero): todavía no hay emisiones semanales
-        s = pd.DataFrame({"Fecha": pd.DatetimeIndex([]), "probabilidad": pd.Series(dtype=float), "nivel_info": pd.Series(dtype=int)})
+        s = pd.DataFrame({"Fecha": pd.DatetimeIndex([]), "probabilidad": pd.Series(dtype=float),
+                          "probabilidad_clima": pd.Series(dtype=float), "nivel_info": pd.Series(dtype=int),
+                          "nivel": pd.Series(dtype=str), "cero_reciente": pd.Series(dtype=bool)})
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.56, 0.44], vertical_spacing=0.06,
                         subplot_titles=("Probabilidad de flush en los próximos 7 días", titulo_cal))
     fig.add_hrect(y0=100 * al.ATENCION, y1=100 * al.ALERTA, fillcolor=COLOR["atencion"], opacity=0.08, line_width=0, exclude_empty_subplots=False, row=1, col=1)
