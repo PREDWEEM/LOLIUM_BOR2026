@@ -303,16 +303,48 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     y_plot = 100 * s["probabilidad"]
     etiqueta = [f"semana sin plántulas según el conteo en cero (por clima {100 * pc:.0f} %)" if z else INFO[n]
                 for z, pc, n in zip(sin_inicio, s.get("probabilidad_clima", s["probabilidad"]), s["nivel_info"])]
-    fig.add_trace(go.Scatter(x=s["Fecha"], y=y_plot, mode="lines+markers", name="Probabilidad de flush (7 días)",
-                             line=dict(color="#2a78d6", width=2),
-                             marker=dict(size=9, color=[COLOR[v] for v in s["nivel"]], line=dict(color="white", width=1)),
-                             customdata=np.c_[etiqueta, [NOMBRE[v] for v in s["nivel"]]],
-                             hovertemplate="%{x|%d/%m}: %{y:.0f} % · %{customdata[1]}<br>%{customdata[0]}<extra></extra>"), row=1, col=1)
-    if "probabilidad_tardia" in s and s["probabilidad_tardia"].notna().any():
-        st_ = s[s["probabilidad_tardia"].notna()]
-        fig.add_trace(go.Scatter(x=st_["Fecha"], y=100 * st_["probabilidad_tardia"], mode="lines+markers", name="Emergencia tardía (≥ 2 % en 7 días)",
-                                 line=dict(color="#6d28d9", width=2, dash="dot"), marker=dict(size=7, color="#6d28d9", symbol="diamond"),
-                                 hovertemplate="%{x|%d/%m}: emergencia tardía %{y:.0f} %<extra></extra>"), row=1, col=1)
+    # cada probabilidad se dibuja sobre la semana que anticipa (de la fecha de emisión a 7 días después): tramos
+    # escalonados para las semanas anteriores a la emisión y un tramo punteado para los próximos 7 días
+    ini_sem = s["Fecha"]
+    fin_sem = (ini_sem + pd.Timedelta(days=7)).clip(upper=emision)
+    pasadas = fin_sem > ini_sem
+    if pasadas.any():
+        sp = s[pasadas]
+        fig.add_trace(go.Scatter(x=list(sp["Fecha"]) + [fin_sem[pasadas].iloc[-1]],
+                                 y=list(100 * sp["probabilidad"]) + [100 * sp["probabilidad"].iloc[-1]],
+                                 mode="lines", line=dict(color="#2a78d6", width=2.5, shape="hv"), hoverinfo="skip",
+                                 name="Probabilidad de flush de cada semana"), row=1, col=1)
+        medio = ini_sem[pasadas] + (fin_sem[pasadas] - ini_sem[pasadas]) / 2
+        et = [e for e, k in zip(etiqueta, pasadas) if k]
+        fig.add_trace(go.Scatter(x=medio, y=100 * sp["probabilidad"], mode="markers", showlegend=False,
+                                 marker=dict(size=9, color=[COLOR[v] for v in sp["nivel"]], line=dict(color="white", width=1)),
+                                 customdata=np.c_[sp["Fecha"].dt.strftime("%d/%m"), fin_sem[pasadas].dt.strftime("%d/%m"), et,
+                                                  [NOMBRE[v] for v in sp["nivel"]]],
+                                 hovertemplate="Semana %{customdata[0]}–%{customdata[1]}: %{y:.0f} % · %{customdata[3]}"
+                                               "<br>emitida el %{customdata[0]} · %{customdata[2]}<extra></extra>"), row=1, col=1)
+    fin_prox = emision + pd.Timedelta(days=7)
+    fig.add_trace(go.Scatter(x=[emision, fin_prox], y=[100 * p, 100 * p], mode="lines", line=dict(color=COLOR[nivel], width=3.5, dash="dot"),
+                             hoverinfo="skip", name="Próximos 7 días"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=[emision + pd.Timedelta(days=3.5)], y=[100 * p], mode="markers+text", showlegend=False,
+                             marker=dict(size=11, color=COLOR[nivel], symbol="circle-open", line=dict(width=2.5)),
+                             text=[f"{100 * p:.0f} %"], textposition="top center", textfont=dict(size=11, color=COLOR[nivel]),
+                             hovertemplate=f"Próximos 7 días ({emision:%d/%m}–{fin_prox:%d/%m}): %{{y:.0f}} % · {NOMBRE[nivel]}<extra></extra>"),
+                  row=1, col=1)
+    if "probabilidad_tardia" in s and (s["probabilidad_tardia"].notna().any() or r.get("probabilidad_tardia") is not None):
+        st_ = s[s["probabilidad_tardia"].notna() & pasadas]
+        if not st_.empty:
+            fin_t = (st_["Fecha"] + pd.Timedelta(days=7)).clip(upper=emision)
+            fig.add_trace(go.Scatter(x=list(st_["Fecha"]) + [fin_t.iloc[-1]], y=list(100 * st_["probabilidad_tardia"]) + [100 * st_["probabilidad_tardia"].iloc[-1]],
+                                     mode="lines", line=dict(color="#6d28d9", width=2, dash="dash", shape="hv"), hoverinfo="skip",
+                                     name="Emergencia tardía (≥ 2 % en 7 días)"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=st_["Fecha"] + (fin_t - st_["Fecha"]) / 2, y=100 * st_["probabilidad_tardia"], mode="markers", showlegend=False,
+                                     marker=dict(size=7, color="#6d28d9", symbol="diamond"),
+                                     customdata=np.c_[st_["Fecha"].dt.strftime("%d/%m"), fin_t.dt.strftime("%d/%m")],
+                                     hovertemplate="Semana %{customdata[0]}–%{customdata[1]}: emergencia tardía %{y:.0f} %<extra></extra>"), row=1, col=1)
+        if r.get("probabilidad_tardia") is not None:
+            pt_ = 100 * r["probabilidad_tardia"]
+            fig.add_trace(go.Scatter(x=[emision, fin_prox], y=[pt_, pt_], mode="lines", line=dict(color="#6d28d9", width=2.5, dash="dot"),
+                                     hovertemplate=f"Próximos 7 días: emergencia tardía {pt_:.0f} %<extra></extra>", showlegend=False), row=1, col=1)
         fig.add_shape(type="line", x0=pd.Timestamp(anio, 5, 1), x1=pd.Timestamp(anio, 8, 31), y0=100 * al.UMBRAL_TARDIA,
                       y1=100 * al.UMBRAL_TARDIA, line=dict(color="#6d28d9", width=1, dash="dashdot"), row=1, col=1)
         fig.add_annotation(x=pd.Timestamp(anio, 5, 1), y=100 * al.UMBRAL_TARDIA, xref="x", yref="y", showarrow=False,
@@ -370,7 +402,10 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     fig.update_annotations(selector=dict(text="Probabilidad de flush en los próximos 7 días"), font_size=12)
     fig.update_annotations(selector=dict(text=titulo_cal), font_size=12)
     st.plotly_chart(fig, width="stretch")
-    st.caption("Arriba, la alerta emitida cada semana con la información disponible en ese momento (color = nivel). Abajo, la "
+    st.caption("Arriba, cada tramo horizontal es la probabilidad de flush de esa semana, emitida al comienzo de la semana con la "
+               "información disponible ese día (color del punto = nivel); el tramo punteado, a la derecha de la fecha de emisión, es "
+               "el pronóstico para los próximos 7 días. Un conteo en cero confirma las semanas que terminaron antes de esa fecha: "
+               "esos tramos quedan por debajo de Atención. Abajo, la "
                + ("emergencia acumulada esperada para Bordenave: curva media y rango 10–90 % de 17 campañas (error típico ±13 puntos). "
                   if calibrada_aqui else (f"emergencia acumulada esperada según el calendario propio de {localidad} (curva media y "
                   f"rango {rango_txt} de las campañas {_anios}"
@@ -379,7 +414,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                   if calendario_local else "emergencia acumulada esperada según el calendario de Bordenave (curva media y rango 10–90 % "
                   "de 17 campañas), usado como referencia regional. "))
                + "La franja violeta es la ventana de control post-emergente en tiempo térmico desde el inicio. "
-               "Del 1/05 al 31/08, la línea punteada violeta es la probabilidad de emergencia tardía (≥ 2 % de la campaña en 7 días).")
+               "Del 1/05 al 31/08, la línea violeta es la probabilidad de emergencia tardía (≥ 2 % de la campaña en 7 días).")
 
     with st.expander("Cómo se validó esta alerta"):
         if nota_sitio:
