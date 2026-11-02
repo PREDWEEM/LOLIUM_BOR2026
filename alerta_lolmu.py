@@ -196,9 +196,9 @@ def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd
       * ``cero_reciente_dias``: si todavía no se vieron plántulas y el último conteo (hasta ``fecha``) fue en cero hace
         como mucho esos días, la probabilidad queda por debajo del umbral de *Atención* (``TOPE_CERO``; *Sin alerta*);
         la probabilidad por clima se conserva en ``probabilidad_clima``;
-      * ``tope_hasta_ultimo_cero``: la probabilidad queda por debajo de *Atención* solo en las emisiones cuya semana
-        (``fecha`` a ``fecha`` + 7 días) terminó antes del último conteo en cero anterior a cualquier plántula: el conteo
-        confirma que en esa semana no hubo emergencia. La semana que sigue a un conteo en cero se evalúa normalmente,
+      * ``tope_hasta_ultimo_cero``: la probabilidad es 0 en las emisiones cuya semana (los 7 días de ``fecha`` a
+        ``fecha`` + 6) terminó a más tardar el día del último conteo en cero anterior a cualquier plántula: el conteo
+        confirma que en esa semana no hubo emergencia (por ejemplo, un cero el 15/03 confirma la semana del 9/03 al 15/03). La semana que sigue a un conteo en cero se evalúa normalmente,
         porque un cero no anticipa que no vaya a emerger (en la validación de las 7 localidades, 37 % de las semanas
         que siguieron a un conteo en cero tuvieron flush).
     """
@@ -241,11 +241,12 @@ def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd
         if primeras_plantulas is not None:
             limite = min(limite, pd.Timestamp(primeras_plantulas)) if limite is not None else pd.Timestamp(primeras_plantulas)
         ceros = cc.loc[(cc["PLM2"] == 0) & ((cc["Fecha"] < limite) if limite is not None else True), "Fecha"]
-        fin_semana = fecha + pd.Timedelta(days=HORIZONTE_DIAS)
-        if not ceros.empty and fin_semana <= ceros.max():
-            cero_reciente = pd.Timestamp(ceros[ceros >= fin_semana].min())
-            p = min(p, TOPE_CERO)
-            p_tardia = min(p_tardia, TOPE_CERO) if p_tardia is not None else None
+        ultimo_dia = fecha + pd.Timedelta(days=HORIZONTE_DIAS - 1)  # la semana de la alerta: de fecha a fecha + 6
+        if not ceros.empty and ultimo_dia <= ceros.max():
+            # semana ya confirmada sin plántulas por un conteo en cero: probabilidad 0 (la de clima queda en p_clima)
+            cero_reciente = pd.Timestamp(ceros[ceros >= ultimo_dia].min())
+            p = 0.0
+            p_tardia = 0.0 if p_tardia is not None else None
             nivel_alerta, tope = nivel_de(p), False
     if cero_reciente is None and cero_reciente_dias is not None and not iniciada and conteos is not None and not conteos.empty:
         previos = conteos[conteos["Fecha"] <= fecha].sort_values("Fecha")
