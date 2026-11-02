@@ -360,7 +360,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     # emergencia acumulada: curva media y rango 10–90 % de las 17 campañas; marca del valor esperado a la fecha de emisión
     curva_de = _curva or modelo.curva
     cv = curva_de(pd.date_range(pd.Timestamp(anio, 1, 15), x_fin))
-    # conteos en cero antes de las primeras plántulas: la curva arranca en 0 después del último cero y reparte el resto
+    # conteos en cero antes de las primeras plántulas: la curva queda en 0 hasta la mitad del intervalo entre el último cero
+    # y el primer conteo con plántulas (las plántulas de ese conteo salieron en algún momento del intervalo; sin conteo
+    # positivo todavía, hasta el último cero) y reparte el resto
     # de la campaña desde esa fecha (curva condicionada a que hasta allí no hubo emergencia)
     t0 = None
     if curva_desde_ultimo_cero and conteos is not None and not conteos.empty:
@@ -371,6 +373,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         hasta = positivos.min() if not positivos.empty else emision + pd.Timedelta(days=1)
         ceros0 = cc0[(cc0["PLM2"] == 0) & (cc0["Fecha"] < hasta)]["Fecha"]
         t0 = ceros0.max() if not ceros0.empty else None
+        if t0 is not None and not positivos.empty and positivos.min() > t0:
+            t0 = (t0 + (positivos.min() - t0) / 2).normalize()  # mitad de camino entre el último cero y el primer positivo
     if t0 is not None:
         _curva_base = curva_de
 

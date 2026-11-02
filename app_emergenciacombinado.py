@@ -171,7 +171,7 @@ if "df_meteo_raw" in globals() and isinstance(df_meteo_raw, pd.DataFrame) and no
             tt_control=float(globals().get("dga_optimo", 600.0)),
             tt_limite=float(globals().get("dga_critico", 800.0)),
             tope_hasta_ultimo_cero=True,  # semanas ya cerradas por un conteo posterior en cero: probabilidad por debajo de Atención
-            curva_desde_ultimo_cero=True,  # la curva acumulada arranca después del último conteo en cero
+            curva_desde_ultimo_cero=True,  # la curva acumulada arranca a mitad de camino entre el último cero y el primer conteo con plántulas
         )
     except Exception as _error_alerta:  # noqa: BLE001
         st.warning(f"No se pudo calcular la alerta validada: {_error_alerta}")
