@@ -271,6 +271,17 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                           "probabilidad_clima": pd.Series(dtype=float), "nivel_info": pd.Series(dtype=int),
                           "nivel": pd.Series(dtype=str), "cero_reciente": pd.Series(dtype=bool),
                           "probabilidad_tardia": pd.Series(dtype=float)})
+    # con fecha de primeras plántulas, las semanas que terminaron más de 7 días antes de esa fecha pasan a 0 (antes del
+    # inicio); la semana anterior a las primeras plántulas conserva su probabilidad (ahí salieron las primeras plantas)
+    s["antes_inicio"] = False
+    if r["primeras_plantulas"] is not None and not s.empty:
+        _p_ini = pd.Timestamp(r["primeras_plantulas"])
+        _m = (s["Fecha"] + pd.Timedelta(days=13)) < _p_ini
+        if _m.any():
+            s.loc[_m, "probabilidad"] = 0.0
+            s.loc[_m, "nivel"] = "baja"
+            s.loc[_m & s["probabilidad_tardia"].notna(), "probabilidad_tardia"] = 0.0
+            s["antes_inicio"] = _m
     # con fecha de primeras plántulas, la curva acumulada sigue el tiempo térmico desde esa fecha (opción por sitio)
     usa_tt = bool(curva_tiempo_termico and r["primeras_plantulas"] is not None and modelo.p.get("curva_tt"))
     if usa_tt:
@@ -313,8 +324,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     # semanas ya cerradas por un conteo posterior en cero (sin plántulas): probabilidad 0
     sin_inicio = s["cero_reciente"].astype(bool) if "cero_reciente" in s else pd.Series(False, index=s.index)
     y_plot = 100 * s["probabilidad"]
-    etiqueta = [f"semana sin plántulas según el conteo en cero (por clima {100 * pc:.0f} %)" if z else INFO[n]
-                for z, pc, n in zip(sin_inicio, s.get("probabilidad_clima", s["probabilidad"]), s["nivel_info"])]
+    etiqueta = [f"antes del inicio (primeras plántulas el {pd.Timestamp(r['primeras_plantulas']):%d/%m}; por clima {100 * pc:.0f} %)" if a
+                else f"semana sin plántulas según el conteo en cero (por clima {100 * pc:.0f} %)" if z else INFO[n]
+                for a, z, pc, n in zip(s["antes_inicio"], sin_inicio, s.get("probabilidad_clima", s["probabilidad"]), s["nivel_info"])]
     # cada probabilidad se dibuja sobre la semana que anticipa (de la fecha de emisión a 7 días después): tramos
     # escalonados para las semanas anteriores a la emisión y un tramo punteado para los próximos 7 días
     ini_sem = s["Fecha"]
@@ -435,7 +447,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     st.caption("Arriba, cada tramo horizontal es la probabilidad de un gran flujo (≥ 5 % de la campaña) en esa semana, emitida al comienzo de la semana con la "
                "información disponible ese día (color del punto = nivel); el tramo punteado, a la derecha de la fecha de emisión, es "
                "el pronóstico para los próximos 7 días. Un conteo en cero confirma las semanas que terminaron antes de esa fecha: "
-               "esos tramos quedan en 0 %. En el medio, el semáforo semanal: la fila «Grandes flujos» repite el nivel de cada semana "
+               "esos tramos quedan en 0 %, igual que las semanas que terminaron más de 7 días antes de la fecha de primeras plántulas. En el medio, el semáforo semanal: la fila «Grandes flujos» repite el nivel de cada semana "
                f"(verde, naranja, rojo) y la fila «Flujos tardíos», solo del {v0:%d/%m} al {v1:%d/%m}, marca en violeta fuerte las semanas con "
                "flujo tardío probable (≥ 2 % de la campaña); las celdas con borde punteado son los próximos 7 días. Abajo, la "
                + (f"emergencia acumulada esperada según el tiempo térmico acumulado desde las primeras plántulas ({_prim_tt:%d/%m}): "
@@ -511,10 +523,11 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                             ignore_index=True)
     serie_out = s.assign(**{"Probabilidad de gran flujo (%)": (100 * s["probabilidad"]).round(1),
                             "Semana sin plántulas (conteo en cero posterior)": s["cero_reciente"] if "cero_reciente" in s else False,
+                            "Antes del inicio informado": s["antes_inicio"],
                             "Probabilidad por clima (%)": (100 * s.get("probabilidad_clima", s["probabilidad"])).round(1),
                             "Nivel": [NOMBRE[v] for v in s["nivel"]],
                             "Información usada": [INFO[v] for v in s["nivel_info"]],
-                            "Flujo tardío ≥ 2 % en 7 días (%)": (100 * s["probabilidad_tardia"]).round(1) if "probabilidad_tardia" in s else np.nan})[["Fecha", "Probabilidad de gran flujo (%)", "Nivel", "Información usada", "Semana sin plántulas (conteo en cero posterior)", "Probabilidad por clima (%)", "Flujo tardío ≥ 2 % en 7 días (%)"]]
+                            "Flujo tardío ≥ 2 % en 7 días (%)": (100 * s["probabilidad_tardia"]).round(1) if "probabilidad_tardia" in s else np.nan})[["Fecha", "Probabilidad de gran flujo (%)", "Nivel", "Información usada", "Semana sin plántulas (conteo en cero posterior)", "Antes del inicio informado", "Probabilidad por clima (%)", "Flujo tardío ≥ 2 % en 7 días (%)"]]
     _lo, _hi = ("P10 (%)", "P90 (%)") if not calendario_local else ("Mínimo (%)", "Máximo (%)")
     curva_out = cv.assign(**{"Emergencia acumulada media (%)": (100 * cv["media"]).round(2), _lo: (100 * cv["p10"]).round(2),
                              _hi: (100 * cv["p90"]).round(2)})[["Fecha", "Emergencia acumulada media (%)", _lo, _hi]]
