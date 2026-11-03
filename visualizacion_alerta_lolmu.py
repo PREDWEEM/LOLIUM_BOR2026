@@ -92,7 +92,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                          nota_sitio: str | None = None, calendario_local: dict | None = None,
                          calendario_en_alerta: bool = False, agotamiento: dict | None = None,
                          tope_sin_inicio: bool = False, cero_reciente_dias: int | None = None, tope_hasta_ultimo_cero: bool = False,
-                         curva_desde_ultimo_cero: bool = False) -> dict | None:
+                         curva_desde_ultimo_cero: bool = False, curva_tiempo_termico: bool = False) -> dict | None:
     """``calendario_local`` (opcional): curva acumulada propia del sitio para el panel de emergencia acumulada, con claves
     ``dia`` (día del año), ``media``, ``bajo``, ``alto`` (fracciones 0–1), ``campanias`` (lista de años) y ``rango``
     (texto del rango, p. ej. "mínimo–máximo"). La probabilidad de flush sigue usando el calendario de Bordenave."""
@@ -271,6 +271,17 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                           "probabilidad_clima": pd.Series(dtype=float), "nivel_info": pd.Series(dtype=int),
                           "nivel": pd.Series(dtype=str), "cero_reciente": pd.Series(dtype=bool),
                           "probabilidad_tardia": pd.Series(dtype=float)})
+    # con fecha de primeras plántulas, la curva acumulada sigue el tiempo térmico desde esa fecha (opción por sitio)
+    usa_tt = bool(curva_tiempo_termico and r["primeras_plantulas"] is not None and modelo.p.get("curva_tt"))
+    if usa_tt:
+        _prim_tt = pd.Timestamp(r["primeras_plantulas"])
+        _dg_tt = al.tiempo_termico(al.limpiar_clima(meteo))
+
+        def _curva(fechas, _d=_dg_tt, _p=_prim_tt):
+            return modelo.curva_tiempo_termico(_d, _p, fechas)
+
+        rango_txt = "10–90 %"
+        titulo_cal = "Emergencia acumulada esperada (tiempo térmico desde las primeras plántulas, 17 campañas)"
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.44, 0.13, 0.43], vertical_spacing=0.05,
                         subplot_titles=("Probabilidad de un gran flujo en los próximos 7 días", "Semáforo semanal", titulo_cal))
     fig.add_hrect(y0=100 * al.ATENCION, y1=100 * al.ALERTA, fillcolor=COLOR["atencion"], opacity=0.08, line_width=0, exclude_empty_subplots=False, row=1, col=1)
@@ -377,7 +388,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     # positivo todavía, hasta el último cero) y reparte el resto
     # de la campaña desde esa fecha (curva condicionada a que hasta allí no hubo emergencia)
     t0 = None
-    if curva_desde_ultimo_cero and conteos is not None and not conteos.empty:
+    if curva_desde_ultimo_cero and not usa_tt and conteos is not None and not conteos.empty:
         cc0 = conteos[conteos["Fecha"] <= emision].sort_values("Fecha")
         positivos = cc0[cc0["PLM2"] > 0]["Fecha"]
         if r["primeras_plantulas"] is not None:
@@ -427,7 +438,10 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                "esos tramos quedan en 0 %. En el medio, el semáforo semanal: la fila «Grandes flujos» repite el nivel de cada semana "
                f"(verde, naranja, rojo) y la fila «Flujos tardíos», solo del {v0:%d/%m} al {v1:%d/%m}, marca en violeta fuerte las semanas con "
                "flujo tardío probable (≥ 2 % de la campaña); las celdas con borde punteado son los próximos 7 días. Abajo, la "
-               + ("emergencia acumulada esperada para Bordenave: curva media y rango 10–90 % de 17 campañas (error típico ±13 puntos). "
+               + (f"emergencia acumulada esperada según el tiempo térmico acumulado desde las primeras plántulas ({_prim_tt:%d/%m}): "
+                  "curva media y rango 10–90 % de 17 campañas de Bordenave; más allá del clima disponible se usan temperaturas "
+                  "medias históricas. Sin fecha de primeras plántulas se usa el calendario. "
+                  if usa_tt else "emergencia acumulada esperada para Bordenave: curva media y rango 10–90 % de 17 campañas (error típico ±13 puntos). "
                   if calibrada_aqui else (f"emergencia acumulada esperada según el calendario propio de {localidad} (curva media y "
                   f"rango {rango_txt} de las campañas {_anios}"
                   + ("). " if calendario_en_alerta else "; la probabilidad de gran flujo usa el calendario de Bordenave). ")

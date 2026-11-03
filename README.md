@@ -100,6 +100,24 @@ La barra lateral conserva solo los parámetros que usa la alerta: temperaturas b
 térmico y los objetivos de la ventana de control (600 y 800 °Cd). Los parámetros del motor PREDWEEM quedan en sus
 valores por defecto.
 
+## Curva acumulada en tiempo térmico desde las primeras plántulas
+
+Cuando se informa la fecha de las primeras plántulas (o hay un primer conteo con plántulas), la curva de emergencia
+acumulada deja de seguir el calendario y sigue el **tiempo térmico acumulado desde esa fecha** (media y rango 10–90 % de
+17 campañas de Bordenave, `curva_tt` en `alerta_lolmu_params.json`); más allá del clima disponible se suman temperaturas
+medias históricas. Error medio de la emergencia acumulada en las fechas de conteo desde las primeras plántulas (puntos %):
+
+| Localidad | Calendario por fecha | Tiempo térmico desde el inicio |
+|---|---|---|
+| Bordenave (17 campañas, dejando cada una afuera) | 12,9 | 11,3 |
+| Lartigau 2026 | 9,9 | 5,8 |
+| Olavarría 2026 | 13,7 | 10,7 |
+| Pergamino 2024 y 2026 | 17,5 | 7,2 |
+| San Pedro 2023, 2024 y 2026 | 19,5 | 14,4 |
+
+Mejora sobre todo donde la fecha de inicio varía mucho entre años. En Tres Arroyos y Balcarce sigue el calendario propio
+del sitio (error 6,1 y 6,9 puntos) y en Azul el calendario de Bordenave (5,3 contra 15,8 en su única campaña).
+
 ## Aviso de flujos tardíos (ventana de siembra)
 
 Del 1 de mayo al 1 de julio la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días

@@ -166,6 +166,29 @@ class AlertaLolmu:
         return pd.DataFrame({"Fecha": fechas, "media": np.interp(d, self.doy, self.cal_media),
                              "p10": np.interp(d, self.doy, self.cal_p10), "p90": np.interp(d, self.doy, self.cal_p90)})
 
+    def curva_tiempo_termico(self, dg: pd.Series, primeras: pd.Timestamp, fechas) -> pd.DataFrame:
+        """Emergencia acumulada esperada según el tiempo térmico acumulado desde las primeras plántulas.
+
+        ``dg``: tiempo térmico diario del clima disponible (``tiempo_termico``, base 2 / óptima 20 / crítica 30 °C).
+        Más allá del último día con clima se suma el tiempo térmico diario medio histórico de ese día del año.
+        Antes de las primeras plántulas la curva vale 0. Devuelve ``Fecha``, ``media``, ``p10`` y ``p90``.
+        """
+        k = self.p["curva_tt"]
+        fechas = pd.DatetimeIndex(fechas)
+        primeras = pd.Timestamp(primeras).normalize()
+        clima = np.asarray(k["tt_diario_clima"], float)
+        dias = pd.date_range(primeras + pd.Timedelta(days=1), max(fechas.max(), primeras + pd.Timedelta(days=1)))
+        obs = dg.reindex(dias)
+        diario = np.where(obs.notna(), obs.values, clima[dias.dayofyear.values - 1])
+        acum = pd.Series(np.cumsum(diario), index=dias)
+        tt = np.where(fechas > primeras, acum.reindex(fechas).fillna(0.0).values, np.nan)
+        out = {"Fecha": fechas}
+        for col in ("media", "p10", "p90"):
+            out[col] = np.where(np.isnan(tt), 0.0, np.interp(np.nan_to_num(tt), k["tt"], k[col]))
+        out = pd.DataFrame(out)
+        out.loc[fechas == primeras, ["media", "p10", "p90"]] = [k["media"][0], k["p10"][0], k["p90"][0]]
+        return out
+
     def _ecdf(self, nombre: str, valor: float) -> float:
         ref = np.asarray(self.p["referencias"][nombre], float)
         return float(np.searchsorted(ref, valor, side="right") / len(ref))
