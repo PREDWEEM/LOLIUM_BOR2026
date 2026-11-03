@@ -24,7 +24,7 @@ from scipy.special import gammainc
 
 PARAMS_FILE = Path(__file__).with_name("alerta_lolmu_params.json")
 ATENCION, ALERTA = 0.15, 0.25
-UMBRAL_TARDIA = 0.20  # aviso de emergencia tardía (≥ 2 % de la campaña en 7 días), del 1/05 al 31/08
+UMBRAL_TARDIA = 0.20  # aviso de emergencia tardía (≥ 2 % de la campaña en 7 días), en la ventana de siembra (1/05–1/07)
 HORIZONTE_DIAS = 7  # semana de la alerta
 TOPE_CERO = 0.14  # con un conteo reciente en cero y sin plántulas, la probabilidad queda debajo de Atención
 
@@ -121,6 +121,20 @@ def senal_conteos(conteos: pd.DataFrame | None, fecha: pd.Timestamp) -> tuple[fl
     return g1, int(n_pos == 1 and g1 >= 0.999), len(c)
 
 
+def ventana_siembra(fecha: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> bool:
+    """True si ``fecha`` cae en la ventana de siembra del aviso de emergencia tardía (por defecto, 1/05–1/07 inclusive)."""
+    t = (modelo or AlertaLolmu()).p.get("tardia") or {}
+    (m0, d0), (m1, d1) = t.get("desde", [5, 1]), t.get("hasta", [7, 1])
+    f = pd.Timestamp(fecha)
+    return (m0, d0) <= (f.month, f.day) <= (m1, d1)
+
+
+def limites_ventana_siembra(anio: int, modelo: "AlertaLolmu | None" = None) -> tuple[pd.Timestamp, pd.Timestamp]:
+    t = (modelo or AlertaLolmu()).p.get("tardia") or {}
+    (m0, d0), (m1, d1) = t.get("desde", [5, 1]), t.get("hasta", [7, 1])
+    return pd.Timestamp(anio, m0, d0), pd.Timestamp(anio, m1, d1)
+
+
 class AlertaLolmu:
     def __init__(self, path: str | Path = PARAMS_FILE):
         self.p = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -133,11 +147,11 @@ class AlertaLolmu:
     def probabilidad_tardia(self, p_flush: float, nivel: int, fecha: pd.Timestamp) -> float | None:
         """Probabilidad de que en los próximos 7 días emerja ≥ 2 % de la campaña (emergencia tardía).
 
-        Solo dentro de la ventana de siembra (``desde_mes``–``hasta_mes``; 1/05–31/08); fuera de ella devuelve None.
+        Solo dentro de la ventana de siembra (``desde``–``hasta``, [mes, día]; 1/05–1/07); fuera de ella devuelve None.
         Recalibra la probabilidad de flush con logit(p) = a + b·logit(p_flush), con a y b por nivel de información.
         """
         t = self.p.get("tardia")
-        if not t or not (t["desde_mes"] <= pd.Timestamp(fecha).month <= t["hasta_mes"]):
+        if not t or not ventana_siembra(fecha, self):
             return None
         a, b = t["coef"][str(int(nivel))]
         q = float(np.clip(p_flush, 1e-4, 1 - 1e-4))

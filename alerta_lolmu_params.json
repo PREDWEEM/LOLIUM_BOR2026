@@ -2374,53 +2374,59 @@
  },
  "fuente": "Calibrado con 17 campañas de Lolium multiflorum sin remoción: 2015, 2017–2022 y 2026 (conteos semanales del ensayo de Bordenave) y 2008–2014, 2023 y 2024 (curvas históricas de PREDWEEM agregadas por semana; lluvia ERA5 en 2023–2024). 386 semanas, 97 flushes (≥ 5 % de la campaña en 7 días). Validación dejando cada campaña afuera.",
  "tardia": {
-  "descripcion": "Probabilidad de emergencia tardía: que en los próximos 7 días emerja al menos 2 % de la emergencia de la campaña. Se calcula del 1/05 al 31/08 recalibrando la probabilidad de flush: logit(p_tardía) = a + b·logit(p_flush), con a y b por nivel de información (1 solo clima, 2 + primeras plántulas, 3 + conteos).",
+  "descripcion": "Probabilidad de emergencia tardía: que en los próximos 7 días emerja al menos 2 % de la emergencia de la campaña. Se calcula del 1/05 al 1/07 recalibrando la probabilidad de flush: logit(p_tardía) = a + b·logit(p_flush), con a y b por nivel de información (1 solo clima, 2 + primeras plántulas, 3 + conteos).",
   "coef": {
    "1": [
-    1.3679113270282006,
-    1.1627524507729678
+    1.0372905086548072,
+    0.9320759772925631
    ],
    "2": [
-    1.950602969299909,
-    1.318510483237042
+    2.523383117831562,
+    1.615927402953704
    ],
    "3": [
-    2.778667417986048,
-    1.6258483630202878
+    3.467831846273555,
+    2.0025970611818247
    ]
   },
   "umbral": 0.2,
-  "desde_mes": 5,
-  "hasta_mes": 8,
   "validacion_bordenave": {
    "Solo clima": {
-    "auc": 0.69,
-    "det": 0.72,
-    "marcadas": 0.52
+    "auc": 0.6,
+    "det": 0.76,
+    "marcadas": 0.78
    },
    "+ fecha de primeras plántulas": {
     "auc": 0.78,
-    "det": 0.82,
-    "marcadas": 0.49
+    "det": 0.86,
+    "marcadas": 0.6
    },
    "+ conteos semanales": {
-    "auc": 0.84,
-    "det": 0.74,
-    "marcadas": 0.39
+    "auc": 0.87,
+    "det": 0.83,
+    "marcadas": 0.47
    }
   },
   "validacion_otras": {
    "+ fecha de primeras plántulas": {
-    "auc": 0.89,
-    "det": 0.92,
-    "marcadas": 0.33
+    "auc": 0.88,
+    "det": 1.0,
+    "marcadas": 0.46
    },
    "+ conteos": {
-    "auc": 0.91,
-    "det": 0.83,
-    "marcadas": 0.25
+    "auc": 0.93,
+    "det": 0.9,
+    "marcadas": 0.39
    }
   },
-  "fuente": "17 campañas de Bordenave, semanas del 1/05 al 31/08 (196 semanas, 50 con ≥ 2 %), cada campaña predicha con el ajuste sin ella; verificado en Lartigau, Tres Arroyos, Azul, Olavarría, Balcarce, Pergamino y San Pedro (115 intervalos entre conteos, 12 con ≥ 2 % por semana)."
+  "fuente": "17 campañas de Bordenave, semanas del 1/05 al 1/07 (132 semanas, 42 con ≥ 2 %), cada campaña predicha con el ajuste sin ella; verificado en Lartigau, Tres Arroyos, Azul, Olavarría, Balcarce y Pergamino (59 intervalos entre conteos, 10 con ≥ 2 % por semana).",
+  "desde": [
+   5,
+   1
+  ],
+  "hasta": [
+   7,
+   1
+  ]
  }
 }
