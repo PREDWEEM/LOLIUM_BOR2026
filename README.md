@@ -102,21 +102,23 @@ valores por defecto.
 
 ## Aviso de emergencia tardía (ventana de siembra)
 
-Del 1 de mayo al 31 de agosto, debajo de la alerta de flushes, la app muestra la **probabilidad de emergencia tardía**:
-que en los próximos 7 días emerja al menos 2 % de la campaña, con aviso desde 20 %. En esa época los flushes de ≥ 5 %
-son raros, pero pocas plantas por semana importan para decidir la fecha de siembra. Es la misma alerta recalibrada por
-nivel de información (`tardia` en `alerta_lolmu_params.json`); también aparece en el gráfico (línea punteada violeta) y
-en la descarga en Excel.
+Del 1 de mayo al 1 de julio la app muestra además la **probabilidad de emergencia tardía**: que en los próximos 7 días
+emerja al menos 2 % de la campaña, con aviso desde 20 %. En esa época los flushes de ≥ 5 % son raros, pero pocas plantas
+por semana importan para decidir la fecha de siembra. Es la misma alerta recalibrada por nivel de información (`tardia`
+en `alerta_lolmu_params.json`). Aparece en un recuadro debajo de la alerta, en la fila «Siembra» del **semáforo
+semanal** del gráfico (violeta fuerte = emergencia tardía probable; la fila «Flush» repite el nivel de cada semana) y en
+la descarga en Excel.
 
-| Información | AUC Bordenave (17 campañas, 196 semanas, 50 con ≥ 2 %) | Detectadas con el aviso | Semanas marcadas |
+| Información | AUC Bordenave (17 campañas, 132 semanas, 42 con ≥ 2 %) | Detectadas con el aviso | Semanas marcadas |
 |---|---|---|---|
-| Solo clima | 0,69 | 72 % | 52 % |
-| + primeras plántulas | 0,78 | 82 % | 49 % |
-| + conteos semanales | 0,84 | 74 % | 39 % |
+| Solo clima | 0,60 | 76 % | 78 % |
+| + primeras plántulas | 0,78 | 86 % | 60 % |
+| + conteos semanales | 0,87 | 83 % | 47 % |
 
-Cada campaña se predijo con el ajuste sin ella. En las otras siete localidades (115 intervalos de mayo a agosto, 12 con
-≥ 2 % por semana) la AUC fue 0,89 con primeras plántulas y 0,91 con conteos, con 92 % y 83 % de detección; allí la
-probabilidad tiende a ser alta (19 % en promedio contra 10 % observado), por lo que hay más falsas alarmas.
+Cada campaña se predijo con el ajuste sin ella. En otras seis localidades (59 intervalos del 1/05 al 1/07, 10 con ≥ 2 %
+por semana) la AUC fue 0,88 con primeras plántulas y 0,93 con conteos, con 100 % y 90 % de detección; allí la probabilidad
+tiende a ser alta (25 % en promedio contra 17 % observado). Solo con clima el aviso marca casi todas las semanas: conviene
+usarlo con la fecha de primeras plántulas o con conteos.
 
 ## Datos de la campaña 2026
 
