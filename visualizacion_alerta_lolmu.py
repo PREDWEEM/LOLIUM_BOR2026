@@ -92,7 +92,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                          nota_sitio: str | None = None, calendario_local: dict | None = None,
                          calendario_en_alerta: bool = False, agotamiento: dict | None = None,
                          tope_sin_inicio: bool = False, cero_reciente_dias: int | None = None, tope_hasta_ultimo_cero: bool = False,
-                         curva_desde_ultimo_cero: bool = False, curva_tiempo_termico: bool = False) -> dict | None:
+                         curva_desde_ultimo_cero: bool = False, curva_tiempo_termico: bool = False,
+                         curva_desde_primeras: bool = False) -> dict | None:
     """``calendario_local`` (opcional): curva acumulada propia del sitio para el panel de emergencia acumulada, con claves
     ``dia`` (día del año), ``media``, ``bajo``, ``alto`` (fracciones 0–1), ``campanias`` (lista de años) y ``rango``
     (texto del rango, p. ej. "mínimo–máximo"). La probabilidad de flush sigue usando el calendario de Bordenave."""
@@ -400,7 +401,24 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     # positivo todavía, hasta el último cero) y reparte el resto
     # de la campaña desde esa fecha (curva condicionada a que hasta allí no hubo emergencia)
     t0 = None
-    if curva_desde_ultimo_cero and not usa_tt and conteos is not None and not conteos.empty:
+    # con fecha de primeras plántulas y calendario (sin curva en tiempo térmico): la curva vale 0 antes de esa fecha, arranca
+    # en la fracción típica ya emergida al ver las primeras plantas (~18 %) y desde ahí sigue el calendario reescalado
+    usa_prim = bool(curva_desde_primeras and not usa_tt and r["primeras_plantulas"] is not None)
+    if usa_prim:
+        _base_p = curva_de
+        _p0 = pd.Timestamp(r["primeras_plantulas"])
+        _f0 = float(modelo.p.get("curva_tt", {}).get("media", [0.18])[0])
+
+        def curva_de(fechas, _b=_base_p, _t=_p0, _f=_f0):
+            out = _b(pd.DatetimeIndex(fechas)).copy()
+            ref = _b(pd.DatetimeIndex([_t])).iloc[0]
+            for k in ("media", "p10", "p90"):
+                rel = np.clip((out[k] - ref[k]) / max(1 - ref[k], 1e-6), 0, 1)
+                out[k] = np.where(pd.DatetimeIndex(out["Fecha"]) < _t, 0.0, _f + (1 - _f) * rel)
+            return out
+
+        cv = curva_de(pd.date_range(pd.Timestamp(anio, 1, 15), x_fin))
+    if curva_desde_ultimo_cero and not usa_tt and not usa_prim and conteos is not None and not conteos.empty:
         cc0 = conteos[conteos["Fecha"] <= emision].sort_values("Fecha")
         positivos = cc0[cc0["PLM2"] > 0]["Fecha"]
         if r["primeras_plantulas"] is not None:
@@ -460,6 +478,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                   + ("Desde las primeras plántulas, la probabilidad incluye el agotamiento de la cohorte. " if agotamiento else "")
                   if calendario_local else "emergencia acumulada esperada según el calendario de Bordenave (curva media y rango 10–90 % "
                   "de 17 campañas), usado como referencia regional. "))
+               + (f"La curva arranca el día de las primeras plántulas ({_p0:%d/%m}) en la fracción típica ya emergida al verlas. "
+                  if usa_prim else "")
                + "La franja violeta es la ventana de control post-emergente en tiempo térmico desde el inicio.")
 
     with st.expander("Cómo se validó esta alerta"):
