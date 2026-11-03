@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Sección de la app: alerta validada de flushes, reloj térmico desde las primeras plántulas y calendario."""
+"""Sección de la app: alerta validada de grandes flujos (flushes), reloj térmico desde las primeras plántulas y calendario."""
 from __future__ import annotations
 
 import numpy as np
@@ -12,10 +12,10 @@ import alerta_lolmu as al
 
 COLOR = {"alerta": "#c2410c", "atencion": "#d97706", "baja": "#15803d"}
 NOMBRE = {"alerta": "Alerta", "atencion": "Atención", "baja": "Sin alerta"}
-TEXTO = {"alerta": "Flush probable en los próximos 7 días: recorrer el lote y preparar el control.",
-         "atencion": "Probabilidad de flush por encima de lo habitual: conviene mirar el lote esta semana.",
-         "baja": "Flush poco probable en los próximos 7 días."}
-TEXTO_TOPE = ("Lluvias y calendario favorables a un flush, pero todavía no se informaron plántulas: recorrer el lote para "
+TEXTO = {"alerta": "Gran flujo probable en los próximos 7 días: recorrer el lote y preparar el control.",
+         "atencion": "Probabilidad de un gran flujo por encima de lo habitual: conviene mirar el lote esta semana.",
+         "baja": "Gran flujo poco probable en los próximos 7 días."}
+TEXTO_TOPE = ("Lluvias y calendario favorables a un gran flujo, pero todavía no se informaron plántulas: recorrer el lote para "
               "detectar el inicio (sin plántulas, la alerta llega como máximo a Atención).")
 INFO = {1: "solo clima (sin datos del lote)", 2: "clima + fecha de primeras plántulas", 3: "clima + primeras plántulas + conteos"}
 
@@ -113,8 +113,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         _curva = None
         rango_txt = "10–90 %"
         titulo_cal = "Emergencia acumulada esperada (calendario de 17 campañas)"
-    st.subheader("🔔 Alerta de flushes validada (17 campañas)" if calibrada_aqui
-                 else f"🔔 Alerta de flushes · {localidad} (modelo calibrado en Bordenave, 17 campañas)")
+    st.subheader("🔔 Alerta de grandes flujos validada (17 campañas)" if calibrada_aqui
+                 else f"🔔 Alerta de grandes flujos · {localidad} (modelo calibrado en Bordenave, 17 campañas)")
     st.caption("Probabilidad de que en los próximos 7 días emerja ≥ 5 % de la campaña. Combina el calendario medio de "
                "LOLMU, la respuesta a las lluvias ya registradas y, si se informa, la fecha de las primeras plántulas "
                "del lote. Independiente del motor PREDWEEM de arriba.")
@@ -216,7 +216,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     p, nivel = r["probabilidad"], r["nivel"]
     st.markdown(
         f"<div style='background:{COLOR[nivel]};color:white;padding:0.9rem 1.1rem;border-radius:0.6rem;margin:0.4rem 0 0.8rem 0;"
-        f"font-size:1.05rem'><b>{emision:%d/%m/%Y}</b> · <b>{NOMBRE[nivel]}</b> · probabilidad de flush en los próximos 7 días: "
+        f"font-size:1.05rem'><b>{emision:%d/%m/%Y}</b> · <b>{NOMBRE[nivel]}</b> · probabilidad de un gran flujo (≥ 5 % de la campaña) en los próximos 7 días: "
         + (f"<b>{p:.0%}</b>. Conteo en cero el {r['cero_reciente']:%d/%m}: esta semana ya pasó sin plántulas en el lote, por eso la "
            f"probabilidad es 0 % (por clima sería {r['probabilidad_clima']:.0%}). "
            "La semana que sigue al último conteo en cero se evalúa normalmente.<br>" if r.get("cero_reciente") is not None else
@@ -229,13 +229,13 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         st.markdown(
             f"<div style='background:{'#6d28d9' if tardia_si else '#ede9fe'};color:{'white' if tardia_si else '#3b0764'};"
             "padding:0.75rem 1.1rem;border-radius:0.6rem;margin:-0.3rem 0 0.8rem 0;font-size:1.0rem'>"
-            f"🌾 <b>Ventana de siembra · {'Emergencia tardía probable' if tardia_si else 'Emergencia tardía poco probable'}</b> · "
-            f"probabilidad de que emerja al menos 2 % de la campaña en los próximos 7 días: <b>{pt:.0%}</b> "
+            f"🌾 <b>Ventana de siembra · {'Flujo tardío probable' if tardia_si else 'Flujo tardío poco probable'}</b> · "
+            f"probabilidad de un flujo tardío (≥ 2 % de la campaña) en los próximos 7 días: <b>{pt:.0%}</b> "
             f"(aviso desde {al.UMBRAL_TARDIA:.0%}). "
             + ("Antes de definir la fecha de siembra, conviene recorrer el lote: puede haber una cohorte tardía por controlar."
                if tardia_si else "Con la información disponible no se espera una cohorte tardía relevante esta semana.")
             + f"<br><span style='font-size:0.88rem;opacity:0.9'>Del {al.limites_ventana_siembra(anio, modelo)[0]:%d/%m} al "
-            f"{al.limites_ventana_siembra(anio, modelo)[1]:%d/%m}. En esta época los flushes de ≥ 5 % son raros, pero "
+            f"{al.limites_ventana_siembra(anio, modelo)[1]:%d/%m}. En esta época los grandes flujos (≥ 5 %) son raros, pero "
             "pocas plantas por semana pueden importar para la fecha de siembra; con conteos semanales el aviso es más preciso.</span></div>",
             unsafe_allow_html=True)
 
@@ -245,7 +245,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         (pd.Timestamp(inicio_predicho).normalize(), "inicio estimado por PREDWEEM") if inicio_predicho is not None and pd.Timestamp(inicio_predicho) <= emision
         else (None, None))
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Probabilidad de flush (7 días)", f"{p:.0%}", help="Tasa histórica: ~25 % de las semanas de campaña."
+    m1.metric("Probabilidad de gran flujo (7 días)", f"{p:.0%}", help="Tasa histórica: ~25 % de las semanas de campaña."
               + (f" Conteo en cero el {r['cero_reciente']:%d/%m}: semana ya pasada sin plántulas: 0 % (por clima {r['probabilidad_clima']:.0%})."
                  if r.get("cero_reciente") is not None else ""))
     m2.metric("Emergencia esperada por lluvias", f"{100 * r['senales']['lluvia']:.1f} %",
@@ -272,7 +272,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                           "nivel": pd.Series(dtype=str), "cero_reciente": pd.Series(dtype=bool),
                           "probabilidad_tardia": pd.Series(dtype=float)})
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.44, 0.13, 0.43], vertical_spacing=0.05,
-                        subplot_titles=("Probabilidad de flush en los próximos 7 días", "Semáforo semanal", titulo_cal))
+                        subplot_titles=("Probabilidad de un gran flujo en los próximos 7 días", "Semáforo semanal", titulo_cal))
     fig.add_hrect(y0=100 * al.ATENCION, y1=100 * al.ALERTA, fillcolor=COLOR["atencion"], opacity=0.08, line_width=0, exclude_empty_subplots=False, row=1, col=1)
     fig.add_hrect(y0=100 * al.ALERTA, y1=100, fillcolor=COLOR["alerta"], opacity=0.06, line_width=0, exclude_empty_subplots=False, row=1, col=1)
     fig.add_hline(y=100 * al.ATENCION, line_dash="dot", line_color=COLOR["atencion"], annotation_text=f"Atención ≥ {al.ATENCION:.0%}",
@@ -314,7 +314,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         fig.add_trace(go.Scatter(x=list(sp["Fecha"]) + [fin_sem[pasadas].iloc[-1]],
                                  y=list(100 * sp["probabilidad"]) + [100 * sp["probabilidad"].iloc[-1]],
                                  mode="lines", line=dict(color="#2a78d6", width=2.5, shape="hv"), hoverinfo="skip",
-                                 name="Probabilidad de flush de cada semana"), row=1, col=1)
+                                 name="Probabilidad de gran flujo de cada semana"), row=1, col=1)
         medio = ini_sem[pasadas] + (fin_sem[pasadas] - ini_sem[pasadas]) / 2
         et = [e for e, k in zip(etiqueta, pasadas) if k]
         fig.add_trace(go.Scatter(x=medio, y=100 * sp["probabilidad"], mode="markers", showlegend=False,
@@ -347,16 +347,16 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         hx.append(x0 + (x1 - x0) / 2); hy.append((y0 + y1) / 2); ht.append(texto)
 
     tardia_col = lambda v: "#6d28d9" if v >= al.UMBRAL_TARDIA else "#ddd6fe"  # noqa: E731
-    tardia_nom = lambda v: "emergencia tardía probable" if v >= al.UMBRAL_TARDIA else "emergencia tardía poco probable"  # noqa: E731
+    tardia_nom = lambda v: "flujo tardío probable" if v >= al.UMBRAL_TARDIA else "flujo tardío poco probable"  # noqa: E731
     for f0, f1, v, n, vt, ok in zip(ini_sem, fin_sem, s["probabilidad"], s["nivel"], s["probabilidad_tardia"], pasadas):
         if not ok:
             continue
         sem = f"{f0:%d/%m}–{f1 - pd.Timedelta(days=1):%d/%m}"
-        _celda(f0, f1, "flush", COLOR[n], f"Semana {sem} · flush: {NOMBRE[n]} ({100 * v:.0f} %)")
+        _celda(f0, f1, "flush", COLOR[n], f"Semana {sem} · gran flujo: {NOMBRE[n]} ({100 * v:.0f} %)")
         if not pd.isna(vt):
             _celda(f0, f1, "tardia", tardia_col(vt), f"Semana {sem} · {tardia_nom(vt)} ({100 * vt:.0f} %)")
     sem = f"{emision:%d/%m}–{fin_prox - pd.Timedelta(days=1):%d/%m}"
-    _celda(emision, fin_prox, "flush", COLOR[nivel], f"Próximos 7 días ({sem}) · flush: {NOMBRE[nivel]} ({100 * p:.0f} %)", futura=True)
+    _celda(emision, fin_prox, "flush", COLOR[nivel], f"Próximos 7 días ({sem}) · gran flujo: {NOMBRE[nivel]} ({100 * p:.0f} %)", futura=True)
     if r.get("probabilidad_tardia") is not None:
         vt = r["probabilidad_tardia"]
         _celda(emision, fin_prox, "tardia", tardia_col(vt), f"Próximos 7 días ({sem}) · {tardia_nom(vt)} ({100 * vt:.0f} %)", futura=True)
@@ -410,27 +410,27 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     fig.add_trace(go.Scatter(x=[emision], y=[100 * hoy["media"]], mode="markers+text", marker=dict(size=10, color="#15803d", line=dict(color="white", width=1.5)),
                              text=[f"{100 * hoy['media']:.0f} % ({100 * hoy['p10']:.0f}–{100 * hoy['p90']:.0f} %)"], textposition="middle left",
                              textfont=dict(size=11, color="#14532d"), hoverinfo="skip", showlegend=False), row=3, col=1)
-    fig.update_yaxes(title_text="Prob. de flush (%)", range=[0, 106], row=1, col=1)
-    fig.update_yaxes(range=[0, 2], tickvals=[0.5, 1.5], ticktext=["Siembra<br>(≥ 2 %)", "Flush<br>(≥ 5 %)"], showgrid=False,
+    fig.update_yaxes(title_text="Prob. de gran flujo (%)", range=[0, 106], row=1, col=1)
+    fig.update_yaxes(range=[0, 2], tickvals=[0.5, 1.5], ticktext=["Flujos tardíos<br>(≥ 2 %)", "Grandes flujos<br>(≥ 5 %)"], showgrid=False,
                      zeroline=False, fixedrange=True, row=2, col=1)
     fig.update_yaxes(title_text="% de la campaña", range=[0, 102], row=3, col=1)
     fig.update_xaxes(range=[pd.Timestamp(anio, 2, 1), x_fin], tickformat="%d/%m")
     fig.update_layout(height=780, margin=dict(t=40, b=10, l=10, r=10), showlegend=False, hovermode="closest",
-                      title=dict(text="Alerta de flushes, emergencia acumulada y ventana de control", font=dict(size=15)))
-    fig.update_annotations(selector=dict(text="Probabilidad de flush en los próximos 7 días"), font_size=12)
+                      title=dict(text="Alerta de grandes flujos, emergencia acumulada y ventana de control", font=dict(size=15)))
+    fig.update_annotations(selector=dict(text="Probabilidad de un gran flujo en los próximos 7 días"), font_size=12)
     fig.update_annotations(selector=dict(text=titulo_cal), font_size=12)
     fig.update_annotations(selector=dict(text="Semáforo semanal"), font_size=12)
     st.plotly_chart(fig, width="stretch")
-    st.caption("Arriba, cada tramo horizontal es la probabilidad de flush de esa semana, emitida al comienzo de la semana con la "
+    st.caption("Arriba, cada tramo horizontal es la probabilidad de un gran flujo (≥ 5 % de la campaña) en esa semana, emitida al comienzo de la semana con la "
                "información disponible ese día (color del punto = nivel); el tramo punteado, a la derecha de la fecha de emisión, es "
                "el pronóstico para los próximos 7 días. Un conteo en cero confirma las semanas que terminaron antes de esa fecha: "
-               "esos tramos quedan en 0 %. En el medio, el semáforo semanal: la fila «Flush» repite el nivel de cada semana "
-               f"(verde, naranja, rojo) y la fila «Siembra», solo del {v0:%d/%m} al {v1:%d/%m}, marca en violeta fuerte las semanas con "
-               "emergencia tardía probable (≥ 2 % de la campaña); las celdas con borde punteado son los próximos 7 días. Abajo, la "
+               "esos tramos quedan en 0 %. En el medio, el semáforo semanal: la fila «Grandes flujos» repite el nivel de cada semana "
+               f"(verde, naranja, rojo) y la fila «Flujos tardíos», solo del {v0:%d/%m} al {v1:%d/%m}, marca en violeta fuerte las semanas con "
+               "flujo tardío probable (≥ 2 % de la campaña); las celdas con borde punteado son los próximos 7 días. Abajo, la "
                + ("emergencia acumulada esperada para Bordenave: curva media y rango 10–90 % de 17 campañas (error típico ±13 puntos). "
                   if calibrada_aqui else (f"emergencia acumulada esperada según el calendario propio de {localidad} (curva media y "
                   f"rango {rango_txt} de las campañas {_anios}"
-                  + ("). " if calendario_en_alerta else "; la probabilidad de flush usa el calendario de Bordenave). ")
+                  + ("). " if calendario_en_alerta else "; la probabilidad de gran flujo usa el calendario de Bordenave). ")
                   + ("Desde las primeras plántulas, la probabilidad incluye el agotamiento de la cohorte. " if agotamiento else "")
                   if calendario_local else "emergencia acumulada esperada según el calendario de Bordenave (curva media y rango 10–90 % "
                   "de 17 campañas), usado como referencia regional. "))
@@ -442,27 +442,27 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         v = modelo.p.get("validacion", {})
         filas = [(k, d) for k, d in v.items()]
         if filas:
-            st.markdown("| Información disponible | AUC | Flushes detectados con Alerta (≥ 25 %) | Semanas marcadas |\n|---|---|---|---|\n"
+            st.markdown("| Información disponible | AUC | Grandes flujos detectados con Alerta (≥ 25 %) | Semanas marcadas |\n|---|---|---|---|\n"
                         + "\n".join(f"| {k} | {d['auc']:.2f} | {d['det_at']:.0%} | {d['vis_at']:.0%} |" for k, d in filas))
         st.markdown(
             f"{modelo.p.get('fuente', '')}\n\nCada campaña se predijo con el modelo ajustado sin ella. Las probabilidades están "
-            "calibradas (cuando dice ~25 %, el flush ocurrió en ~27 % de las semanas). Como referencia, con las mismas campañas "
-            "el motor PREDWEEM de arriba da AUC ~0,70 para anticipar flushes, pero anticipa bien la primera cohorte, por eso se "
+            "calibradas (cuando dice ~25 %, el gran flujo ocurrió en ~27 % de las semanas). Como referencia, con las mismas campañas "
+            "el motor PREDWEEM de arriba da AUC ~0,70 para anticipar grandes flujos, pero anticipa bien la primera cohorte, por eso se "
             "usa como inicio estimado del reloj térmico hasta que se informan las primeras plántulas.\n\n"
             "**Límites.** Un sitio y lotes sin labranza. La fecha de primeras plántulas mejora la alerta en forma moderada "
-            "(AUC +0,04); los conteos semanales, en forma más clara (+0,07). No anticipa flushes sin lluvia registrada.")
+            "(AUC +0,04); los conteos semanales, en forma más clara (+0,07). No anticipa grandes flujos sin lluvia registrada.")
         tv = modelo.p.get("tardia")
         if tv:
             st.markdown(
-                "**Emergencia tardía (ventana de siembra, 1/05–1/07).** Probabilidad de que en los próximos 7 días emerja al menos "
+                "**Flujos tardíos (ventana de siembra, 1/05–1/07).** Probabilidad de que en los próximos 7 días emerja al menos "
                 f"2 % de la campaña; aviso desde {al.UMBRAL_TARDIA:.0%}. Es la misma alerta recalibrada para esa época, en la que los "
-                "flushes de ≥ 5 % son raros pero pocas plantas por semana importan para decidir la fecha de siembra.\n\n"
+                "grandes flujos (≥ 5 %) son raros pero pocas plantas por semana importan para decidir la fecha de siembra.\n\n"
                 "| Información | AUC Bordenave | Detectadas | Semanas marcadas | AUC otras localidades | Detectadas | Marcadas |\n|---|---|---|---|---|---|---|\n"
                 + "\n".join(f"| {k} | {d['auc']:.2f} | {d['det']:.0%} | {d['marcadas']:.0%} | "
                              + (f"{o['auc']:.2f} | {o['det']:.0%} | {o['marcadas']:.0%} |" if (o := tv['validacion_otras'].get(k if k != '+ conteos semanales' else '+ conteos')) else "— | — | — |")
                              for k, d in tv["validacion_bordenave"].items())
                 + f"\n\n{tv['fuente']} En las otras localidades la probabilidad tiende a ser alta (promedio 25 % contra 17 % "
-                "observado): el aviso detecta casi todas las semanas con emergencia tardía, con más falsas alarmas.")
+                "observado): el aviso detecta casi todas las semanas con flujos tardíos, con más falsas alarmas.")
 
     # ---------------------------------------------------------------
     # resultados de la sección, para la descarga final
@@ -471,7 +471,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     tt_r = float(dg[(dg.index >= ancla) & (dg.index <= emision)].sum()) if ancla is not None else None
     fmt_f = lambda d: pd.Timestamp(d).strftime("%d/%m/%Y") if d is not None and not pd.isna(d) else ""  # noqa: E731
     resumen = pd.DataFrame({"Indicador": [
-        "Localidad", "Fecha de generación", "Fecha de emisión", "Nivel de alerta", "Probabilidad de flush en 7 días (%)",
+        "Localidad", "Fecha de generación", "Fecha de emisión", "Nivel de alerta", "Probabilidad de gran flujo (≥ 5 %) en 7 días (%)",
         "Información usada", "Inicio del reloj térmico", "Origen del inicio", "Tiempo térmico desde el inicio (°Cd)",
         f"Fecha de control post-emergente ({tt_control:.0f} °Cd)", f"Fecha límite de la ventana ({tt_limite:.0f} °Cd)",
         "Emergencia acumulada esperada a la fecha (%)", f"Rango {rango_txt} de la emergencia acumulada (%)",
@@ -485,8 +485,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         round(100 * r["senales"]["cal"], 2), round(100 * r["senales"]["lluvia"], 2),
         int((conteos["Fecha"] <= emision).sum()) if conteos is not None else 0, fmt_f(r["primeras_plantulas"]),
         fmt_f(inicio_predicho)]})
-    resumen = pd.concat([resumen, pd.DataFrame({"Indicador": ["Probabilidad de emergencia tardía (≥ 2 % de la campaña en 7 días, %)",
-                                                              "Aviso de emergencia tardía (ventana de siembra)"],
+    resumen = pd.concat([resumen, pd.DataFrame({"Indicador": ["Probabilidad de flujo tardío (≥ 2 % de la campaña en 7 días, %)",
+                                                              "Aviso de flujo tardío (ventana de siembra)"],
                                                 "Valor": [round(100 * pt, 1) if pt is not None else "fuera de la ventana de siembra (1/05–1/07)",
                                                           ("probable" if pt >= al.UMBRAL_TARDIA else "poco probable") if pt is not None else ""]})],
                         ignore_index=True)
@@ -495,12 +495,12 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         resumen = pd.concat([resumen, pd.DataFrame({"Indicador": ["Agotamiento de la cohorte (factor sobre la probabilidad)"],
                                                     "Valor": [round(_ag, 3) if _ag is not None else "sin primeras plántulas: no se aplica"]})],
                             ignore_index=True)
-    serie_out = s.assign(**{"Probabilidad de flush (%)": (100 * s["probabilidad"]).round(1),
+    serie_out = s.assign(**{"Probabilidad de gran flujo (%)": (100 * s["probabilidad"]).round(1),
                             "Semana sin plántulas (conteo en cero posterior)": s["cero_reciente"] if "cero_reciente" in s else False,
                             "Probabilidad por clima (%)": (100 * s.get("probabilidad_clima", s["probabilidad"])).round(1),
                             "Nivel": [NOMBRE[v] for v in s["nivel"]],
                             "Información usada": [INFO[v] for v in s["nivel_info"]],
-                            "Emergencia tardía ≥ 2 % en 7 días (%)": (100 * s["probabilidad_tardia"]).round(1) if "probabilidad_tardia" in s else np.nan})[["Fecha", "Probabilidad de flush (%)", "Nivel", "Información usada", "Semana sin plántulas (conteo en cero posterior)", "Probabilidad por clima (%)", "Emergencia tardía ≥ 2 % en 7 días (%)"]]
+                            "Flujo tardío ≥ 2 % en 7 días (%)": (100 * s["probabilidad_tardia"]).round(1) if "probabilidad_tardia" in s else np.nan})[["Fecha", "Probabilidad de gran flujo (%)", "Nivel", "Información usada", "Semana sin plántulas (conteo en cero posterior)", "Probabilidad por clima (%)", "Flujo tardío ≥ 2 % en 7 días (%)"]]
     _lo, _hi = ("P10 (%)", "P90 (%)") if not calendario_local else ("Mínimo (%)", "Máximo (%)")
     curva_out = cv.assign(**{"Emergencia acumulada media (%)": (100 * cv["media"]).round(2), _lo: (100 * cv["p10"]).round(2),
                              _hi: (100 * cv["p90"]).round(2)})[["Fecha", "Emergencia acumulada media (%)", _lo, _hi]]
@@ -513,14 +513,14 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         tt_out = pd.DataFrame()
     clima_out = clima[clima["Fecha"] <= emision + pd.Timedelta(days=7)].rename(columns={"Prec": "Lluvia (mm)"})
     params = pd.DataFrame({"Parámetro": [
-        "Umbral de Atención (%)", "Umbral de Alerta (%)", "Definición de flush", "Horizonte de la alerta (días)",
-        "Aviso de emergencia tardía (%)", "Definición de emergencia tardía",
+        "Umbral de Atención (%)", "Umbral de Alerta (%)", "Definición de gran flujo", "Horizonte de la alerta (días)",
+        "Aviso de flujo tardío (%)", "Definición de flujo tardío",
         "Temperatura base (°C)", "Temperatura óptima (°C)", "Temperatura crítica (°C)", "TT de control (°Cd)", "TT límite (°Cd)",
         "Calibración"], "Valor": [
         100 * al.ATENCION, 100 * al.ALERTA, "≥ 5 % de la emergencia de la campaña en 7 días", 7,
         100 * al.UMBRAL_TARDIA, "≥ 2 % de la emergencia de la campaña en 7 días, del 1/05 al 1/07",
         t_base, t_opt, t_crit, tt_control, tt_limite, modelo.p.get("fuente", "")]})
-    val = pd.DataFrame([{"Información disponible": k, "AUC": d["auc"], "Flushes detectados con Alerta (%)": round(100 * d["det_at"], 1),
+    val = pd.DataFrame([{"Información disponible": k, "AUC": d["auc"], "Grandes flujos detectados con Alerta (%)": round(100 * d["det_at"], 1),
                          "Semanas marcadas con Alerta (%)": round(100 * d["vis_at"], 1)} for k, d in modelo.p.get("validacion", {}).items()])
     return {"Resumen": resumen, "Alerta_semanal": serie_out, "Emergencia_acumulada": curva_out, "Tiempo_termico": tt_out,
             "Conteos": conteos.rename(columns={"PLM2": "Plántulas"}) if conteos is not None else pd.DataFrame(),
