@@ -85,6 +85,39 @@ def _fecha_tt(dg: pd.Series, desde: pd.Timestamp, objetivo: float):
     return hit.index[0] if not hit.empty else None
 
 
+def _texto_muestreo_inicio(meteo: pd.DataFrame, emision: pd.Timestamp, conteos: pd.DataFrame | None, modelo) -> str:
+    """Recuadro de muestreo mientras no se informan plántulas: el inicio no se puede anticipar bien con el clima."""
+    k = modelo.p.get("inicio", {})
+    f = lambda md: pd.Timestamp(emision.year, md[0], md[1])  # noqa: E731
+    p10, med, p90 = f(k.get("p10", [2, 7])), f(k.get("mediana", [2, 28])), f(k.get("p90", [3, 26]))
+    reg = k.get("regla_lluvia", {"desde": [2, 1], "dias": 5, "mm": 20, "demora_dias": 5})
+    desde = f(reg["desde"])
+    partes = []
+    if emision < desde:
+        partes.append(f"Todavía es temprano: empezar a recorrer el lote cada semana desde el <b>{desde:%d/%m}</b>.")
+    else:
+        partes.append("<b>Recorrer el lote cada semana</b> hasta ver las primeras plántulas y cargar esa fecha arriba.")
+    clima = al.limpiar_clima(meteo)
+    clima = clima[(clima["Fecha"] >= desde - pd.Timedelta(days=reg["dias"] - 1)) & (clima["Fecha"] <= emision)]
+    if not clima.empty:
+        acum = clima.set_index("Fecha")["Prec"].rolling(f"{reg['dias']}D").sum()
+        acum = acum[(acum.index >= desde) & (acum.index >= emision - pd.Timedelta(days=14))]
+        if not acum.empty and acum.max() >= reg["mm"]:
+            dia = acum.idxmax()
+            partes.append(f"Llovieron <b>{acum.max():.0f} mm</b> en los {reg['dias']} días al {dia:%d/%m}: conviene recorrer el lote "
+                          f"entre el {dia + pd.Timedelta(days=reg['demora_dias']):%d/%m} y el {dia + pd.Timedelta(days=reg['demora_dias'] + 7):%d/%m}.")
+    if conteos is not None and not conteos.empty:
+        cc = conteos[conteos["Fecha"] <= emision]
+        if not cc.empty and (cc["PLM2"] <= 0).all():
+            ult = cc["Fecha"].max()
+            partes.append(f"Último conteo en cero: {ult:%d/%m}; el próximo, el {ult + pd.Timedelta(days=7):%d/%m}.")
+    partes.append(f"El inicio de la emergencia suele darse entre el <b>{p10:%d/%m} y el {p90:%d/%m}</b> (mediana {med:%d/%m}), pero "
+                  "varía mucho entre años y lotes y el clima no lo anticipa bien: lo que más mejora la alerta es la fecha de las "
+                  "primeras plántulas, que ancla la curva acumulada, el reloj térmico y la ventana de control.")
+    return ("<div style='background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe;padding:0.75rem 1.1rem;border-radius:0.6rem;"
+            "margin:0.2rem 0 0.8rem 0;font-size:0.98rem'>🗓️ <b>Muestreo hasta el inicio.</b> " + " ".join(partes) + "</div>")
+
+
 def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = None, col_fecha: str | None = None,
                          col_plm2: str | None = None, inicio_predicho: pd.Timestamp | None = None,
                          t_base: float = 2.0, t_opt: float = 20.0, t_crit: float = 30.0,
@@ -261,7 +294,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     else:
         m3.metric("Tiempo térmico desde el inicio", "—", help="Todavía no hay inicio observado ni estimado.")
         m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)", "—")
-    if r["primeras_plantulas"] is None:
+    if r["primeras_plantulas"] is None and emision.month <= 6:
+        st.markdown(_texto_muestreo_inicio(meteo, emision, conteos, modelo), unsafe_allow_html=True)
+    elif r["primeras_plantulas"] is None:
         st.info("Sin fecha de primeras plántulas: la alerta usa solo el clima. Cuando aparezcan las primeras plántulas "
                 "en el lote, cargue esa fecha arriba: ancla el reloj térmico de la ventana de control y mejora la alerta.")
 
