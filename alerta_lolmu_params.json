@@ -3319,5 +3319,37 @@
    ],
    "nota": "Error medio (puntos %) de la emergencia acumulada en las fechas de conteo desde las primeras plántulas: [calendario por fecha, tiempo térmico desde el inicio]. Bordenave dejando cada campaña afuera."
   }
+ },
+ "inicio": {
+  "descripcion": "Fechas de inicio de la emergencia en 31 campañas (17 de Bordenave y 14 de Lartigau, Tres Arroyos, Azul, Olavarría, Balcarce, Pergamino y San Pedro). Ni la lluvia, ni la humedad del suelo, ni la temperatura, ni el primer pico del motor predijeron el inicio mejor que una fecha fija (error medio 10–12 días; inicios tardíos sin explicación climática). Por eso la app recomienda recorrer el lote.",
+  "p10": [
+   2,
+   7
+  ],
+  "mediana": [
+   2,
+   28
+  ],
+  "p90": [
+   3,
+   26
+  ],
+  "min": [
+   1,
+   19
+  ],
+  "max": [
+   4,
+   15
+  ],
+  "regla_lluvia": {
+   "desde": [
+    2,
+    1
+   ],
+   "dias": 5,
+   "mm": 20,
+   "demora_dias": 5
+  }
  }
 }
