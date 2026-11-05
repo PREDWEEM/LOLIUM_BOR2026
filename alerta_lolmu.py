@@ -166,17 +166,23 @@ class AlertaLolmu:
         return pd.DataFrame({"Fecha": fechas, "media": np.interp(d, self.doy, self.cal_media),
                              "p10": np.interp(d, self.doy, self.cal_p10), "p90": np.interp(d, self.doy, self.cal_p90)})
 
-    def curva_tiempo_termico(self, dg: pd.Series, primeras: pd.Timestamp, fechas) -> pd.DataFrame:
+    def clima_tt(self, localidad: str | None = None) -> np.ndarray:
+        """Tiempo térmico diario medio por día del año (366 valores): el de la localidad si está, si no el de Bordenave."""
+        k = self.p["curva_tt"]
+        return np.asarray((k.get("tt_diario_clima_sitio") or {}).get(localidad or "", k["tt_diario_clima"]), float)
+
+    def curva_tiempo_termico(self, dg: pd.Series, primeras: pd.Timestamp, fechas, localidad: str | None = None) -> pd.DataFrame:
         """Emergencia acumulada esperada según el tiempo térmico acumulado desde las primeras plántulas.
 
         ``dg``: tiempo térmico diario del clima disponible (``tiempo_termico``, base 2 / óptima 20 / crítica 30 °C).
-        Más allá del último día con clima se suma el tiempo térmico diario medio histórico de ese día del año.
+        Más allá del último día con clima se suma el tiempo térmico diario medio histórico de ese día del año
+        (de la ``localidad`` si hay climatología propia; si no, el de Bordenave).
         Antes de las primeras plántulas la curva vale 0. Devuelve ``Fecha``, ``media``, ``p10`` y ``p90``.
         """
         k = self.p["curva_tt"]
         fechas = pd.DatetimeIndex(fechas)
         primeras = pd.Timestamp(primeras).normalize()
-        clima = np.asarray(k["tt_diario_clima"], float)
+        clima = self.clima_tt(localidad)
         dias = pd.date_range(primeras + pd.Timedelta(days=1), max(fechas.max(), primeras + pd.Timedelta(days=1)))
         obs = dg.reindex(dias)
         diario = np.where(obs.notna(), obs.values, clima[dias.dayofyear.values - 1])

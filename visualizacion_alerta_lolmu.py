@@ -85,12 +85,14 @@ def _fecha_tt(dg: pd.Series, desde: pd.Timestamp, objetivo: float):
     return hit.index[0] if not hit.empty else None
 
 
-def _tt_ventana(meteo: pd.DataFrame, dg: pd.Series, emision: pd.Timestamp, modelo) -> tuple[pd.Series, pd.Timestamp]:
+def _tt_ventana(meteo: pd.DataFrame, dg: pd.Series, emision: pd.Timestamp, modelo,
+                localidad: str | None = None) -> tuple[pd.Series, pd.Timestamp]:
     """Tiempo térmico diario conocido a la fecha de emisión, extendido con el clima medio.
 
     Se usa el clima hasta la emisión más los días de pronóstico cargados a continuación (``TipoDato`` = ``Pronostico``);
     los días posteriores observados no se usan, porque ese día no se conocían. Desde el día siguiente al último conocido
-    se suma el tiempo térmico diario medio histórico de ese día del año. Devuelve la serie y el último día conocido.
+    se suma el tiempo térmico diario medio histórico de ese día del año en la localidad (``modelo.clima_tt``).
+    Devuelve la serie y el último día conocido.
     """
     emision = pd.Timestamp(emision).normalize()
     ult = min(emision, dg.index.max())
@@ -101,9 +103,9 @@ def _tt_ventana(meteo: pd.DataFrame, dg: pd.Series, emision: pd.Timestamp, model
         while ult + pd.Timedelta(days=1) in pron and ult + pd.Timedelta(days=1) <= dg.index.max():
             ult += pd.Timedelta(days=1)
     conocido = dg[dg.index <= ult]
-    clima = (modelo.p.get("curva_tt") or {}).get("tt_diario_clima")
-    if clima is None:
+    if not modelo.p.get("curva_tt"):
         return conocido, ult
+    clima = modelo.clima_tt(localidad)
     dias = pd.date_range(ult + pd.Timedelta(days=1), periods=400)
     medio = pd.Series(np.asarray(clima, float)[np.minimum(dias.dayofyear.values, len(clima)) - 1], index=dias)
     return pd.concat([conocido, medio]), ult
@@ -299,7 +301,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
 
     clima = al.limpiar_clima(meteo)
     dg = al.tiempo_termico(clima, **tt)
-    dgv, ult_tt = _tt_ventana(meteo, dg, emision, modelo)  # ventana de control: clima conocido + clima medio
+    dgv, ult_tt = _tt_ventana(meteo, dg, emision, modelo, localidad)  # ventana de control: clima conocido + clima medio
     ancla, ancla_txt = (r["primeras_plantulas"], "primeras plántulas observadas") if r["primeras_plantulas"] is not None else (
         (pd.Timestamp(inicio_predicho).normalize(), "inicio estimado por PREDWEEM") if inicio_predicho is not None and pd.Timestamp(inicio_predicho) <= emision
         else (None, None))
@@ -356,7 +358,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         _dg_tt = _dg_tt[_dg_tt.index <= ult_tt]  # sin días observados posteriores a la emisión (los completa el clima medio)
 
         def _curva(fechas, _d=_dg_tt, _p=_prim_tt):
-            return modelo.curva_tiempo_termico(_d, _p, fechas)
+            return modelo.curva_tiempo_termico(_d, _p, fechas, localidad)
 
         rango_txt = "10–90 %"
         titulo_cal = "Emergencia acumulada esperada (tiempo térmico desde las primeras plántulas, 17 campañas)"
