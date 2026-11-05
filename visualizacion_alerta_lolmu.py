@@ -85,6 +85,30 @@ def _fecha_tt(dg: pd.Series, desde: pd.Timestamp, objetivo: float):
     return hit.index[0] if not hit.empty else None
 
 
+def _tt_ventana(meteo: pd.DataFrame, dg: pd.Series, emision: pd.Timestamp, modelo) -> tuple[pd.Series, pd.Timestamp]:
+    """Tiempo térmico diario conocido a la fecha de emisión, extendido con el clima medio.
+
+    Se usa el clima hasta la emisión más los días de pronóstico cargados a continuación (``TipoDato`` = ``Pronostico``);
+    los días posteriores observados no se usan, porque ese día no se conocían. Desde el día siguiente al último conocido
+    se suma el tiempo térmico diario medio histórico de ese día del año. Devuelve la serie y el último día conocido.
+    """
+    emision = pd.Timestamp(emision).normalize()
+    ult = min(emision, dg.index.max())
+    cols = {str(c).strip().lower(): c for c in meteo.columns}
+    if "tipodato" in cols and ult == emision:
+        f = pd.to_datetime(meteo[cols["fecha"]], errors="coerce").dt.tz_localize(None).dt.normalize()
+        pron = set(f[meteo[cols["tipodato"]].astype(str).str.strip().eq("Pronostico").values])
+        while ult + pd.Timedelta(days=1) in pron and ult + pd.Timedelta(days=1) <= dg.index.max():
+            ult += pd.Timedelta(days=1)
+    conocido = dg[dg.index <= ult]
+    clima = (modelo.p.get("curva_tt") or {}).get("tt_diario_clima")
+    if clima is None:
+        return conocido, ult
+    dias = pd.date_range(ult + pd.Timedelta(days=1), periods=400)
+    medio = pd.Series(np.asarray(clima, float)[np.minimum(dias.dayofyear.values, len(clima)) - 1], index=dias)
+    return pd.concat([conocido, medio]), ult
+
+
 def _texto_muestreo_inicio(meteo: pd.DataFrame, emision: pd.Timestamp, conteos: pd.DataFrame | None, modelo) -> str:
     """Recuadro de muestreo mientras no se informan plántulas: el inicio no se puede anticipar bien con el clima."""
     k = modelo.p.get("inicio", {})
@@ -275,6 +299,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
 
     clima = al.limpiar_clima(meteo)
     dg = al.tiempo_termico(clima, **tt)
+    dgv, ult_tt = _tt_ventana(meteo, dg, emision, modelo)  # ventana de control: clima conocido + clima medio
     ancla, ancla_txt = (r["primeras_plantulas"], "primeras plántulas observadas") if r["primeras_plantulas"] is not None else (
         (pd.Timestamp(inicio_predicho).normalize(), "inicio estimado por PREDWEEM") if inicio_predicho is not None and pd.Timestamp(inicio_predicho) <= emision
         else (None, None))
@@ -286,11 +311,16 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
               help="Respuesta relativa a las lluvias registradas hasta la fecha (señal, no % de la campaña).")
     if ancla is not None:
         tt_hoy = float(dg[(dg.index >= ancla) & (dg.index <= emision)].sum())
-        f_ctl, f_lim = _fecha_tt(dg, ancla, tt_control), _fecha_tt(dg, ancla, tt_limite)
+        f_ctl, f_lim = _fecha_tt(dgv, ancla, tt_control), _fecha_tt(dgv, ancla, tt_limite)
+        _est = lambda d: d is not None and d > ult_tt  # noqa: E731
         m3.metric("Tiempo térmico desde el inicio", f"{tt_hoy:.0f} °Cd", help=f"Desde el {ancla:%d/%m} ({ancla_txt}).")
-        m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)", f"{f_ctl:%d/%m}" if f_ctl is not None else "—",
-                  help=(f"Límite de la ventana ({tt_limite:.0f} °Cd): {f_lim:%d/%m}" if f_lim is not None else "Fuera del clima disponible.")
-                       + (" · Estimado: informe la fecha de las primeras plántulas para anclarlo." if r["primeras_plantulas"] is None else ""))
+        m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)",
+                  (f"{f_ctl:%d/%m}" + (" (estimada)" if _est(f_ctl) else "")) if f_ctl is not None else "—",
+                  help=(f"Límite de la ventana ({tt_limite:.0f} °Cd): {f_lim:%d/%m}" + (" (estimada)" if _est(f_lim) else "") + "."
+                        if f_lim is not None else "")
+                       + (f" Las fechas estimadas suman el clima medio desde el {ult_tt + pd.Timedelta(days=1):%d/%m}; se corrigen "
+                          "a medida que se carga el clima." if _est(f_lim) else " Alcanzada con el clima registrado.")
+                       + (" · Inicio estimado: informe la fecha de las primeras plántulas para anclarlo." if r["primeras_plantulas"] is None else ""))
     else:
         m3.metric("Tiempo térmico desde el inicio", "—", help="Todavía no hay inicio observado ni estimado.")
         m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)", "—")
@@ -323,6 +353,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     if usa_tt:
         _prim_tt = pd.Timestamp(r["primeras_plantulas"])
         _dg_tt = al.tiempo_termico(al.limpiar_clima(meteo))
+        _dg_tt = _dg_tt[_dg_tt.index <= ult_tt]  # sin días observados posteriores a la emisión (los completa el clima medio)
 
         def _curva(fechas, _d=_dg_tt, _p=_prim_tt):
             return modelo.curva_tiempo_termico(_d, _p, fechas)
@@ -340,15 +371,23 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     x_fin = max(emision + pd.Timedelta(days=14), pd.Timestamp(anio, 6, 30))
     if ancla is not None:
         estimado = r["primeras_plantulas"] is None
-        f_ctl, f_lim = _fecha_tt(dg, ancla, tt_control), _fecha_tt(dg, ancla, tt_limite)
+        f_ctl, f_lim = _fecha_tt(dgv, ancla, tt_control), _fecha_tt(dgv, ancla, tt_limite)
         if f_ctl is not None:
-            fin_ventana = f_lim if f_lim is not None else dg.index.max()
+            fin_ventana = f_lim if f_lim is not None else dgv.index.max()
             x_fin = max(x_fin, fin_ventana + pd.Timedelta(days=7))
-            for fila in (1, 2, 3):
-                fig.add_vrect(x0=f_ctl, x1=fin_ventana, fillcolor="#7c3aed", opacity=0.14, line_width=0, exclude_empty_subplots=False, row=fila, col=1)
+            con_medio = fin_ventana > ult_tt
+            # tramo alcanzado con el clima registrado (fuerte) y tramo estimado con el clima medio (claro, borde punteado)
+            tramos = [(f_ctl, min(fin_ventana, ult_tt), 0.14, None)] if f_ctl <= ult_tt else []
+            if con_medio:
+                tramos.append((max(f_ctl, ult_tt), fin_ventana, 0.06, dict(color="#7c3aed", width=1, dash="dot")))
+            for x0, x1, op, borde in tramos:
+                for fila in (1, 2, 3):
+                    fig.add_vrect(x0=x0, x1=x1, fillcolor="#7c3aed", opacity=op, line=borde or dict(width=0),
+                                  exclude_empty_subplots=False, row=fila, col=1)
             fig.add_annotation(x=f_ctl + (fin_ventana - f_ctl) / 2, y=97, xref="x", yref="y", showarrow=False, font=dict(size=12, color="#5b21b6"),
-                               text=f"Ventana de control {tt_control:.0f}–{tt_limite:.0f} °Cd" + (" (estimada)" if estimado else "")
-                                    + f"<br>{f_ctl:%d/%m} – " + (f"{f_lim:%d/%m}" if f_lim is not None else "fuera del clima disponible"))
+                               text=f"Ventana de control {tt_control:.0f}–{tt_limite:.0f} °Cd" + (" (inicio estimado)" if estimado else "")
+                                    + f"<br>{f_ctl:%d/%m} – {fin_ventana:%d/%m}"
+                                    + (f"<br><i>estimada con clima medio desde el {ult_tt + pd.Timedelta(days=1):%d/%m}</i>" if con_medio else ""))
         for fila in (1, 2, 3):
             fig.add_vline(x=ancla, line_dash="dot", line_color="#374151", exclude_empty_subplots=False, row=fila, col=1)
         fig.add_annotation(x=ancla, y=4, xref="x", yref="y", showarrow=False, xanchor="left", font=dict(size=11, color="#374151"),
@@ -515,7 +554,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                   "de 17 campañas), usado como referencia regional. "))
                + (f"La curva arranca el día de las primeras plántulas ({_p0:%d/%m}) en la fracción típica ya emergida al verlas. "
                   if usa_prim else "")
-               + "La franja violeta es la ventana de control post-emergente en tiempo térmico desde el inicio.")
+               + "La franja violeta es la ventana de control post-emergente en tiempo térmico desde el inicio; el tramo claro con borde "
+               "punteado todavía no se alcanzó con el clima registrado y se estima con el clima medio.")
 
     with st.expander("Cómo se validó esta alerta"):
         if nota_sitio:
@@ -548,7 +588,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     # ---------------------------------------------------------------
     # resultados de la sección, para la descarga final
     # ---------------------------------------------------------------
-    f_ctl_r, f_lim_r = (_fecha_tt(dg, ancla, tt_control), _fecha_tt(dg, ancla, tt_limite)) if ancla is not None else (None, None)
+    f_ctl_r, f_lim_r = (_fecha_tt(dgv, ancla, tt_control), _fecha_tt(dgv, ancla, tt_limite)) if ancla is not None else (None, None)
     tt_r = float(dg[(dg.index >= ancla) & (dg.index <= emision)].sum()) if ancla is not None else None
     fmt_f = lambda d: pd.Timestamp(d).strftime("%d/%m/%Y") if d is not None and not pd.isna(d) else ""  # noqa: E731
     resumen = pd.DataFrame({"Indicador": [
@@ -561,7 +601,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         "Valor": [
         f"{localidad} (Buenos Aires)", pd.Timestamp.now().strftime("%d/%m/%Y %H:%M"), fmt_f(emision), NOMBRE[nivel], round(100 * p, 1),
         INFO[r["nivel_info"]], fmt_f(ancla), ancla_txt or "sin inicio", round(tt_r, 1) if tt_r is not None else "",
-        fmt_f(f_ctl_r), fmt_f(f_lim_r) if f_lim_r is not None else ("fuera del clima disponible" if f_ctl_r is not None else ""),
+        fmt_f(f_ctl_r) + (" (estimada con clima medio)" if f_ctl_r is not None and f_ctl_r > ult_tt else ""),
+        fmt_f(f_lim_r) + (" (estimada con clima medio)" if f_lim_r is not None and f_lim_r > ult_tt else ""),
         round(100 * hoy["media"], 1), f"{100 * hoy['p10']:.0f}–{100 * hoy['p90']:.0f}",
         round(100 * r["senales"]["cal"], 2), round(100 * r["senales"]["lluvia"], 2),
         int((conteos["Fecha"] <= emision).sum()) if conteos is not None else 0, fmt_f(r["primeras_plantulas"]),
@@ -587,8 +628,10 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     curva_out = cv.assign(**{"Emergencia acumulada media (%)": (100 * cv["media"]).round(2), _lo: (100 * cv["p10"]).round(2),
                              _hi: (100 * cv["p90"]).round(2)})[["Fecha", "Emergencia acumulada media (%)", _lo, _hi]]
     if ancla is not None:
-        dd = dg[dg.index >= ancla]
-        tt_out = pd.DataFrame({"Fecha": dd.index, "TT diario (°Cd)": dd.values.round(2), "TT acumulado desde el inicio (°Cd)": dd.cumsum().values.round(1)})
+        dd = dgv[(dgv.index >= ancla) & (dgv.index <= max(f_lim_r if f_lim_r is not None else ult_tt, ult_tt))]
+        tt_out = pd.DataFrame({"Fecha": dd.index, "TT diario (°Cd)": dd.values.round(2), "TT acumulado desde el inicio (°Cd)": dd.cumsum().values.round(1),
+                               "Origen": np.where(dd.index <= min(emision, ult_tt), "clima registrado",
+                                                  np.where(dd.index <= ult_tt, "pronóstico", "clima medio"))})
         tt_out["Etapa"] = np.where(tt_out["TT acumulado desde el inicio (°Cd)"] < tt_control, "antes de la ventana",
                                    np.where(tt_out["TT acumulado desde el inicio (°Cd)"] <= tt_limite, "ventana de control", "después de la ventana"))
     else:
