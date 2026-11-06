@@ -2374,60 +2374,104 @@
  },
  "fuente": "Calibrado con 17 campañas de Lolium multiflorum sin remoción: 2015, 2017–2022 y 2026 (conteos semanales del ensayo de Bordenave) y 2008–2014, 2023 y 2024 (curvas históricas de PREDWEEM agregadas por semana; lluvia ERA5 en 2023–2024). 386 semanas, 97 flushes (≥ 5 % de la campaña en 7 días). Validación dejando cada campaña afuera.",
  "tardia": {
-  "descripcion": "Probabilidad de emergencia tardía: que en los próximos 7 días emerja al menos 2 % de la emergencia de la campaña. Se calcula del 1/05 al 1/07 recalibrando la probabilidad de flush: logit(p_tardía) = a + b·logit(p_flush), con a y b por nivel de información (1 solo clima, 2 + primeras plántulas, 3 + conteos).",
+  "descripcion": "Probabilidad de emergencia tardía: que en los próximos 7 días emerja al menos 2 % de la emergencia de la campaña. Se calcula del 1/05 al 1/10 recalibrando la probabilidad de flush: logit(p_tardía) = a + b·logit(p_flush), con a y b por nivel de información (1 solo clima, 2 + primeras plántulas, 3 + conteos).",
   "coef": {
    "1": [
-    1.0372905086548072,
-    0.9320759772925631
+    1.226904516739888,
+    1.0843625913147314
    ],
    "2": [
-    2.523383117831562,
-    1.615927402953704
+    1.7321559420233072,
+    1.1855603011714746
    ],
    "3": [
-    3.467831846273555,
-    2.0025970611818247
+    2.6000039711933915,
+    1.5074722654258976
    ]
   },
   "umbral": 0.2,
   "validacion_bordenave": {
    "Solo clima": {
-    "auc": 0.6,
-    "det": 0.76,
-    "marcadas": 0.78
+    "auc": 0.66,
+    "det": 0.68,
+    "marcadas": 0.54
    },
    "+ fecha de primeras plántulas": {
-    "auc": 0.78,
-    "det": 0.86,
-    "marcadas": 0.6
+    "auc": 0.76,
+    "det": 0.81,
+    "marcadas": 0.48
    },
    "+ conteos semanales": {
-    "auc": 0.87,
-    "det": 0.83,
-    "marcadas": 0.47
+    "auc": 0.83,
+    "det": 0.77,
+    "marcadas": 0.4
    }
   },
   "validacion_otras": {
    "+ fecha de primeras plántulas": {
-    "auc": 0.88,
-    "det": 1.0,
-    "marcadas": 0.46
+    "auc": 0.92,
+    "det": 0.92,
+    "marcadas": 0.3
    },
    "+ conteos": {
     "auc": 0.93,
-    "det": 0.9,
-    "marcadas": 0.39
+    "det": 0.83,
+    "marcadas": 0.27
    }
   },
-  "fuente": "17 campañas de Bordenave, semanas del 1/05 al 1/07 (132 semanas, 42 con ≥ 2 %), cada campaña predicha con el ajuste sin ella; verificado en Lartigau, Tres Arroyos, Azul, Olavarría, Balcarce y Pergamino (59 intervalos entre conteos, 10 con ≥ 2 % por semana).",
+  "fuente": "17 campañas de Bordenave, semanas del 1/05 al 1/10 (210 semanas, 53 con ≥ 2 %), cada campaña predicha con el ajuste sin ella; verificado en Lartigau, Tres Arroyos, Azul, Olavarría, Balcarce y Pergamino (112 intervalos entre conteos, 12 con ≥ 2 % por semana).",
   "desde": [
    5,
    1
   ],
   "hasta": [
-   7,
+   10,
    1
-  ]
+  ],
+  "validacion_bordenave_tramos": {
+   "Solo clima": {
+    "may-jun": {
+     "n": 130,
+     "pos": 42,
+     "det": 0.76,
+     "marcadas": 0.67
+    },
+    "jul-sep": {
+     "n": 80,
+     "pos": 11,
+     "det": 0.36,
+     "marcadas": 0.32
+    }
+   },
+   "+ fecha de primeras plántulas": {
+    "may-jun": {
+     "n": 130,
+     "pos": 42,
+     "det": 0.98,
+     "marcadas": 0.69
+    },
+    "jul-sep": {
+     "n": 80,
+     "pos": 11,
+     "det": 0.18,
+     "marcadas": 0.14
+    }
+   },
+   "+ conteos semanales": {
+    "may-jun": {
+     "n": 130,
+     "pos": 42,
+     "det": 0.9,
+     "marcadas": 0.57
+    },
+    "jul-sep": {
+     "n": 80,
+     "pos": 11,
+     "det": 0.27,
+     "marcadas": 0.11
+    }
+   }
+  }
  },
  "curva_tt": {
   "descripcion": "Emergencia acumulada (fracción de la campaña) en función del tiempo térmico desde las primeras plántulas (°Cd, base 2, óptima 20, crítica 30 °C). Media y percentiles 10–90 de 17 campañas de Bordenave. A 0 °Cd ya emergió en promedio la fracción vista al detectar las primeras plántulas.",

@@ -577,7 +577,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         tv = modelo.p.get("tardia")
         if tv:
             st.markdown(
-                "**Flujos tardíos (ventana de siembra, 1/05–1/07).** Probabilidad de que en los próximos 7 días emerja al menos "
+                "**Flujos tardíos (ventana de siembra, 1/05–1/10).** Probabilidad de que en los próximos 7 días emerja al menos "
                 f"2 % de la campaña; aviso desde {al.UMBRAL_TARDIA:.0%}. Es la misma alerta recalibrada para esa época, en la que los "
                 "grandes flujos (≥ 5 %) son raros pero pocas plantas por semana importan para decidir la fecha de siembra.\n\n"
                 "| Información | AUC Bordenave | Detectadas | Semanas marcadas | AUC otras localidades | Detectadas | Marcadas |\n|---|---|---|---|---|---|---|\n"
@@ -611,7 +611,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         fmt_f(inicio_predicho)]})
     resumen = pd.concat([resumen, pd.DataFrame({"Indicador": ["Probabilidad de flujo tardío (≥ 2 % de la campaña en 7 días, %)",
                                                               "Aviso de flujo tardío (ventana de siembra)"],
-                                                "Valor": [round(100 * pt, 1) if pt is not None else "fuera de la ventana de siembra (1/05–1/07)",
+                                                "Valor": [round(100 * pt, 1) if pt is not None else "fuera de la ventana de siembra (1/05–1/10)",
                                                           ("probable" if pt >= al.UMBRAL_TARDIA else "poco probable") if pt is not None else ""]})],
                         ignore_index=True)
     if agotamiento:
@@ -645,7 +645,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         "Temperatura base (°C)", "Temperatura óptima (°C)", "Temperatura crítica (°C)", "TT de control (°Cd)", "TT límite (°Cd)",
         "Calibración"], "Valor": [
         100 * al.ATENCION, 100 * al.ALERTA, "≥ 5 % de la emergencia de la campaña en 7 días", 7,
-        100 * al.UMBRAL_TARDIA, "≥ 2 % de la emergencia de la campaña en 7 días, del 1/05 al 1/07",
+        100 * al.UMBRAL_TARDIA, "≥ 2 % de la emergencia de la campaña en 7 días, del 1/05 al 1/10",
         t_base, t_opt, t_crit, tt_control, tt_limite, modelo.p.get("fuente", "")]})
     val = pd.DataFrame([{"Información disponible": k, "AUC": d["auc"], "Grandes flujos detectados con Alerta (%)": round(100 * d["det_at"], 1),
                          "Semanas marcadas con Alerta (%)": round(100 * d["vis_at"], 1)} for k, d in modelo.p.get("validacion", {}).items()])
