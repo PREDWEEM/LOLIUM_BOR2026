@@ -118,25 +118,25 @@ medias históricas. Error medio de la emergencia acumulada en las fechas de cont
 Mejora sobre todo donde la fecha de inicio varía mucho entre años. En Tres Arroyos y Balcarce sigue el calendario propio
 del sitio (error 6,1 y 6,9 puntos) y en Azul el calendario de Bordenave (5,3 contra 15,8 en su única campaña).
 
-## Aviso de flujos tardíos (ventana de siembra)
+## Aviso de flujos tardíos
 
-Del 1 de mayo al 1 de julio la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días
+Del 1 de mayo al 1 de octubre la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días
 emerja al menos 2 % de la campaña, con aviso desde 20 %. En esa época los grandes flujos (≥ 5 %) son raros, pero pocas plantas
 por semana importan para decidir la fecha de siembra. Es la misma alerta recalibrada por nivel de información (`tardia`
 en `alerta_lolmu_params.json`). Aparece en un recuadro debajo de la alerta, en el **semáforo
 semanal** del gráfico (fila «Flujos tardíos»: violeta fuerte = flujo tardío probable; la fila «Grandes flujos» repite el nivel de cada semana) y en
 la descarga en Excel.
 
-| Información | AUC Bordenave (17 campañas, 132 semanas, 42 con ≥ 2 %) | Detectadas con el aviso | Semanas marcadas |
-|---|---|---|---|
-| Solo clima | 0,60 | 76 % | 78 % |
-| + primeras plántulas | 0,78 | 86 % | 60 % |
-| + conteos semanales | 0,87 | 83 % | 47 % |
+| Información | AUC Bordenave (17 campañas, 210 semanas, 53 con ≥ 2 %) | Detectadas con el aviso | Semanas marcadas | Detectadas mayo–junio | Detectadas julio–septiembre |
+|---|---|---|---|---|---|
+| Solo clima | 0,66 | 68 % | 54 % | 76 % | 36 % |
+| + primeras plántulas | 0,76 | 81 % | 48 % | 98 % | 18 % |
+| + conteos semanales | 0,83 | 77 % | 40 % | 90 % | 27 % |
 
-Cada campaña se predijo con el ajuste sin ella. En otras seis localidades (59 intervalos del 1/05 al 1/07, 10 con ≥ 2 %
-por semana) la AUC fue 0,88 con primeras plántulas y 0,93 con conteos, con 100 % y 90 % de detección; allí la probabilidad
-tiende a ser alta (25 % en promedio contra 17 % observado). Solo con clima el aviso marca casi todas las semanas: conviene
-usarlo con la fecha de primeras plántulas o con conteos.
+Cada campaña se predijo con el ajuste sin ella. En otras seis localidades (112 intervalos del 1/05 al 1/10, 12 con ≥ 2 %
+por semana) la AUC fue 0,92 con primeras plántulas y 0,93 con conteos, con 92 % y 83 % de detección. De julio a septiembre
+los flujos tardíos son pocos (11 de 80 semanas en Bordenave) y el aviso detecta solo una parte: en esos meses conviene
+confirmarlo con conteos.
 
 ## Datos de la campaña 2026
 
