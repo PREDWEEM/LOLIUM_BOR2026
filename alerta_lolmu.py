@@ -135,6 +135,20 @@ def limites_ventana_siembra(anio: int, modelo: "AlertaLolmu | None" = None) -> t
     return pd.Timestamp(anio, m0, d0), pd.Timestamp(anio, m1, d1)
 
 
+def umbral_tardia(fecha: pd.Timestamp, nivel_info: int = 1, modelo: "AlertaLolmu | None" = None) -> float:
+    """Umbral del aviso de flujo tardío para una fecha y nivel de información.
+
+    Por defecto ``tardia.umbral`` (20 %); los tramos de ``tardia.umbral_tramos`` ([mes, día] inclusive y niveles de
+    información) lo reemplazan: del 1/07 al 1/10, con primeras plántulas o conteos, 10 %.
+    """
+    t = (modelo or AlertaLolmu()).p.get("tardia") or {}
+    f = pd.Timestamp(fecha)
+    for tr in t.get("umbral_tramos", []):
+        if tuple(tr["desde"]) <= (f.month, f.day) <= tuple(tr["hasta"]) and int(nivel_info) in tr.get("niveles", [1, 2, 3]):
+            return float(tr["umbral"])
+    return float(t.get("umbral", UMBRAL_TARDIA))
+
+
 class AlertaLolmu:
     def __init__(self, path: str | Path = PARAMS_FILE):
         self.p = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -300,7 +314,7 @@ def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd
             p_tardia = min(p_tardia, TOPE_CERO) if p_tardia is not None else None
             nivel_alerta, tope = nivel_de(p), False
     return {"fecha": fecha, "nivel_info": nivel, "probabilidad": p, "probabilidad_clima": p_clima, "nivel": nivel_alerta, "tope_aplicado": tope,
-            "probabilidad_tardia": p_tardia,
+            "probabilidad_tardia": p_tardia, "umbral_tardia": umbral_tardia(fecha, nivel, modelo),
             "cero_reciente": cero_reciente, "senales": senales,
             "primeras_plantulas": pd.Timestamp(primeras_plantulas) if iniciada else None}
 
