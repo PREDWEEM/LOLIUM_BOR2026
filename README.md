@@ -122,7 +122,7 @@ del sitio (error 6,1 y 6,9 puntos) y en Azul el calendario de Bordenave (5,3 con
 
 Del 1 de mayo al 1 de octubre la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días
 emerja al menos 2 % de la campaña. El aviso se da desde 20 %; **del 1/07 al 1/10, con fecha de primeras plántulas o conteos,
-desde 12,5 %** (`tardia.umbral_tramos`), porque en esos meses los flujos tardíos son pocos y con 20 % se perdía la mayoría.
+desde 10 %** (`tardia.umbral_tramos`), porque en esos meses los flujos tardíos son pocos y con 20 % se perdía la mayoría.
 En esa época los grandes flujos (≥ 5 %) son raros, pero pocas plantas por semana importan para decidir la fecha de siembra.
 Es la misma alerta recalibrada por nivel de información (`tardia` en `alerta_lolmu_params.json`). Aparece en un recuadro
 debajo de la alerta, en el **semáforo semanal** del gráfico (fila «Flujos tardíos»: violeta fuerte = flujo tardío probable;
@@ -131,11 +131,11 @@ la fila «Grandes flujos» repite el nivel de cada semana) y en la descarga en E
 | Información | AUC Bordenave (17 campañas, 210 semanas, 53 con ≥ 2 %) | Detectadas con el aviso | Semanas marcadas | Detectadas mayo–junio | Detectadas julio–septiembre |
 |---|---|---|---|---|---|
 | Solo clima | 0,66 | 68 % | 54 % | 76 % | 36 % |
-| + primeras plántulas | 0,76 | 85 % | 54 % | 98 % | 36 % |
-| + conteos semanales | 0,83 | 81 % | 47 % | 90 % | 45 % |
+| + primeras plántulas | 0,76 | 89 % | 60 % | 98 % | 55 % |
+| + conteos semanales | 0,83 | 83 % | 49 % | 90 % | 55 % |
 
-Cada campaña se predijo con el ajuste sin ella. Con 12,5 % de julio a septiembre la detección en esos meses pasa de
-18–27 % a 36–45 %, marcando 30 % de esas semanas; son solo 11 semanas con flujo tardío en 17 campañas, así que conviene
+Cada campaña se predijo con el ajuste sin ella. Con 10 % de julio a septiembre la detección en esos meses pasa de
+18–27 % a 55 %, marcando 36–45 % de esas semanas (uno de cada cinco avisos acierta); son solo 11 semanas con flujo tardío en 17 campañas, así que conviene
 confirmar el aviso con conteos. En otras seis localidades (112 intervalos del 1/05 al 1/10, 12 con ≥ 2 % por semana) la AUC
 fue 0,92 con primeras plántulas y 0,93 con conteos, con 100 % y 92 % de detección.
 
