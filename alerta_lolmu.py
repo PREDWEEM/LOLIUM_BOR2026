@@ -24,7 +24,7 @@ from scipy.special import gammainc
 
 PARAMS_FILE = Path(__file__).with_name("alerta_lolmu_params.json")
 ATENCION, ALERTA = 0.15, 0.25
-UMBRAL_TARDIA = 0.20  # aviso de emergencia tardía (≥ 2 % de la campaña en 7 días), en la ventana de siembra (1/05–1/10)
+UMBRAL_TARDIA = 0.20  # aviso de emergencia tardía (≥ 2 % de la campaña en 7 días), del 1/05 al 1/10
 HORIZONTE_DIAS = 7  # semana de la alerta
 TOPE_CERO = 0.14  # con un conteo reciente en cero y sin plántulas, la probabilidad queda debajo de Atención
 
@@ -122,7 +122,7 @@ def senal_conteos(conteos: pd.DataFrame | None, fecha: pd.Timestamp) -> tuple[fl
 
 
 def ventana_siembra(fecha: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> bool:
-    """True si ``fecha`` cae en la ventana de siembra del aviso de emergencia tardía (por defecto, 1/05–1/10 inclusive)."""
+    """True si ``fecha`` cae en el período del aviso de emergencia tardía (por defecto, 1/05–1/10 inclusive)."""
     t = (modelo or AlertaLolmu()).p.get("tardia") or {}
     (m0, d0), (m1, d1) = t.get("desde", [5, 1]), t.get("hasta", [10, 1])
     f = pd.Timestamp(fecha)
@@ -147,7 +147,7 @@ class AlertaLolmu:
     def probabilidad_tardia(self, p_flush: float, nivel: int, fecha: pd.Timestamp) -> float | None:
         """Probabilidad de que en los próximos 7 días emerja ≥ 2 % de la campaña (emergencia tardía).
 
-        Solo dentro de la ventana de siembra (``desde``–``hasta``, [mes, día]; 1/05–1/10); fuera de ella devuelve None.
+        Solo dentro del período de flujos tardíos (``desde``–``hasta``, [mes, día]; 1/05–1/10); fuera de ella devuelve None.
         Recalibra la probabilidad de flush con logit(p) = a + b·logit(p_flush), con a y b por nivel de información.
         """
         t = self.p.get("tardia")

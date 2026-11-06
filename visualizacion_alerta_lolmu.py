@@ -289,7 +289,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         st.markdown(
             f"<div style='background:{'#6d28d9' if tardia_si else '#ede9fe'};color:{'white' if tardia_si else '#3b0764'};"
             "padding:0.75rem 1.1rem;border-radius:0.6rem;margin:-0.3rem 0 0.8rem 0;font-size:1.0rem'>"
-            f"🌾 <b>Ventana de siembra · {'Flujo tardío probable' if tardia_si else 'Flujo tardío poco probable'}</b> · "
+            f"🌾 <b>Flujos tardíos · {'Flujo tardío probable' if tardia_si else 'Flujo tardío poco probable'}</b> · "
             f"probabilidad de un flujo tardío (≥ 2 % de la campaña) en los próximos 7 días: <b>{pt:.0%}</b> "
             f"(aviso desde {al.UMBRAL_TARDIA:.0%}). "
             + ("Antes de definir la fecha de siembra, conviene recorrer el lote: puede haber una cohorte tardía por controlar."
@@ -431,12 +431,12 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                              text=[f"{100 * p:.0f} %"], textposition="top center", textfont=dict(size=11, color=COLOR[nivel]),
                              hovertemplate=f"Próximos 7 días ({emision:%d/%m}–{fin_prox:%d/%m}): %{{y:.0f}} % · {NOMBRE[nivel]}<extra></extra>"),
                   row=1, col=1)
-    # semáforo semanal: una fila para el flush de la campaña y otra para la emergencia tardía (ventana de siembra); una
+    # semáforo semanal: una fila para el flush de la campaña y otra para la emergencia tardía (1/05–1/10); una
     # celda por semana (de la emisión a 7 días después) y, con borde punteado, la de los próximos 7 días
     v0, v1 = al.limites_ventana_siembra(anio, modelo)
     fig.add_shape(type="rect", x0=v0, x1=v1 + pd.Timedelta(days=1), y0=0.02, y1=0.98, fillcolor="#f5f3ff", line_width=0, layer="below", row=2, col=1)
     fig.add_annotation(x=v0, y=0.5, xref="x2", yref="y2", showarrow=False, xanchor="right", font=dict(size=10, color="#6d28d9"),
-                       text="ventana de siembra →" if emision < v0 else "")
+                       text="flujos tardíos →" if emision < v0 else "")
     hx, hy, ht = [], [], []
 
     def _celda(x0, x1, fila, color, texto, futura=False):
@@ -577,7 +577,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         tv = modelo.p.get("tardia")
         if tv:
             st.markdown(
-                "**Flujos tardíos (ventana de siembra, 1/05–1/10).** Probabilidad de que en los próximos 7 días emerja al menos "
+                "**Flujos tardíos (1/05–1/10).** Probabilidad de que en los próximos 7 días emerja al menos "
                 f"2 % de la campaña; aviso desde {al.UMBRAL_TARDIA:.0%}. Es la misma alerta recalibrada para esa época, en la que los "
                 "grandes flujos (≥ 5 %) son raros pero pocas plantas por semana importan para decidir la fecha de siembra.\n\n"
                 "| Información | AUC Bordenave | Detectadas | Semanas marcadas | AUC otras localidades | Detectadas | Marcadas |\n|---|---|---|---|---|---|---|\n"
@@ -610,8 +610,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         int((conteos["Fecha"] <= emision).sum()) if conteos is not None else 0, fmt_f(r["primeras_plantulas"]),
         fmt_f(inicio_predicho)]})
     resumen = pd.concat([resumen, pd.DataFrame({"Indicador": ["Probabilidad de flujo tardío (≥ 2 % de la campaña en 7 días, %)",
-                                                              "Aviso de flujo tardío (ventana de siembra)"],
-                                                "Valor": [round(100 * pt, 1) if pt is not None else "fuera de la ventana de siembra (1/05–1/10)",
+                                                              "Aviso de flujo tardío (1/05–1/10)"],
+                                                "Valor": [round(100 * pt, 1) if pt is not None else "fuera del período de flujos tardíos (1/05–1/10)",
                                                           ("probable" if pt >= al.UMBRAL_TARDIA else "poco probable") if pt is not None else ""]})],
                         ignore_index=True)
     if agotamiento:

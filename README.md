@@ -118,7 +118,7 @@ medias históricas. Error medio de la emergencia acumulada en las fechas de cont
 Mejora sobre todo donde la fecha de inicio varía mucho entre años. En Tres Arroyos y Balcarce sigue el calendario propio
 del sitio (error 6,1 y 6,9 puntos) y en Azul el calendario de Bordenave (5,3 contra 15,8 en su única campaña).
 
-## Aviso de flujos tardíos (ventana de siembra)
+## Aviso de flujos tardíos
 
 Del 1 de mayo al 1 de octubre la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días
 emerja al menos 2 % de la campaña, con aviso desde 20 %. En esa época los grandes flujos (≥ 5 %) son raros, pero pocas plantas
