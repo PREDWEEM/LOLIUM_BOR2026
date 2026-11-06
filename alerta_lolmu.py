@@ -139,7 +139,7 @@ def umbral_tardia(fecha: pd.Timestamp, nivel_info: int = 1, modelo: "AlertaLolmu
     """Umbral del aviso de flujo tardío para una fecha y nivel de información.
 
     Por defecto ``tardia.umbral`` (20 %); los tramos de ``tardia.umbral_tramos`` ([mes, día] inclusive y niveles de
-    información) lo reemplazan: del 1/07 al 1/10, con primeras plántulas o conteos, 15 %.
+    información) lo reemplazan: del 1/07 al 1/10, con primeras plántulas o conteos, 10 %.
     """
     t = (modelo or AlertaLolmu()).p.get("tardia") or {}
     f = pd.Timestamp(fecha)

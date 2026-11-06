@@ -112,7 +112,7 @@ def _tt_ventana(meteo: pd.DataFrame, dg: pd.Series, emision: pd.Timestamp, model
 
 
 def _pct(u: float) -> str:
-    """20 % / 15 %."""
+    """20 % / 10 %."""
     return f"{100 * u:g} %".replace(".", ",")
 
 
@@ -587,7 +587,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         if tv:
             st.markdown(
                 "**Flujos tardíos (1/05–1/10).** Probabilidad de que en los próximos 7 días emerja al menos "
-                f"2 % de la campaña; aviso desde {al.UMBRAL_TARDIA:.0%} (del 1/07 al 1/10, con fecha de primeras plántulas o conteos, desde 15 %: "
+                f"2 % de la campaña; aviso desde {al.UMBRAL_TARDIA:.0%} (del 1/07 al 1/10, con fecha de primeras plántulas o conteos, desde 10 %: "
                 "en esos meses los flujos tardíos son pocos y con 20 % se perdía la mayoría). Es la misma alerta recalibrada para esa época, en la que los "
                 "grandes flujos (≥ 5 %) son raros pero pocas plantas por semana importan para decidir la fecha de siembra.\n\n"
                 "| Información | AUC Bordenave | Detectadas | Semanas marcadas | AUC otras localidades | Detectadas | Marcadas |\n|---|---|---|---|---|---|---|\n"
@@ -655,7 +655,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         "Temperatura base (°C)", "Temperatura óptima (°C)", "Temperatura crítica (°C)", "TT de control (°Cd)", "TT límite (°Cd)",
         "Calibración"], "Valor": [
         100 * al.ATENCION, 100 * al.ALERTA, "≥ 5 % de la emergencia de la campaña en 7 días", 7,
-        f"{100 * al.UMBRAL_TARDIA:g} (15 del 1/07 al 1/10 con primeras plántulas o conteos)", "≥ 2 % de la emergencia de la campaña en 7 días, del 1/05 al 1/10",
+        f"{100 * al.UMBRAL_TARDIA:g} (10 del 1/07 al 1/10 con primeras plántulas o conteos)", "≥ 2 % de la emergencia de la campaña en 7 días, del 1/05 al 1/10",
         t_base, t_opt, t_crit, tt_control, tt_limite, modelo.p.get("fuente", "")]})
     val = pd.DataFrame([{"Información disponible": k, "AUC": d["auc"], "Grandes flujos detectados con Alerta (%)": round(100 * d["det_at"], 1),
                          "Semanas marcadas con Alerta (%)": round(100 * d["vis_at"], 1)} for k, d in modelo.p.get("validacion", {}).items()])
