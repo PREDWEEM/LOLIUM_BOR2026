@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import urllib.parse
 import urllib.request
 
@@ -71,8 +72,24 @@ def emails_aprobados_desde_csv(texto: str) -> set[str]:
     return aprobados
 
 
+def url_descarga_csv(url: str) -> str:
+    """Convierte el enlace normal de una planilla (…/d/<ID>/edit…#gid=N) al CSV de su pestaña.
+
+    Ese CSV se sirve directo desde docs.google.com (sin pasar por googleusercontent.com) y requiere que
+    la planilla esté compartida como «Cualquier persona con el enlace: Lector». Los enlaces publicados
+    (…/d/e/…/pub?…output=csv) se dejan como están.
+    """
+    m = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]{20,})", url)
+    if not m or "/d/e/" in url:
+        return url
+    gid = re.search(r"[#&?]gid=(\d+)", url)
+    destino = f"https://docs.google.com/spreadsheets/d/{m.group(1)}/gviz/tq?tqx=out:csv"
+    return destino + (f"&gid={gid.group(1)}" if gid else "")
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _leer_planilla(url: str) -> set[str]:
+    url = url_descarga_csv(url)
     pedido = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
         "Accept": "text/csv,text/plain,*/*",
