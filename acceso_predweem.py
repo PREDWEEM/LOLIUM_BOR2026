@@ -77,20 +77,20 @@ def _leer_planilla(url: str) -> set[str]:
         return emails_aprobados_desde_csv(respuesta.read().decode("utf-8", errors="replace"))
 
 
-def _aprobados(cfg: dict) -> tuple[set[str], bool]:
-    """Devuelve (emails habilitados, planilla_leida_ok)."""
+def _aprobados(cfg: dict) -> tuple[set[str], list[int], int]:
+    """Devuelve (emails habilitados, números de lista que no se pudieron leer, cantidad de listas)."""
     emails = {str(e).strip().lower() for e in cfg.get("administradores", [])}
     emails |= {str(e).strip().lower() for e in cfg.get("emails", [])}
     urls = cfg.get("lista_url", [])
     urls = [urls] if isinstance(urls, str) else list(urls)
     urls = [str(u).strip() for u in urls if str(u).strip()]
-    ok = True
-    for url in urls:
+    fallidas = []
+    for n, url in enumerate(urls, start=1):
         try:
             emails |= _leer_planilla(url)
         except Exception:  # noqa: BLE001
-            ok = False
-    return emails, ok
+            fallidas.append(n)
+    return emails, fallidas, len(urls)
 
 
 def _encabezado(nombre_app: str) -> None:
@@ -128,15 +128,16 @@ def requerir_acceso(nombre_app: str) -> None:
         st.stop()
 
     email = str(st.user.get("email", "")).strip().lower()
-    aprobados, planilla_ok = _aprobados(cfg)
+    aprobados, fallidas, total = _aprobados(cfg)
     if email and email in aprobados:
         return
 
     _encabezado(nombre_app)
     nombre = st.user.get("name") or email
     formulario = str(cfg.get("formulario_url", "")).strip()
-    if not planilla_ok and not aprobados - {str(e).strip().lower() for e in cfg.get("administradores", [])}:
+    if fallidas and len(fallidas) == total:
         st.error("No se pudo verificar la lista de usuarios habilitados. Probá de nuevo en unos minutos.")
+        st.caption(f"Detalle para el administrador: no responde ninguna de las {total} listas de `lista_url`.")
     elif formulario:
         st.warning(f"Hola {nombre}: tu cuenta **{email}** todavía no está habilitada para usar PREDWEEM.")
         st.link_button("Solicitar acceso", formulario, type="primary", icon=":material/how_to_reg:", width="stretch")
@@ -155,6 +156,11 @@ def requerir_acceso(nombre_app: str) -> None:
         enlace = f"mailto:{contacto}?subject={urllib.parse.quote(asunto)}&body={urllib.parse.quote(cuerpo)}"
         st.link_button("Solicitar acceso por email", enlace, type="primary", icon=":material/mail:", width="stretch")
         st.caption(f"La solicitud llega a {contacto}. Cuando se apruebe, volvé a abrir esta página.")
+    if fallidas and len(fallidas) < total:
+        st.caption(
+            "Detalle para el administrador: no se pudo leer la lista n.º "
+            + ", ".join(str(n) for n in fallidas) + f" de las {total} de `lista_url`."
+        )
     st.button("Cerrar sesión", on_click=st.logout)
     st.stop()
 
