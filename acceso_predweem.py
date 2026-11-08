@@ -155,6 +155,11 @@ def requerir_acceso(nombre_app: str) -> None:
     aprobados, fallidas, total = _aprobados(cfg)
     if email and email in aprobados:
         return
+    # Puede haber sido aprobado hace instantes: se vuelve a leer la planilla sin usar la copia guardada.
+    _leer_planilla.clear()
+    aprobados, fallidas, total = _aprobados(cfg)
+    if email and email in aprobados:
+        return
 
     _encabezado(nombre_app)
     nombre = st.user.get("name") or email
