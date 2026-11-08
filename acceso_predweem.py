@@ -18,7 +18,9 @@ Secretos esperados::
     activo = true
     administradores = ["chantreguillermo@gmail.com"]      # siempre habilitados
     lista_url = "https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"  # planilla de aprobados
+    # (o varias: lista_url = ["<planilla manual>", "<respuestas del formulario>"])
     contacto = "chantreguillermo@gmail.com"               # a quién se pide acceso
+    formulario_url = "https://forms.gle/..."              # opcional: formulario de solicitud
 
 La planilla publicada como CSV debe tener una columna ``email``; si además tiene una columna
 ``estado``, solo se habilitan las filas con ``aprobado`` (o ``sí``/``si``/``ok``).
@@ -79,13 +81,16 @@ def _aprobados(cfg: dict) -> tuple[set[str], bool]:
     """Devuelve (emails habilitados, planilla_leida_ok)."""
     emails = {str(e).strip().lower() for e in cfg.get("administradores", [])}
     emails |= {str(e).strip().lower() for e in cfg.get("emails", [])}
-    url = str(cfg.get("lista_url", "")).strip()
-    if not url:
-        return emails, True
-    try:
-        return emails | _leer_planilla(url), True
-    except Exception:  # noqa: BLE001
-        return emails, False
+    urls = cfg.get("lista_url", [])
+    urls = [urls] if isinstance(urls, str) else list(urls)
+    urls = [str(u).strip() for u in urls if str(u).strip()]
+    ok = True
+    for url in urls:
+        try:
+            emails |= _leer_planilla(url)
+        except Exception:  # noqa: BLE001
+            ok = False
+    return emails, ok
 
 
 def _encabezado(nombre_app: str) -> None:
@@ -129,8 +134,16 @@ def requerir_acceso(nombre_app: str) -> None:
 
     _encabezado(nombre_app)
     nombre = st.user.get("name") or email
-    if not planilla_ok:
+    formulario = str(cfg.get("formulario_url", "")).strip()
+    if not planilla_ok and not aprobados - {str(e).strip().lower() for e in cfg.get("administradores", [])}:
         st.error("No se pudo verificar la lista de usuarios habilitados. Probá de nuevo en unos minutos.")
+    elif formulario:
+        st.warning(f"Hola {nombre}: tu cuenta **{email}** todavía no está habilitada para usar PREDWEEM.")
+        st.link_button("Solicitar acceso", formulario, type="primary", icon=":material/how_to_reg:", width="stretch")
+        st.caption(
+            f"Completá el formulario con esta misma cuenta de Google ({email}). "
+            "Cuando se apruebe tu solicitud vas a poder entrar a todas las apps PREDWEEM; volvé a abrir esta página."
+        )
     else:
         st.warning(f"Hola {nombre}: tu cuenta **{email}** todavía no está habilitada para usar PREDWEEM.")
         asunto = f"Solicitud de acceso a PREDWEEM {nombre_app}"
