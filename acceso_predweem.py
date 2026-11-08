@@ -73,8 +73,15 @@ def emails_aprobados_desde_csv(texto: str) -> set[str]:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _leer_planilla(url: str) -> set[str]:
-    with urllib.request.urlopen(url, timeout=15) as respuesta:  # noqa: S310 (URL fija de los secretos)
-        return emails_aprobados_desde_csv(respuesta.read().decode("utf-8", errors="replace"))
+    pedido = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        "Accept": "text/csv,text/plain,*/*",
+    })
+    with urllib.request.urlopen(pedido, timeout=20) as respuesta:  # noqa: S310 (URL fija de los secretos)
+        texto = respuesta.read().decode("utf-8", errors="replace")
+    if texto.lstrip().lower().startswith(("<!doctype", "<html")):
+        raise ValueError("el enlace devolvió una página web, no un CSV (¿falta publicarlo o es el enlace /edit?)")
+    return emails_aprobados_desde_csv(texto)
 
 
 def _aprobados(cfg: dict) -> tuple[set[str], list[int], int]:
@@ -88,8 +95,8 @@ def _aprobados(cfg: dict) -> tuple[set[str], list[int], int]:
     for n, url in enumerate(urls, start=1):
         try:
             emails |= _leer_planilla(url)
-        except Exception:  # noqa: BLE001
-            fallidas.append(n)
+        except Exception as error:  # noqa: BLE001
+            fallidas.append(f"{n} ({type(error).__name__}: {str(error)[:120]})")
     return emails, fallidas, len(urls)
 
 
@@ -137,7 +144,7 @@ def requerir_acceso(nombre_app: str) -> None:
     formulario = str(cfg.get("formulario_url", "")).strip()
     if fallidas and len(fallidas) == total:
         st.error("No se pudo verificar la lista de usuarios habilitados. Probá de nuevo en unos minutos.")
-        st.caption(f"Detalle para el administrador: no responde ninguna de las {total} listas de `lista_url`.")
+        st.caption("Detalle para el administrador: no se pudo leer `lista_url`: " + "; ".join(fallidas))
     elif formulario:
         st.warning(f"Hola {nombre}: tu cuenta **{email}** todavía no está habilitada para usar PREDWEEM.")
         st.link_button("Solicitar acceso", formulario, type="primary", icon=":material/how_to_reg:", width="stretch")
@@ -159,7 +166,7 @@ def requerir_acceso(nombre_app: str) -> None:
     if fallidas and len(fallidas) < total:
         st.caption(
             "Detalle para el administrador: no se pudo leer la lista n.º "
-            + ", ".join(str(n) for n in fallidas) + f" de las {total} de `lista_url`."
+            + "; ".join(fallidas) + f" (de {total} en `lista_url`)."
         )
     st.button("Cerrar sesión", on_click=st.logout)
     st.stop()
