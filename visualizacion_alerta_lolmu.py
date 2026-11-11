@@ -316,9 +316,10 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     clima = al.limpiar_clima(meteo)
     dg = al.tiempo_termico(clima, **tt)
     dgv, ult_tt = _tt_ventana(meteo, dg, emision, modelo, localidad)  # ventana de control: clima conocido + clima medio
-    ancla, ancla_txt = (r["primeras_plantulas"], "primeras plántulas observadas") if r["primeras_plantulas"] is not None else (
-        (pd.Timestamp(inicio_predicho).normalize(), "inicio estimado por PREDWEEM") if inicio_predicho is not None and pd.Timestamp(inicio_predicho) <= emision
-        else (None, None))
+    # la ventana de control se ancla solo en las primeras plántulas observadas: ninguna regla climática estimó el inicio con
+    # precisión suficiente (error medio de 10–20 días, del orden del ancho de la ventana), así que no se usa un inicio estimado
+    # (``inicio_predicho`` se acepta por compatibilidad y se ignora)
+    ancla, ancla_txt = (r["primeras_plantulas"], "primeras plántulas observadas") if r["primeras_plantulas"] is not None else (None, None)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Probabilidad de gran flujo (7 días)", f"{p:.0%}", help="Tasa histórica: ~25 % de las semanas de campaña."
               + (f" Conteo en cero el {r['cero_reciente']:%d/%m}: semana ya pasada sin plántulas: 0 % (por clima {r['probabilidad_clima']:.0%})."
@@ -336,10 +337,12 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                         if f_lim is not None else "")
                        + (f" Las fechas estimadas suman el clima medio desde el {ult_tt + pd.Timedelta(days=1):%d/%m}; se corrigen "
                           "a medida que se carga el clima." if _est(f_lim) else " Alcanzada con el clima registrado.")
-                       + (" · Inicio estimado: informe la fecha de las primeras plántulas para anclarlo." if r["primeras_plantulas"] is None else ""))
+                       )
     else:
-        m3.metric("Tiempo térmico desde el inicio", "—", help="Todavía no hay inicio observado ni estimado.")
-        m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)", "—")
+        m3.metric("Tiempo térmico desde el inicio", "—", help="Informe la fecha de las primeras plántulas para iniciar el reloj térmico.")
+        m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)", "—",
+                  help="Informe la fecha de las primeras plántulas para calcular la ventana de control. El inicio de la emergencia no se "
+                       "estima con el clima: ninguna regla lo predijo con precisión suficiente (error medio de 10–20 días).")
     if r["primeras_plantulas"] is None and emision.month <= 6:
         st.markdown(_texto_muestreo_inicio(meteo, emision, conteos, modelo), unsafe_allow_html=True)
     elif r["primeras_plantulas"] is None:
@@ -595,8 +598,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         st.markdown(
             f"{modelo.p.get('fuente', '')}\n\nCada campaña se predijo con el modelo ajustado sin ella. Las probabilidades están "
             "calibradas (cuando dice ~25 %, el gran flujo ocurrió en ~27 % de las semanas). Como referencia, con las mismas campañas "
-            "el motor PREDWEEM de arriba da AUC ~0,70 para anticipar grandes flujos, pero anticipa bien la primera cohorte, por eso se "
-            "usa como inicio estimado del reloj térmico hasta que se informan las primeras plántulas.\n\n"
+            "el motor PREDWEEM de arriba da AUC ~0,70 para anticipar grandes flujos, y su primer pico erró el inicio de la emergencia en "
+            "17–20 días en promedio (31 campañas): por eso el reloj térmico y la ventana de control se anclan solo en las primeras "
+            "plántulas observadas.\n\n"
             "**Límites.** Un sitio y lotes sin labranza. La fecha de primeras plántulas mejora la alerta (AUC +0,07 sobre el clima "
             "solo) y los conteos semanales algo más (+0,10). La señal de lluvia usa el modelo de pulsos ajustado a estas campañas "
             "de Lolium; frente al calendario aporta poco por sí sola, más cuando se combina con la fecha de primeras plántulas.")
@@ -627,16 +631,15 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         f"Fecha de control post-emergente ({tt_control:.0f} °Cd)", f"Fecha límite de la ventana ({tt_limite:.0f} °Cd)",
         "Emergencia acumulada esperada a la fecha (%)", f"Rango {rango_txt} de la emergencia acumulada (%)",
         "Señal de calendario (emergencia esperada en 7 días, %)", "Señal de lluvia (respuesta relativa, %)",
-        "Conteos usados (fechas)", "Primeras plántulas informadas", "Inicio estimado por PREDWEEM"],
+        "Conteos usados (fechas)", "Primeras plántulas informadas"],
         "Valor": [
         f"{localidad} (Buenos Aires)", pd.Timestamp.now().strftime("%d/%m/%Y %H:%M"), fmt_f(emision), NOMBRE[nivel], round(100 * p, 1),
-        INFO[r["nivel_info"]], fmt_f(ancla), ancla_txt or "sin inicio", round(tt_r, 1) if tt_r is not None else "",
+        INFO[r["nivel_info"]], fmt_f(ancla), ancla_txt or "sin primeras plántulas: la ventana de control no se calcula", round(tt_r, 1) if tt_r is not None else "",
         fmt_f(f_ctl_r) + (" (estimada con clima medio)" if f_ctl_r is not None and f_ctl_r > ult_tt else ""),
         fmt_f(f_lim_r) + (" (estimada con clima medio)" if f_lim_r is not None and f_lim_r > ult_tt else ""),
         round(100 * hoy["media"], 1), f"{100 * hoy['p10']:.0f}–{100 * hoy['p90']:.0f}",
         round(100 * r["senales"]["cal"], 2), round(100 * r["senales"]["lluvia"], 2),
-        int((conteos["Fecha"] <= emision).sum()) if conteos is not None else 0, fmt_f(r["primeras_plantulas"]),
-        fmt_f(inicio_predicho)]})
+        int((conteos["Fecha"] <= emision).sum()) if conteos is not None else 0, fmt_f(r["primeras_plantulas"])]})
     resumen = pd.concat([resumen, pd.DataFrame({"Indicador": ["Probabilidad de flujo tardío (≥ 2 % de la campaña en 7 días, %)",
                                                               "Aviso de flujo tardío (1/05–30/06; del 1/07 al 1/10, recorrida cada 2 semanas)"],
                                                 "Valor": [round(100 * pt, 1) if pt is not None else ("sin probabilidad: recorrer los lotes cada 2 semanas (1/07–1/10)"
