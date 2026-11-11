@@ -304,6 +304,14 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
             f"{al.limites_ventana_siembra(anio, modelo)[1]:%d/%m}. En esta época los grandes flujos (≥ 5 %) son raros, pero "
             "pocas plantas por semana pueden importar para la fecha de siembra; con conteos semanales el aviso es más preciso.</span></div>",
             unsafe_allow_html=True)
+    elif r.get("recorrida_tardia"):
+        rec = r["recorrida_tardia"]
+        st.markdown(
+            "<div style='background:#ede9fe;color:#3b0764;padding:0.75rem 1.1rem;border-radius:0.6rem;margin:-0.3rem 0 0.8rem 0;font-size:1.0rem'>"
+            f"🌾 <b>Flujos tardíos · Recorrer cada {rec['cada_dias'] // 7} semanas</b> · {rec['texto']}"
+            f"<br><span style='font-size:0.88rem;opacity:0.9'>Del {rec['desde']:%d/%m} al {rec['hasta']:%d/%m} no se muestra una probabilidad de flujo "
+            "tardío: en 17 campañas de Bordenave no distinguió las semanas con emergencia de las demás.</span></div>",
+            unsafe_allow_html=True)
 
     clima = al.limpiar_clima(meteo)
     dg = al.tiempo_termico(clima, **tt)
@@ -440,7 +448,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     # semáforo semanal: una fila para el flush de la campaña y otra para la emergencia tardía (1/05–1/10); una
     # celda por semana (de la emisión a 7 días después) y, con borde punteado, la de los próximos 7 días
     v0, v1 = al.limites_ventana_siembra(anio, modelo)
-    fig.add_shape(type="rect", x0=v0, x1=v1 + pd.Timedelta(days=1), y0=0.02, y1=0.98, fillcolor="#f5f3ff", line_width=0, layer="below", row=2, col=1)
+    _rec = (modelo.p.get("tardia") or {}).get("recorrida")
+    v1b = pd.Timestamp(anio, *_rec["hasta"]) if _rec else v1
+    fig.add_shape(type="rect", x0=v0, x1=v1b + pd.Timedelta(days=1), y0=0.02, y1=0.98, fillcolor="#f5f3ff", line_width=0, layer="below", row=2, col=1)
     fig.add_annotation(x=v0, y=0.5, xref="x2", yref="y2", showarrow=False, xanchor="right", font=dict(size=10, color="#6d28d9"),
                        text="flujos tardíos →" if emision < v0 else "")
     hx, hy, ht = [], [], []
@@ -463,12 +473,16 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         if not pd.isna(vt):
             ut = al.umbral_tardia(f0, ni, modelo)
             _celda(f0, f1, "tardia", tardia_col(vt, ut), f"Semana {sem} · {tardia_nom(vt, ut)} ({100 * vt:.0f} %; aviso desde {_pct(ut)})")
+        elif (_rc := al.recorrida_tardia(f0, modelo)):
+            _celda(f0, f1, "tardia", "#e5e7eb", f"Semana {sem} · flujos tardíos: recorrer cada {_rc['cada_dias'] // 7} semanas (sin probabilidad en invierno)")
     sem = f"{emision:%d/%m}–{fin_prox - pd.Timedelta(days=1):%d/%m}"
     _celda(emision, fin_prox, "flush", COLOR[nivel], f"Próximos 7 días ({sem}) · gran flujo: {NOMBRE[nivel]} ({100 * p:.0f} %)", futura=True)
     if r.get("probabilidad_tardia") is not None:
         vt = r["probabilidad_tardia"]
         ut = r.get("umbral_tardia", al.UMBRAL_TARDIA)
         _celda(emision, fin_prox, "tardia", tardia_col(vt, ut), f"Próximos 7 días ({sem}) · {tardia_nom(vt, ut)} ({100 * vt:.0f} %; aviso desde {_pct(ut)})", futura=True)
+    elif r.get("recorrida_tardia"):
+        _celda(emision, fin_prox, "tardia", "#e5e7eb", f"Próximos 7 días ({sem}) · flujos tardíos: recorrer cada {r['recorrida_tardia']['cada_dias'] // 7} semanas", futura=True)
     fig.add_trace(go.Scatter(x=hx, y=hy, mode="markers", marker=dict(size=16, opacity=0), text=ht, showlegend=False,
                              hovertemplate="%{text}<extra></extra>"), row=2, col=1)
     if conteos is not None and not conteos.empty:
@@ -551,8 +565,10 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                "información disponible ese día (color del punto = nivel); el tramo punteado, a la derecha de la fecha de emisión, es "
                "el pronóstico para los próximos 7 días. Un conteo en cero confirma las semanas que terminaron antes de esa fecha: "
                "esos tramos quedan en 0 %, igual que las semanas que terminaron más de 7 días antes de la fecha de primeras plántulas. En el medio, el semáforo semanal: la fila «Grandes flujos» repite el nivel de cada semana "
-               f"(verde, naranja, rojo) y la fila «Flujos tardíos», solo del {v0:%d/%m} al {v1:%d/%m}, marca en violeta fuerte las semanas con "
-               "flujo tardío probable (≥ 2 % de la campaña); las celdas con borde punteado son los próximos 7 días. Abajo, la "
+               f"(verde, naranja, rojo) y la fila «Flujos tardíos», del {v0:%d/%m} al {v1:%d/%m}, marca en violeta fuerte las semanas con "
+               "flujo tardío probable (≥ 2 % de la campaña)"
+               + (f"; del {v1 + pd.Timedelta(days=1):%d/%m} al {v1b:%d/%m}, en gris, rige la recomendación de recorrer cada 2 semanas" if _rec else "")
+               + "; las celdas con borde punteado son los próximos 7 días. Abajo, la "
                + (f"emergencia acumulada esperada según el tiempo térmico acumulado desde las primeras plántulas ({_prim_tt:%d/%m}): "
                   "curva media y rango 10–90 % de 17 campañas de Bordenave; más allá del clima disponible se usan temperaturas "
                   "medias históricas. Sin fecha de primeras plántulas se usa el calendario. "
@@ -581,20 +597,22 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
             "calibradas (cuando dice ~25 %, el gran flujo ocurrió en ~27 % de las semanas). Como referencia, con las mismas campañas "
             "el motor PREDWEEM de arriba da AUC ~0,70 para anticipar grandes flujos, pero anticipa bien la primera cohorte, por eso se "
             "usa como inicio estimado del reloj térmico hasta que se informan las primeras plántulas.\n\n"
-            "**Límites.** Un sitio y lotes sin labranza. La fecha de primeras plántulas mejora la alerta en forma moderada "
-            "(AUC +0,04); los conteos semanales, en forma más clara (+0,07). No anticipa grandes flujos sin lluvia registrada.")
+            "**Límites.** Un sitio y lotes sin labranza. La fecha de primeras plántulas mejora la alerta (AUC +0,07 sobre el clima "
+            "solo) y los conteos semanales algo más (+0,10). La señal de lluvia usa el modelo de pulsos ajustado a estas campañas "
+            "de Lolium; frente al calendario aporta poco por sí sola, más cuando se combina con la fecha de primeras plántulas.")
         tv = modelo.p.get("tardia")
         if tv:
             st.markdown(
-                "**Flujos tardíos (1/05–1/10).** Probabilidad de que en los próximos 7 días emerja al menos "
-                f"2 % de la campaña; aviso desde {al.UMBRAL_TARDIA:.0%} (del 1/07 al 1/10, con fecha de primeras plántulas o conteos, desde 10 %: "
-                "en esos meses los flujos tardíos son pocos y con 20 % se perdía la mayoría). Es la misma alerta recalibrada para esa época, en la que los "
-                "grandes flujos (≥ 5 %) son raros pero pocas plantas por semana importan para decidir la fecha de siembra.\n\n"
+                "**Flujos tardíos (1/05–30/06).** Probabilidad de que en los próximos 7 días emerja al menos "
+                f"2 % de la campaña; aviso desde {al.UMBRAL_TARDIA:.0%} (25 % sin datos del lote). Es la misma alerta recalibrada para esa época, en la que los "
+                "grandes flujos (≥ 5 %) son raros pero pocas plantas por semana importan para decidir la fecha de siembra. "
+                "Del 1/07 al 1/10 no se da probabilidad: en Bordenave no distinguió las semanas con flujos tardíos (AUC ≤ 0,5), "
+                "así que se recomienda recorrer los lotes cada 2 semanas.\n\n"
                 "| Información | AUC Bordenave | Detectadas | Semanas marcadas | AUC otras localidades | Detectadas | Marcadas |\n|---|---|---|---|---|---|---|\n"
                 + "\n".join(f"| {k} | {d['auc']:.2f} | {d['det']:.0%} | {d['marcadas']:.0%} | "
                              + (f"{o['auc']:.2f} | {o['det']:.0%} | {o['marcadas']:.0%} |" if (o := tv['validacion_otras'].get(k if k != '+ conteos semanales' else '+ conteos')) else "— | — | — |")
                              for k, d in tv["validacion_bordenave"].items())
-                + f"\n\n{tv['fuente']} En las otras localidades la probabilidad tiende a ser alta (promedio 25 % contra 17 % "
+                + f"\n\n{tv['fuente']} En las otras localidades la probabilidad tiende a ser alta (promedio 30 % contra 17 % "
                 "observado): el aviso detecta casi todas las semanas con flujos tardíos, con más falsas alarmas.")
 
     # ---------------------------------------------------------------
@@ -620,8 +638,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         int((conteos["Fecha"] <= emision).sum()) if conteos is not None else 0, fmt_f(r["primeras_plantulas"]),
         fmt_f(inicio_predicho)]})
     resumen = pd.concat([resumen, pd.DataFrame({"Indicador": ["Probabilidad de flujo tardío (≥ 2 % de la campaña en 7 días, %)",
-                                                              "Aviso de flujo tardío (1/05–1/10)"],
-                                                "Valor": [round(100 * pt, 1) if pt is not None else "fuera del período de flujos tardíos (1/05–1/10)",
+                                                              "Aviso de flujo tardío (1/05–30/06; del 1/07 al 1/10, recorrida cada 2 semanas)"],
+                                                "Valor": [round(100 * pt, 1) if pt is not None else ("sin probabilidad: recorrer los lotes cada 2 semanas (1/07–1/10)"
+                                                          if r.get("recorrida_tardia") else "fuera del período de flujos tardíos (1/05–1/10)"),
                                                           ("probable" if pt >= r.get("umbral_tardia", al.UMBRAL_TARDIA) else "poco probable") if pt is not None else ""]})],
                         ignore_index=True)
     if agotamiento:

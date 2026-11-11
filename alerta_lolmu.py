@@ -3,8 +3,9 @@
 
 Señales, todas disponibles a la fecha de emisión:
   * calendario: emergencia esperada en los próximos 7 días según la curva media de 17 campañas de LOLMU;
-  * lluvia: respuesta a las lluvias registradas hasta la fecha (rezago gamma en tiempo térmico de suelo y
-    mayor respuesta sobre suelo seco; sin estacionalidad), con el núcleo del modelo de pulsos de Bordenave;
+  * lluvia: respuesta a las lluvias registradas hasta la fecha (rezago gamma en tiempo térmico de suelo, mayor
+    respuesta sobre suelo seco y tamaño del pulso según la época del año), con el núcleo del modelo de pulsos ajustado
+    con las 17 campañas de Lolium multiflorum de Bordenave;
   * inicio: tiempo térmico desde la fecha en que se vieron las primeras plántulas (si se informó);
   * conteos: fracción de lo contado que emergió en el último intervalo (si hay conteos).
 
@@ -24,14 +25,17 @@ from scipy.special import gammainc
 
 PARAMS_FILE = Path(__file__).with_name("alerta_lolmu_params.json")
 ATENCION, ALERTA = 0.15, 0.25
-UMBRAL_TARDIA = 0.20  # aviso de emergencia tardía (≥ 2 % de la campaña en 7 días), del 1/05 al 1/10
+UMBRAL_TARDIA = 0.20  # aviso de emergencia tardía (≥ 2 % de la campaña en 7 días), del 1/05 al 30/06
 HORIZONTE_DIAS = 7  # semana de la alerta
 TOPE_CERO = 0.14  # con un conteo reciente en cero y sin plántulas, la probabilidad queda debajo de Atención
 
-# balance de agua y temperatura de suelo (5 cm) del modelo de pulsos de Bordenave
+# balance de agua y temperatura de suelo (5 cm) del modelo de pulsos de Bordenave (sin reajustar)
 SUELO = dict(ema_alpha=0.426, ts_a0=3.39, ts_a1=-0.66, W=75.6, k_loss=0.0327, Tb=5.0)
-# núcleo de respuesta a la lluvia (parámetros del modelo de pulsos; sin término estacional)
-NUCLEO = dict(a0=-4.6261, delta=1.4302, k=float(np.exp(0.9924)), escala=float(np.exp(4.0088)))
+# núcleo de respuesta a la lluvia: modelo de pulsos ajustado por mínimos cuadrados no lineales a los incrementos semanales
+# de emergencia de las 17 campañas de Lolium multiflorum de Bordenave. Tamaño del pulso:
+# exp(a0 + a1·sen(2π·día/365) + a2·cos(2π·día/365) + delta·(1 − S⁻/W)), con el día del año de la lluvia (máximo a fines
+# de mayo); rezago gamma en tiempo térmico de suelo con forma k y escala ``escala`` (mediana 114 °Cd, p90 252 °Cd).
+NUCLEO = dict(a0=-5.1047, a1=1.8626, a2=-2.1532, delta=0.5124, k=float(np.exp(0.8052)), escala=float(np.exp(4.0843)))
 
 
 def limpiar_clima(df: pd.DataFrame) -> pd.DataFrame:
@@ -95,7 +99,9 @@ def senal_lluvia(suelo: pd.DataFrame, fecha: pd.Timestamp, horizonte: int = 7) -
     us, t_s, t_e = us[ok], t_s[ok], t_e[ok]
     W = SUELO["W"]
     x = np.log1p(np.clip(np.minimum(P[us], W - Sp[us]), 0, None))
-    A = np.exp(NUCLEO["a0"] + NUCLEO["delta"] * (1 - Sp[us] / W))
+    ang = 2 * np.pi * fechas.dt.dayofyear.to_numpy()[us] / 365
+    A = np.exp(NUCLEO["a0"] + NUCLEO.get("a1", 0.0) * np.sin(ang) + NUCLEO.get("a2", 0.0) * np.cos(ang)
+               + NUCLEO["delta"] * (1 - Sp[us] / W))
     G = gammainc(NUCLEO["k"], t_e / NUCLEO["escala"]) - gammainc(NUCLEO["k"], t_s / NUCLEO["escala"])
     return float(1 - np.exp(-np.sum(A * x * G)))
 
@@ -122,24 +128,40 @@ def senal_conteos(conteos: pd.DataFrame | None, fecha: pd.Timestamp) -> tuple[fl
 
 
 def ventana_siembra(fecha: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> bool:
-    """True si ``fecha`` cae en el período del aviso de emergencia tardía (por defecto, 1/05–1/10 inclusive)."""
+    """True si ``fecha`` cae en el período del aviso de emergencia tardía (por defecto, 1/05–30/06 inclusive)."""
     t = (modelo or AlertaLolmu()).p.get("tardia") or {}
-    (m0, d0), (m1, d1) = t.get("desde", [5, 1]), t.get("hasta", [10, 1])
+    (m0, d0), (m1, d1) = t.get("desde", [5, 1]), t.get("hasta", [6, 30])
     f = pd.Timestamp(fecha)
     return (m0, d0) <= (f.month, f.day) <= (m1, d1)
 
 
 def limites_ventana_siembra(anio: int, modelo: "AlertaLolmu | None" = None) -> tuple[pd.Timestamp, pd.Timestamp]:
     t = (modelo or AlertaLolmu()).p.get("tardia") or {}
-    (m0, d0), (m1, d1) = t.get("desde", [5, 1]), t.get("hasta", [10, 1])
+    (m0, d0), (m1, d1) = t.get("desde", [5, 1]), t.get("hasta", [6, 30])
     return pd.Timestamp(anio, m0, d0), pd.Timestamp(anio, m1, d1)
+
+
+def recorrida_tardia(fecha: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> dict | None:
+    """Recomendación fija de recorrida para el invierno (``tardia.recorrida``; por defecto, 1/07–1/10), o None.
+
+    En esos meses la probabilidad de flujo tardío no distinguió las semanas con emergencia (AUC ≤ 0,5 en Bordenave),
+    así que en lugar de un aviso por probabilidad se recomienda recorrer los lotes cada ``cada_dias`` días.
+    """
+    t = ((modelo or AlertaLolmu()).p.get("tardia") or {}).get("recorrida")
+    if not t:
+        return None
+    f = pd.Timestamp(fecha)
+    if tuple(t["desde"]) <= (f.month, f.day) <= tuple(t["hasta"]):
+        return {"cada_dias": int(t.get("cada_dias", 14)), "texto": t.get("texto", ""),
+                "desde": pd.Timestamp(f.year, *t["desde"]), "hasta": pd.Timestamp(f.year, *t["hasta"])}
+    return None
 
 
 def umbral_tardia(fecha: pd.Timestamp, nivel_info: int = 1, modelo: "AlertaLolmu | None" = None) -> float:
     """Umbral del aviso de flujo tardío para una fecha y nivel de información.
 
     Por defecto ``tardia.umbral`` (20 %); los tramos de ``tardia.umbral_tramos`` ([mes, día] inclusive y niveles de
-    información) lo reemplazan: del 1/07 al 1/10, con primeras plántulas o conteos, 10 %.
+    información) lo reemplazan: sin datos del lote (nivel 1), 25 %.
     """
     t = (modelo or AlertaLolmu()).p.get("tardia") or {}
     f = pd.Timestamp(fecha)
@@ -161,7 +183,8 @@ class AlertaLolmu:
     def probabilidad_tardia(self, p_flush: float, nivel: int, fecha: pd.Timestamp) -> float | None:
         """Probabilidad de que en los próximos 7 días emerja ≥ 2 % de la campaña (emergencia tardía).
 
-        Solo dentro del período de flujos tardíos (``desde``–``hasta``, [mes, día]; 1/05–1/10); fuera de ella devuelve None.
+        Solo dentro del período de flujos tardíos (``desde``–``hasta``, [mes, día]; 1/05–30/06); fuera de él devuelve None
+        (del 1/07 al 1/10 rige la recomendación fija de ``recorrida_tardia``).
         Recalibra la probabilidad de flush con logit(p) = a + b·logit(p_flush), con a y b por nivel de información.
         """
         t = self.p.get("tardia")
@@ -315,6 +338,7 @@ def evaluar(clima_raw: pd.DataFrame, fecha: pd.Timestamp, primeras_plantulas: pd
             nivel_alerta, tope = nivel_de(p), False
     return {"fecha": fecha, "nivel_info": nivel, "probabilidad": p, "probabilidad_clima": p_clima, "nivel": nivel_alerta, "tope_aplicado": tope,
             "probabilidad_tardia": p_tardia, "umbral_tardia": umbral_tardia(fecha, nivel, modelo),
+            "recorrida_tardia": recorrida_tardia(fecha, modelo),
             "cero_reciente": cero_reciente, "senales": senales,
             "primeras_plantulas": pd.Timestamp(primeras_plantulas) if iniciada else None}
 
