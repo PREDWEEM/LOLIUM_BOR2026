@@ -93,8 +93,8 @@ y 2024 de las curvas históricas de PREDWEEM; 386 semanas, 97 flushes):
 | + conteos semanales | 0,87 | 82 % | 40 % |
 
 Las probabilidades están calibradas. Con las mismas campañas, el motor PREDWEEM anticipa flushes con AUC ~0,70, pero
-anticipa bien la **primera cohorte**; por eso se usa como inicio estimado del reloj térmico hasta que se informa la fecha
-de las primeras plántulas. Límites: un sitio, lotes sin labranza; no anticipa flushes sin lluvia registrada.
+su primer pico erró el inicio de la emergencia en 17–20 días en promedio (31 campañas); por eso el reloj térmico y la
+ventana de control se anclan solo en la fecha de las primeras plántulas observadas. Límites: un sitio, lotes sin labranza; no anticipa flushes sin lluvia registrada.
 
 La barra lateral conserva solo los parámetros que usa la alerta: temperaturas base, óptima y crítica del tiempo
 térmico y los objetivos de la ventana de control (600 y 800 °Cd). Los parámetros del motor PREDWEEM quedan en sus
