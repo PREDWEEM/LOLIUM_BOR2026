@@ -321,21 +321,28 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
             unsafe_allow_html=True)
     rr = al.riesgo_residual(pd.Timestamp(siembra), modelo) if siembra is not None else None
     if modelo.p.get("residual"):
-        _fechas = [pd.Timestamp(anio, m, d) for m, d in ((5, 1), (5, 15), (6, 1), (6, 15), (7, 1))]
-        _tab = " · ".join(f"{f:%d/%m}: <b>{al.riesgo_residual(f, modelo)['frac_ge10']:.0%}</b>" for f in _fechas)
-        _suya = (f"<br>Su siembra ({rr['siembra']:%d/%m}): <b>{rr['frac_ge10']:.0%}</b> de las campañas con ≥ 10 % de emergencia "
-                 f"posterior (mediana {100 * rr['mediana']:.0f} %).") if rr is not None else (
-                 "<br><span style='opacity:0.85'>Cargue la fecha de siembra prevista (arriba) para ver su caso.</span>")
-        st.markdown(
-            "<div style='background:#ecfdf5;color:#064e3b;border:2px solid #10b981;padding:0.75rem 1.1rem;border-radius:0.6rem;"
-            "margin:0.2rem 0 0.8rem 0;font-size:1.0rem'>"
-            "🧪 <b>¿Residual a la siembra?</b> Campañas en las que emergió ≥ 10 % del raigrás después de sembrar, según la fecha de "
-            f"siembra: {_tab}.{_suya}"
-            "<br><b>Recomendado en lotes con alta infestación o antecedentes de raigrás</b>, sobre todo en siembras de mayo; "
-            "en lotes con baja infestación el riesgo es bajo."
-            "<br><span style='font-size:0.9rem;opacity:0.9'><b>Post-emergente:</b> no se puede anticipar; recorrer el cultivo "
-            f"30–45 días después de la siembra. Riesgo histórico de {modelo.p['residual']['n']} campañas, no predicción de esta campaña.</span></div>",
-            unsafe_allow_html=True)
+        _ref = rr is None
+        _r = rr if rr is not None else al.riesgo_residual(pd.Timestamp(anio, 6, 1), modelo)
+        _f = _r["frac_ge10"]
+        _niv, _rec = (("Alto", "Usar residual") if _f >= 0.40 else
+                      ("Medio", "Según infestación") if _f >= 0.20 else
+                      ("Bajo", "Solo si muy infestado"))
+        with st.container(border=True):
+            st.markdown(f"**🧪 Residual a la siembra · siembra {'de referencia ' if _ref else ''}{_r['siembra']:%d/%m}**"
+                        + (" — cargue la fecha de siembra prevista (arriba) para ver su caso" if _ref else ""))
+            r1, r2, r3 = st.columns(3)
+            r1.metric("Riesgo de nacimientos después de sembrar", _niv,
+                      help=f"En {_f:.0%} de {_r['n']} campañas de la región emergió ≥ 10 % del raigrás después de esta fecha de siembra. "
+                           "Riesgo histórico: el modelo no anticipa si esta campaña será una de ellas.")
+            r2.metric("Emergencia después de sembrar", f"{100 * _r['mediana']:.0f} %",
+                      help=f"Mediana de la fracción de la campaña que emergió después de la siembra; en 1 de cada 10 campañas, más de "
+                           f"{100 * _r['p90']:.0f} %.")
+            r3.metric("Recomendación", _rec,
+                      help="Riesgo alto: usar residual. Medio: residual si el lote tiene alta infestación o antecedentes de raigrás. "
+                           "Bajo: residual solo en lotes muy infestados. En lotes con alta infestación, aun una fracción chica puede "
+                           "ser más de 100 plantas/m². Producto y dosis: consultar al asesor y la etiqueta.")
+            st.caption(f"{_f:.0%} de las campañas con ≥ 10 % de emergencia después de sembrar · Post-emergente: no se puede anticipar; "
+                       "recorrer el cultivo 30–45 días después de la siembra.")
 
     clima = al.limpiar_clima(meteo)
     dg = al.tiempo_termico(clima, **tt)
