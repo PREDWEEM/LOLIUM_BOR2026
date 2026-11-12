@@ -328,7 +328,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                       ("Medio", "Según infestación") if _f >= 0.20 else
                       ("Bajo", "Solo si muy infestado"))
         with st.container(border=True):
-            st.markdown(f"**🧪 Residual a la siembra · siembra {'de referencia ' if _ref else ''}{_r['siembra']:%d/%m}**"
+            _base = (f"datos de {_r['sitio']}, {_r['n']} campañas" if _r["fuente"] == "local"
+                     else f"referencia regional, {_r['n']} campañas: {_r['sitio']} todavía tiene pocos datos")
+            st.markdown(f"**🧪 Residual a la siembra · siembra {'de referencia ' if _ref else ''}{_r['siembra']:%d/%m}** ({_base})"
                         + (" — cargue la fecha de siembra prevista (arriba) para ver su caso" if _ref else ""))
             r1, r2, r3 = st.columns(3)
             r1.metric("Riesgo de nacimientos después de sembrar", _niv,
@@ -341,8 +343,19 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                       help="Riesgo alto: usar residual. Medio: residual si el lote tiene alta infestación o antecedentes de raigrás. "
                            "Bajo: residual solo en lotes muy infestados. En lotes con alta infestación, aun una fracción chica puede "
                            "ser más de 100 plantas/m². Producto y dosis: consultar al asesor y la etiqueta.")
-            st.caption(f"{_f:.0%} de las campañas con ≥ 10 % de emergencia después de sembrar · Post-emergente: no se puede anticipar; "
-                       "recorrer el cultivo 30–45 días después de la siembra.")
+            _loc = _r["locales"]
+            if _loc and len(_loc) <= 4:
+                _txt_loc = f"{_r['sitio']}, emergencia después del {_r['siembra']:%d/%m}: " + " · ".join(f"{a} {100 * v:.0f} %" for a, v in sorted(_loc.items()))
+            elif _loc:
+                _v = np.array(list(_loc.values()))
+                _txt_loc = (f"{_r['sitio']}, emergencia después del {_r['siembra']:%d/%m}: mediana {100 * np.median(_v):.0f} %, "
+                            f"entre {100 * _v.min():.0f} y {100 * _v.max():.0f} % según la campaña")
+            else:
+                _txt_loc = ""
+            st.caption((_txt_loc + ". " if _txt_loc else "")
+                       + f"{_f:.0%} de las campañas con ≥ 10 % de emergencia después de sembrar. En lotes con alta infestación, aun "
+                       "una fracción chica puede ser más de 100 plantas/m². Post-emergente: no se puede anticipar; recorrer el "
+                       "cultivo 30–45 días después de la siembra.")
 
     clima = al.limpiar_clima(meteo)
     dg = al.tiempo_termico(clima, **tt)
