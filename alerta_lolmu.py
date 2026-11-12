@@ -141,6 +141,22 @@ def limites_ventana_siembra(anio: int, modelo: "AlertaLolmu | None" = None) -> t
     return pd.Timestamp(anio, m0, d0), pd.Timestamp(anio, m1, d1)
 
 
+def historia_local(fecha: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> dict | None:
+    """Emergencia que ocurrió después de ``fecha`` en cada campaña propia del sitio (solo si hay dos o más), o None.
+
+    Usa ``residual.campanias_locales`` (fracción de la campaña que emergió después de cada día, 1/05–31/07). Sirve para poner
+    en contexto el aviso de flujos tardíos, que se recalibró con Bordenave y avisa de más donde la emergencia se corta antes.
+    """
+    t = (modelo or AlertaLolmu()).p.get("residual")
+    if not t or t.get("fuente") != "local" or not t.get("campanias_locales"):
+        return None
+    d = pd.Timestamp(fecha).dayofyear
+    if not t["dia"][0] <= d <= t["dia"][-1]:
+        return None
+    v = {int(a): float(np.interp(d, t["dia"], s)) for a, s in t["campanias_locales"].items()}
+    return {"sitio": t.get("sitio", ""), "fecha": pd.Timestamp(fecha), "valores": v, "mediana": float(np.median(list(v.values())))}
+
+
 def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> dict | None:
     """Riesgo histórico de emergencia posterior a la siembra (``residual`` en los parámetros), para siembras del 1/05 al 31/07.
 
