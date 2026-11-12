@@ -299,17 +299,35 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     if pt is not None:
         u_t = r.get("umbral_tardia", al.UMBRAL_TARDIA)
         tardia_si = pt >= u_t
+        hl = al.historia_local(emision, modelo)
+        # si en las campañas del sitio, en mediana, emergió menos de 3 % después de esta fecha (poco margen para un flujo
+        # tardío de ≥ 2 % en una semana), el aviso se presenta como «posible»: la recalibración de tardíos se ajustó con
+        # Bordenave, donde la emergencia se extiende hasta el invierno, y en sitios donde se corta antes avisa de más
+        corte_local = hl is not None and hl["mediana"] < 0.03
+        if hl is None:
+            _txt_hl = ""
+        elif len(hl["valores"]) <= 4:
+            _txt_hl = (f"<br><span style='font-size:0.88rem;opacity:0.95'>En {hl['sitio']}, después del {emision:%d/%m} emergió: "
+                       + " · ".join(f"{a} {100 * v:.0f} %" for a, v in sorted(hl["valores"].items())) + " de la campaña.</span>")
+        else:
+            _vv = np.array(list(hl["valores"].values()))
+            _txt_hl = (f"<br><span style='font-size:0.88rem;opacity:0.95'>En {hl['sitio']}, después del {emision:%d/%m} emergió en mediana "
+                       f"{100 * hl['mediana']:.0f} % de la campaña (entre {100 * _vv.min():.0f} y {100 * _vv.max():.0f} % según el año).</span>")
+        _tit = ("Flujo tardío posible según el modelo; en " + hl["sitio"] + " la emergencia suele cortarse antes") if (tardia_si and corte_local) else (
+            "Flujo tardío probable" if tardia_si else "Flujo tardío poco probable")
+        _fondo, _letra = ("#6d28d9", "white") if (tardia_si and not corte_local) else (("#c4b5fd", "#2e1065") if tardia_si else ("#ede9fe", "#3b0764"))
         st.markdown(
-            f"<div style='background:{'#6d28d9' if tardia_si else '#ede9fe'};color:{'white' if tardia_si else '#3b0764'};"
+            f"<div style='background:{_fondo};color:{_letra};"
             "padding:0.75rem 1.1rem;border-radius:0.6rem;margin:-0.3rem 0 0.8rem 0;font-size:1.0rem'>"
-            f"🌾 <b>Flujos tardíos · {'Flujo tardío probable' if tardia_si else 'Flujo tardío poco probable'}</b> · "
+            f"🌾 <b>Flujos tardíos · {_tit}</b> · "
             f"probabilidad de un flujo tardío (≥ 2 % de la campaña) en los próximos 7 días: <b>{pt:.0%}</b> "
             f"(aviso desde {_pct(u_t)}{', más sensible de julio a septiembre' if u_t < al.UMBRAL_TARDIA else ''}). "
             + ("Antes de definir la fecha de siembra, conviene recorrer el lote: puede haber una cohorte tardía por controlar."
                if tardia_si else "Con la información disponible no se espera una cohorte tardía relevante esta semana.")
             + f"<br><span style='font-size:0.88rem;opacity:0.9'>Del {al.limites_ventana_siembra(anio, modelo)[0]:%d/%m} al "
             f"{al.limites_ventana_siembra(anio, modelo)[1]:%d/%m}. En esta época los grandes flujos (≥ 5 %) son raros, pero "
-            "pocas plantas por semana pueden importar para la fecha de siembra; con conteos semanales el aviso es más preciso.</span></div>",
+            "pocas plantas por semana pueden importar para la fecha de siembra; con conteos semanales el aviso es más preciso.</span>"
+            + _txt_hl + "</div>",
             unsafe_allow_html=True)
     elif r.get("recorrida_tardia"):
         rec = r["recorrida_tardia"]
@@ -330,7 +348,8 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         with st.container(border=True):
             _base = (f"datos de {_r['sitio']}, {_r['n']} campañas" if _r["fuente"] == "local"
                      else f"referencia regional, {_r['n']} campañas: {_r['sitio']} todavía tiene pocos datos")
-            st.markdown(f"**🧪 Residual a la siembra · siembra {'de referencia ' if _ref else ''}{_r['siembra']:%d/%m}** ({_base})"
+            st.markdown(f"**🧪 Residual a la siembra · siembra {'de referencia ' if _ref else ''}{_r['siembra']:%d/%m}** ({_base}) · "
+                        "emergencia después de la siembra, no de esta semana"
                         + (" — cargue la fecha de siembra prevista (arriba) para ver su caso" if _ref else ""))
             r1, r2, r3 = st.columns(3)
             r1.metric("Riesgo de nacimientos después de sembrar", _niv,
