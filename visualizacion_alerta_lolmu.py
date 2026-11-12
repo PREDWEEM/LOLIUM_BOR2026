@@ -210,7 +210,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     st.markdown("<style>[data-baseweb='calendar'] header, [data-baseweb='popover'] header {visibility: visible !important;}</style>",
                 unsafe_allow_html=True)
     with st.form("alerta_lolmu_fechas", border=True):
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             emision = st.date_input(
                 "Fecha de emisión", value=ultima.date(), min_value=min(pd.Timestamp(anio, 2, 1), ultima).date(),
@@ -224,6 +224,13 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                 key="alerta_lolmu_primeras",
                 help="Un solo dato por campaña: el día en que aparecieron las primeras plántulas en el lote. Ancla el reloj "
                      "térmico de la ventana de control y mejora la alerta. Para borrarla, vacíe el campo.")
+        with c3:
+            siembra = st.date_input(
+                "Fecha de siembra prevista (opcional)", value=None,
+                min_value=pd.Timestamp(anio, 5, 1).date(), max_value=pd.Timestamp(anio, 7, 31).date(), format="DD/MM/YYYY",
+                key="alerta_lolmu_siembra",
+                help="Entre el 1/05 y el 31/07. Muestra el riesgo histórico de emergencia después de la siembra, como guía para "
+                     "decidir un herbicida residual a la siembra.")
         with st.expander("🌱 Conteos de plántulas (opcional)", expanded=False):
             st.caption("Si se pueden hacer recorridas, cargue las plántulas nuevas en cada fecha (por marco o por m²; solo "
                        "importa la proporción entre fechas). Con conteos semanales la alerta mejora (AUC 0,87 contra 0,84 "
@@ -312,6 +319,30 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
             f"<br><span style='font-size:0.88rem;opacity:0.9'>Del {rec['desde']:%d/%m} al {rec['hasta']:%d/%m} no se muestra una probabilidad de flujo "
             "tardío: en 17 campañas de Bordenave no distinguió las semanas con emergencia de las demás.</span></div>",
             unsafe_allow_html=True)
+    rr = al.riesgo_residual(pd.Timestamp(siembra), modelo) if siembra is not None else None
+    if modelo.p.get("residual"):
+        _ref = rr is None
+        _r = rr if rr is not None else al.riesgo_residual(pd.Timestamp(anio, 6, 1), modelo)
+        _f = _r["frac_ge10"]
+        _niv, _rec = (("Alto", "Usar residual") if _f >= 0.40 else
+                      ("Medio", "Según infestación") if _f >= 0.20 else
+                      ("Bajo", "Solo si muy infestado"))
+        with st.container(border=True):
+            st.markdown(f"**🧪 Residual a la siembra · siembra {'de referencia ' if _ref else ''}{_r['siembra']:%d/%m}**"
+                        + (" — cargue la fecha de siembra prevista (arriba) para ver su caso" if _ref else ""))
+            r1, r2, r3 = st.columns(3)
+            r1.metric("Riesgo de nacimientos después de sembrar", _niv,
+                      help=f"En {_f:.0%} de {_r['n']} campañas de la región emergió ≥ 10 % del raigrás después de esta fecha de siembra. "
+                           "Riesgo histórico: el modelo no anticipa si esta campaña será una de ellas.")
+            r2.metric("Emergencia después de sembrar", f"{100 * _r['mediana']:.0f} %",
+                      help=f"Mediana de la fracción de la campaña que emergió después de la siembra; en 1 de cada 10 campañas, más de "
+                           f"{100 * _r['p90']:.0f} %.")
+            r3.metric("Recomendación", _rec,
+                      help="Riesgo alto: usar residual. Medio: residual si el lote tiene alta infestación o antecedentes de raigrás. "
+                           "Bajo: residual solo en lotes muy infestados. En lotes con alta infestación, aun una fracción chica puede "
+                           "ser más de 100 plantas/m². Producto y dosis: consultar al asesor y la etiqueta.")
+            st.caption(f"{_f:.0%} de las campañas con ≥ 10 % de emergencia después de sembrar · Post-emergente: no se puede anticipar; "
+                       "recorrer el cultivo 30–45 días después de la siembra.")
 
     clima = al.limpiar_clima(meteo)
     dg = al.tiempo_termico(clima, **tt)
@@ -646,6 +677,15 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                                                           if r.get("recorrida_tardia") else "fuera del período de flujos tardíos (1/05–1/10)"),
                                                           ("probable" if pt >= r.get("umbral_tardia", al.UMBRAL_TARDIA) else "poco probable") if pt is not None else ""]})],
                         ignore_index=True)
+    if rr is not None:
+        resumen = pd.concat([resumen, pd.DataFrame({"Indicador": [
+            "Fecha de siembra prevista", "Campañas con ≥ 10 % de emergencia después de la siembra (%)",
+            "Emergencia después de la siembra: mediana y percentil 90 (%)", "Emergencia después de 45 días de la siembra: mediana y percentil 90 (%)",
+            "Residual a la siembra"],
+            "Valor": [fmt_f(rr["siembra"]), round(100 * rr["frac_ge10"]), f"{100 * rr['mediana']:.1f} y {100 * rr['p90']:.1f}",
+                      f"{100 * rr['post45_mediana']:.1f} y {100 * rr['post45_p90']:.1f}",
+                      "riesgo histórico (no predicción de la campaña): recomendado en lotes con alta infestación o antecedentes de raigrás"]})],
+            ignore_index=True)
     if agotamiento:
         _ag = r["senales"].get("agotamiento")
         resumen = pd.concat([resumen, pd.DataFrame({"Indicador": ["Agotamiento de la cohorte (factor sobre la probabilidad)"],

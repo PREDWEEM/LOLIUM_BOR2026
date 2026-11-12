@@ -156,6 +156,27 @@ azar. En su lugar, la app recomienda **recorrer los lotes cada 2 semanas**, sobr
 invernal (sudoeste bonaerense), antes de definir la fecha de siembra o un control. En el semáforo esas semanas aparecen
 en gris.
 
+## Residual a la siembra (guía de riesgo)
+
+Si se carga una **fecha de siembra prevista** (1/05–31/07), la app muestra el riesgo histórico de emergencia después de la
+siembra (`residual` en `alerta_lolmu_params.json`), calculado con 32 campañas de la región (17 de Bordenave y 15 de las
+otras localidades):
+
+| Siembra | Campañas con ≥ 10 % de la emergencia después de sembrar | Mediana | 1 de cada 10 campañas, más de | Más de 45 días después (mediana) |
+|---|---|---|---|---|
+| 1/05 | 59 % | 13 % | 45 % | 2,8 % |
+| 15/05 | 34 % | 8 % | 23 % | 1,8 % |
+| 1/06 | 25 % | 4 % | 18 % | 0,9 % |
+| 15/06 | 13 % | 3 % | 12 % | 0,2 % |
+| 1/07 | 9 % | 2 % | 10 % | 0,1 % |
+
+Es un **riesgo histórico, no una predicción de la campaña**: ni la fecha de primeras plántulas ni el clima anticiparon
+cuánta emergencia queda después de la siembra (AUC 0,4–0,7 en esas 32 campañas). Como la decisión depende de las plantas
+por m² y la app no conoce la densidad del lote, la recomendación se da en función de la infestación: en lotes con alta
+infestación o antecedentes de raigrás se recomienda un residual a la siembra; en lotes con baja infestación el riesgo es
+bajo. La necesidad de un graminicida post-emergente en el cultivo no se puede anticipar: se recomienda recorrer el cultivo
+30–45 días después de la siembra.
+
 ## Datos de la campaña 2026
 
 `data/campania_2026/` guarda una copia fija de la emergencia de *Lolium* (planilla original y CSV por marco, sin y con
