@@ -145,7 +145,8 @@ def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) 
     """Riesgo histórico de emergencia posterior a la siembra (``residual`` en los parámetros), para siembras del 1/05 al 31/07.
 
     Devuelve la proporción de campañas en las que emergió ≥ 10 % del total después de la siembra, la mediana y el percentil 90
-    de esa fracción, y la fracción que emergió más de 45 días después de sembrar. Es un riesgo histórico de 32 campañas, no una
+    de esa fracción, la fracción que emergió más de 45 días después de sembrar y el valor de cada campaña local. Con dos o más
+    campañas del sitio se usan solo esas (``fuente`` = "local"); si no, las de toda la región. Es un riesgo histórico, no una
     predicción de la campaña en curso: ni la fecha de primeras plántulas ni el clima anticiparon cuánta emergencia queda
     después de la siembra (AUC 0,4–0,7).
     """
@@ -156,8 +157,10 @@ def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) 
     if not t["dia"][0] <= d <= t["dia"][-1]:
         return None
     f = lambda k: float(np.interp(d, t["dia"], t[k]))  # noqa: E731
+    locales = {int(a): float(np.interp(d, t["dia"], v)) for a, v in (t.get("campanias_locales") or {}).items()}
     return {"siembra": pd.Timestamp(siembra), "n": int(t["n"]), "frac_ge10": f("frac_ge10"), "mediana": f("mediana"), "p90": f("p90"),
-            "post45_mediana": f("post45_mediana"), "post45_p90": f("post45_p90")}
+            "post45_mediana": f("post45_mediana"), "post45_p90": f("post45_p90"), "fuente": t.get("fuente", "regional"),
+            "sitio": t.get("sitio", ""), "locales": locales}
 
 
 def recorrida_tardia(fecha: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> dict | None:
