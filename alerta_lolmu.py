@@ -174,7 +174,7 @@ def nivel_residual(fraccion: float, niveles: dict | None = None) -> str:
 def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> dict | None:
     """Riesgo histórico de nacimientos para el residual y para el post-emergente (``residual`` en los parámetros), siembras 1/05–31/07.
 
-    Residual: emergencia de la campaña en la ventana de acción del residual, de 15 días antes a 45 días después de la siembra
+    Residual: emergencia de la campaña en la ventana de acción del residual, de 10 días antes a 45 días después de la siembra
     (``residual.ventana``). Post-emergente: emergencia más de 45 días después de la siembra. Para cada uno devuelve el nivel
     según la mediana de las campañas en plantas/m² («Muy alto» ≥ 50, «Alto» ≥ 20, «Medio» ≥ 5, «Bajo» por debajo;
     ``residual.niveles_plm2``), calculadas con la densidad de cada campaña con conteos o, si no, la densidad de referencia del
@@ -210,7 +210,7 @@ def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) 
         res["nivel"], post["nivel"] = nivel_residual(res["plm2"], nv), nivel_residual(post["plm2"], nv)
     else:
         res["nivel"], post["nivel"] = nivel_residual(res["mediana"], niv), nivel_residual(post["mediana"], niv)
-    v = t.get("ventana", [-15, 45])
+    v = t.get("ventana", [-10, 45])
     return {"siembra": pd.Timestamp(siembra), "n": int(t["n"]), "fuente": t.get("fuente", "regional"), "sitio": t.get("sitio", ""),
             "ventana": (int(v[0]), int(v[1])), "residual": res, "post": post, "densidad_referencia": t.get("densidad_referencia"),
             "por_densidad": "ventana_plm2_mediana" in t,
