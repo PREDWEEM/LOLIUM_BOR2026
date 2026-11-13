@@ -343,12 +343,10 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         _r = rr if rr is not None else al.riesgo_residual(pd.Timestamp(anio, 6, 1), modelo)
         _ico = {"Muy alto": "🔴", "Alto": "🟠", "Medio": "🟡", "Bajo": "🟢"}
         _pc = lambda v: f"{100 * v:.1f} %".replace(".", ",")  # noqa: E731
-        _rs, _po = _r["residual"], _r["post"]
+        _rs = _r["residual"]
         _v0, _v1 = _r["ventana"]
         _rec_res = {"Muy alto": "Usar residual", "Alto": "Residual recomendado", "Medio": "Según infestación",
                     "Bajo": "Solo si muy infestado"}[_rs["nivel"]]
-        _rec_post = {"Muy alto": "Prever graminicida", "Alto": "Probable graminicida", "Medio": "Recorrer y decidir",
-                     "Bajo": "Poco probable"}[_po["nivel"]]
 
         _dens = _r.get("por_densidad")
         _pl = lambda v: f"{v:.0f} pl/m²"  # noqa: E731
@@ -392,19 +390,9 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
             r3.metric("Recomendación residual", _rec_res,
                       help="Muy alto: usar residual. Alto: residual recomendado. Medio: residual si el lote tiene alta infestación o "
                            "antecedentes de raigrás. Bajo: residual solo en lotes muy infestados. Producto y dosis: consultar al asesor y la etiqueta.")
-            p1, p2, p3 = st.columns(3)
-            p1.metric("Riesgo para el post-emergente", f"{_ico[_po['nivel']]} {_po['nivel']}",
-                      help=f"Nacimientos más de {_v1} días después de la siembra, fuera del período de acción del residual. " + _hn)
-            p2.metric(f"Nacimientos después de +{_v1} días", f"{_pl(_po['plm2'])} ({_pc(_po['mediana'])})" if _dens else _pc(_po["mediana"]),
-                      help=(f"Mediana de las plantas/m² que nacieron después y, entre paréntesis, la fracción de la campaña; en 1 de cada 10 "
-                            f"campañas, más de {_pl(_po['plm2_p90'])}." if _dens else
-                            f"Mediana de la fracción de la campaña que emergió después; en 1 de cada 10 campañas, más de {_pc(_po['p90'])}."))
-            p3.metric("Graminicida post-emergente", _rec_post,
-                      help="Muy alto: prever un graminicida post-emergente. Alto: probable. Medio: recorrer el cultivo y decidir según "
-                           "lo que se encuentre. Bajo: poco probable. En todos los casos, recorrer el cultivo 30–45 días después de la siembra.")
-            _lr, _lp = _loc(_rs), _loc(_po)
-            st.caption((f"{_r['sitio']}, residual: {_lr}. " if _lr else "") + (f"Post-emergente: {_lp}. " if _lp else "")
-                       + (f"Campañas por nivel, residual: {_dist(_rs)}; post-emergente: {_dist(_po)}. " if _dist(_rs) else "")
+            _lr = _loc(_rs)
+            st.caption((f"{_r['sitio']}, nacimientos en la ventana del residual: {_lr}. " if _lr else "")
+                       + (f"Campañas por nivel: {_dist(_rs)}. " if _dist(_rs) else "")
                        + (f"Plantas/m² con la densidad registrada en {_r['sitio']} (referencia {_r['densidad_referencia']:.0f} pl/m² por campaña): "
                           "en un lote con menos raigrás el riesgo es menor." if _dens else
                           "En lotes con alta infestación, aun una fracción chica puede ser más de 100 plantas/m²."))
@@ -746,19 +734,12 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
         resumen = pd.concat([resumen, pd.DataFrame({"Indicador": [
             "Fecha de siembra prevista",
             "Riesgo para el residual: nacimientos de 15 días antes a 45 días después de la siembra (muy alto ≥ 50 pl/m², alto ≥ 20, medio ≥ 5, bajo < 5)",
-            "Nacimientos en la ventana del residual: mediana y percentil 90 (pl/m²; % de la campaña)", "Residual a la siembra",
-            "Riesgo para el post-emergente: nacimientos más de 45 días después de la siembra",
-            "Nacimientos después de 45 días de la siembra: mediana y percentil 90 (pl/m²; % de la campaña)", "Graminicida post-emergente"],
+            "Nacimientos en la ventana del residual: mediana y percentil 90 (pl/m²; % de la campaña)", "Residual a la siembra"],
             "Valor": [fmt_f(rr["siembra"]), rr["residual"]["nivel"],
                       (f"{rr['residual'].get('plm2', float('nan')):.0f} y {rr['residual'].get('plm2_p90', float('nan')):.0f} pl/m²; "
                        f"{100 * rr['residual']['mediana']:.1f} y {100 * rr['residual']['p90']:.1f} %"),
                       {"Muy alto": "usar residual", "Alto": "residual recomendado", "Medio": "según infestación (lotes con alta infestación o antecedentes de raigrás)",
-                       "Bajo": "solo en lotes muy infestados"}[rr["residual"]["nivel"]] + " · riesgo histórico, no predicción de la campaña",
-                      rr["post"]["nivel"], (f"{rr['post'].get('plm2', float('nan')):.0f} y {rr['post'].get('plm2_p90', float('nan')):.0f} pl/m²; "
-                                            f"{100 * rr['post']['mediana']:.1f} y {100 * rr['post']['p90']:.1f} %"),
-                      {"Muy alto": "prever graminicida post-emergente", "Alto": "graminicida post-emergente probable",
-                       "Medio": "recorrer el cultivo y decidir", "Bajo": "poco probable"}[rr["post"]["nivel"]]
-                      + " · recorrer el cultivo 30–45 días después de la siembra"]})],
+                       "Bajo": "solo en lotes muy infestados"}[rr["residual"]["nivel"]] + " · riesgo histórico, no predicción de la campaña"]})],
             ignore_index=True)
     if agotamiento:
         _ag = r["senales"].get("agotamiento")
