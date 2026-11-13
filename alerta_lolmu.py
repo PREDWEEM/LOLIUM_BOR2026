@@ -157,14 +157,33 @@ def historia_local(fecha: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> 
     return {"sitio": t.get("sitio", ""), "fecha": pd.Timestamp(fecha), "valores": v, "mediana": float(np.median(list(v.values())))}
 
 
-def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> dict | None:
-    """Riesgo histórico de emergencia posterior a la siembra (``residual`` en los parámetros), para siembras del 1/05 al 31/07.
+NIVELES_RESIDUAL = {"muy_alto": 0.05, "alto": 0.02, "medio": 0.005}
+NIVELES_PLM2 = {"muy_alto": 50, "alto": 20, "medio": 5}  # plantas/m² en la ventana
 
-    Devuelve la proporción de campañas en las que emergió ≥ 10 % del total después de la siembra, la mediana y el percentil 90
-    de esa fracción, la fracción que emergió más de 45 días después de sembrar y el valor de cada campaña local. Con dos o más
-    campañas del sitio se usan solo esas (``fuente`` = "local"); si no, las de toda la región. Es un riesgo histórico, no una
-    predicción de la campaña en curso: ni la fecha de primeras plántulas ni el clima anticiparon cuánta emergencia queda
-    después de la siembra (AUC 0,4–0,7).
+
+def nivel_residual(fraccion: float, niveles: dict | None = None) -> str:
+    """Nivel de riesgo de nacimientos para una fracción de la campaña (0–1).
+
+    Cortes por defecto (``NIVELES_RESIDUAL``): «Muy alto» ≥ 5 %, «Alto» ≥ 2 %, «Medio» ≥ 0,5 % y «Bajo» por debajo.
+    """
+    n = {**NIVELES_RESIDUAL, **(niveles or {})}
+    return ("Muy alto" if fraccion >= n["muy_alto"] else "Alto" if fraccion >= n["alto"] else
+            "Medio" if fraccion >= n["medio"] else "Bajo")
+
+
+def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> dict | None:
+    """Riesgo histórico de nacimientos para el residual y para el post-emergente (``residual`` en los parámetros), siembras 1/05–31/07.
+
+    Residual: emergencia de la campaña en la ventana de acción del residual, de 15 días antes a 45 días después de la siembra
+    (``residual.ventana``). Post-emergente: emergencia más de 45 días después de la siembra. Para cada uno devuelve el nivel
+    según la mediana de las campañas en plantas/m² («Muy alto» ≥ 50, «Alto» ≥ 20, «Medio» ≥ 5, «Bajo» por debajo;
+    ``residual.niveles_plm2``), calculadas con la densidad de cada campaña con conteos o, si no, la densidad de referencia del
+    sitio (``residual.densidad_referencia``); también la fracción de la campaña (% del total), la mediana y el percentil 90, la
+    proporción de campañas que superó cada corte y el valor de cada campaña local. Sin datos de densidad en la tabla, el nivel
+    se define por la fracción de la campaña (≥ 5 %, ≥ 2 %, ≥ 0,5 %; ``residual.niveles``).
+    Con dos o más campañas del sitio se usan solo esas (``fuente`` = "local"); si no, las de toda la región. Es un riesgo
+    histórico, no una predicción de la campaña en curso: ni la fecha de primeras plántulas ni el clima anticiparon cuánta
+    emergencia queda después de la siembra (AUC 0,4–0,7).
     """
     t = (modelo or AlertaLolmu()).p.get("residual")
     if not t or siembra is None:
@@ -173,10 +192,31 @@ def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) 
     if not t["dia"][0] <= d <= t["dia"][-1]:
         return None
     f = lambda k: float(np.interp(d, t["dia"], t[k]))  # noqa: E731
-    locales = {int(a): float(np.interp(d, t["dia"], v)) for a, v in (t.get("campanias_locales") or {}).items()}
-    return {"siembra": pd.Timestamp(siembra), "n": int(t["n"]), "frac_ge10": f("frac_ge10"), "mediana": f("mediana"), "p90": f("p90"),
-            "post45_mediana": f("post45_mediana"), "post45_p90": f("post45_p90"), "fuente": t.get("fuente", "regional"),
-            "sitio": t.get("sitio", ""), "locales": locales}
+    loc = lambda k: {int(a): float(np.interp(d, t["dia"], v)) for a, v in (t.get(k) or {}).items()}  # noqa: E731
+    niv = t.get("niveles")
+    if "ventana_mediana" in t:
+        res = {"mediana": f("ventana_mediana"), "p90": f("ventana_p90"), "ge5": f("ventana_ge5"), "ge2": f("ventana_ge2"),
+               "ge05": f("ventana_ge05"), "locales": loc("campanias_ventana")}
+        post = {"mediana": f("post45_mediana"), "p90": f("post45_p90"), "ge5": f("post45_ge5"), "ge2": f("post45_ge2"),
+                "ge05": f("post45_ge05"), "locales": loc("campanias_post45")}
+    else:  # tablas viejas: emergencia total después de la siembra
+        res = {"mediana": f("mediana"), "p90": f("p90"), "locales": loc("campanias_locales")}
+        post = {"mediana": f("post45_mediana"), "p90": f("post45_p90"), "locales": {}}
+    if "ventana_plm2_mediana" in t:  # niveles por densidad (pl/m²) con la densidad registrada en el sitio
+        for x, pre in ((res, "ventana_plm2"), (post, "post45_plm2")):
+            x.update(plm2=f(pre + "_mediana"), plm2_p90=f(pre + "_p90"), plm2_ge50=f(pre + "_ge50"), plm2_ge20=f(pre + "_ge20"),
+                     plm2_ge5=f(pre + "_ge5"), locales_plm2=loc("campanias_" + pre.replace("_plm2", "") + "_plm2"))
+        nv = t.get("niveles_plm2") or NIVELES_PLM2
+        res["nivel"], post["nivel"] = nivel_residual(res["plm2"], nv), nivel_residual(post["plm2"], nv)
+    else:
+        res["nivel"], post["nivel"] = nivel_residual(res["mediana"], niv), nivel_residual(post["mediana"], niv)
+    v = t.get("ventana", [-15, 45])
+    return {"siembra": pd.Timestamp(siembra), "n": int(t["n"]), "fuente": t.get("fuente", "regional"), "sitio": t.get("sitio", ""),
+            "ventana": (int(v[0]), int(v[1])), "residual": res, "post": post, "densidad_referencia": t.get("densidad_referencia"),
+            "por_densidad": "ventana_plm2_mediana" in t,
+            # compatibilidad: nivel y mediana del residual
+            "nivel": res["nivel"], "mediana": res["mediana"], "p90": res["p90"], "locales": res["locales"],
+            "post45_mediana": post["mediana"], "post45_p90": post["p90"]}
 
 
 def recorrida_tardia(fecha: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> dict | None:
