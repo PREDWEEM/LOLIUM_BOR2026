@@ -337,6 +337,37 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
             f"<br><span style='font-size:0.88rem;opacity:0.9'>Del {rec['desde']:%d/%m} al {rec['hasta']:%d/%m} no se muestra una probabilidad de flujo "
             "tardío: en 17 campañas de Bordenave no distinguió las semanas con emergencia de las demás.</span></div>",
             unsafe_allow_html=True)
+    clima = al.limpiar_clima(meteo)
+    dg = al.tiempo_termico(clima, **tt)
+    dgv, ult_tt = _tt_ventana(meteo, dg, emision, modelo, localidad)  # ventana de control: clima conocido + clima medio
+    # la ventana de control se ancla solo en las primeras plántulas observadas: ninguna regla climática estimó el inicio con
+    # precisión suficiente (error medio de 10–20 días, del orden del ancho de la ventana), así que no se usa un inicio estimado
+    # (``inicio_predicho`` se acepta por compatibilidad y se ignora)
+    ancla, ancla_txt = (r["primeras_plantulas"], "primeras plántulas observadas") if r["primeras_plantulas"] is not None else (None, None)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Probabilidad de gran flujo (7 días)", f"{p:.0%}", help="Tasa histórica: ~25 % de las semanas de campaña."
+              + (f" Conteo en cero el {r['cero_reciente']:%d/%m}: semana ya pasada sin plántulas: 0 % (por clima {r['probabilidad_clima']:.0%})."
+                 if r.get("cero_reciente") is not None else ""))
+    m2.metric("Emergencia esperada por lluvias", f"{100 * r['senales']['lluvia']:.1f} %",
+              help="Respuesta relativa a las lluvias registradas hasta la fecha (señal, no % de la campaña).")
+    if ancla is not None:
+        tt_hoy = float(dg[(dg.index >= ancla) & (dg.index <= emision)].sum())
+        f_ctl, f_lim = _fecha_tt(dgv, ancla, tt_control), _fecha_tt(dgv, ancla, tt_limite)
+        _est = lambda d: d is not None and d > ult_tt  # noqa: E731
+        m3.metric("Tiempo térmico desde el inicio", f"{tt_hoy:.0f} °Cd", help=f"Desde el {ancla:%d/%m} ({ancla_txt}).")
+        m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)",
+                  (f"{f_ctl:%d/%m}" + (" (estimada)" if _est(f_ctl) else "")) if f_ctl is not None else "—",
+                  help=(f"Límite de la ventana ({tt_limite:.0f} °Cd): {f_lim:%d/%m}" + (" (estimada)" if _est(f_lim) else "") + "."
+                        if f_lim is not None else "")
+                       + (f" Las fechas estimadas suman el clima medio desde el {ult_tt + pd.Timedelta(days=1):%d/%m}; se corrigen "
+                          "a medida que se carga el clima." if _est(f_lim) else " Alcanzada con el clima registrado.")
+                       )
+    else:
+        m3.metric("Tiempo térmico desde el inicio", "—", help="Informe la fecha de las primeras plántulas para iniciar el reloj térmico.")
+        m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)", "—",
+                  help="Informe la fecha de las primeras plántulas para calcular la ventana de control. El inicio de la emergencia no se "
+                       "estima con el clima: ninguna regla lo predijo con precisión suficiente (error medio de 10–20 días).")
+    # debajo de las tarjetas: riesgo de nacimientos para el residual a la siembra
     rr = al.riesgo_residual(pd.Timestamp(siembra), modelo) if siembra is not None else None
     if modelo.p.get("residual"):
         _ref = rr is None
@@ -396,37 +427,6 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
                        + (f"Plantas/m² con la densidad registrada en {_r['sitio']} (referencia {_r['densidad_referencia']:.0f} pl/m² por campaña): "
                           "en un lote con menos raigrás el riesgo es menor." if _dens else
                           "En lotes con alta infestación, aun una fracción chica puede ser más de 100 plantas/m²."))
-
-    clima = al.limpiar_clima(meteo)
-    dg = al.tiempo_termico(clima, **tt)
-    dgv, ult_tt = _tt_ventana(meteo, dg, emision, modelo, localidad)  # ventana de control: clima conocido + clima medio
-    # la ventana de control se ancla solo en las primeras plántulas observadas: ninguna regla climática estimó el inicio con
-    # precisión suficiente (error medio de 10–20 días, del orden del ancho de la ventana), así que no se usa un inicio estimado
-    # (``inicio_predicho`` se acepta por compatibilidad y se ignora)
-    ancla, ancla_txt = (r["primeras_plantulas"], "primeras plántulas observadas") if r["primeras_plantulas"] is not None else (None, None)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Probabilidad de gran flujo (7 días)", f"{p:.0%}", help="Tasa histórica: ~25 % de las semanas de campaña."
-              + (f" Conteo en cero el {r['cero_reciente']:%d/%m}: semana ya pasada sin plántulas: 0 % (por clima {r['probabilidad_clima']:.0%})."
-                 if r.get("cero_reciente") is not None else ""))
-    m2.metric("Emergencia esperada por lluvias", f"{100 * r['senales']['lluvia']:.1f} %",
-              help="Respuesta relativa a las lluvias registradas hasta la fecha (señal, no % de la campaña).")
-    if ancla is not None:
-        tt_hoy = float(dg[(dg.index >= ancla) & (dg.index <= emision)].sum())
-        f_ctl, f_lim = _fecha_tt(dgv, ancla, tt_control), _fecha_tt(dgv, ancla, tt_limite)
-        _est = lambda d: d is not None and d > ult_tt  # noqa: E731
-        m3.metric("Tiempo térmico desde el inicio", f"{tt_hoy:.0f} °Cd", help=f"Desde el {ancla:%d/%m} ({ancla_txt}).")
-        m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)",
-                  (f"{f_ctl:%d/%m}" + (" (estimada)" if _est(f_ctl) else "")) if f_ctl is not None else "—",
-                  help=(f"Límite de la ventana ({tt_limite:.0f} °Cd): {f_lim:%d/%m}" + (" (estimada)" if _est(f_lim) else "") + "."
-                        if f_lim is not None else "")
-                       + (f" Las fechas estimadas suman el clima medio desde el {ult_tt + pd.Timedelta(days=1):%d/%m}; se corrigen "
-                          "a medida que se carga el clima." if _est(f_lim) else " Alcanzada con el clima registrado.")
-                       )
-    else:
-        m3.metric("Tiempo térmico desde el inicio", "—", help="Informe la fecha de las primeras plántulas para iniciar el reloj térmico.")
-        m4.metric(f"Control post-emergente ({tt_control:.0f} °Cd)", "—",
-                  help="Informe la fecha de las primeras plántulas para calcular la ventana de control. El inicio de la emergencia no se "
-                       "estima con el clima: ninguna regla lo predijo con precisión suficiente (error medio de 10–20 días).")
     if r["primeras_plantulas"] is None and emision.month <= 6:
         st.markdown(_texto_muestreo_inicio(meteo, emision, conteos, modelo), unsafe_allow_html=True)
     elif r["primeras_plantulas"] is None:
