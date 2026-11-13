@@ -733,7 +733,7 @@ def mostrar_alerta_lolmu(meteo_raw: pd.DataFrame, campo: pd.DataFrame | None = N
     if rr is not None:
         resumen = pd.concat([resumen, pd.DataFrame({"Indicador": [
             "Fecha de siembra prevista",
-            "Riesgo para el residual: nacimientos de 15 días antes a 45 días después de la siembra (muy alto ≥ 50 pl/m², alto ≥ 20, medio ≥ 5, bajo < 5)",
+            f"Riesgo para el residual: nacimientos de {-rr['ventana'][0]} días antes a {rr['ventana'][1]} días después de la siembra (muy alto ≥ 50 pl/m², alto ≥ 20, medio ≥ 5, bajo < 5)",
             "Nacimientos en la ventana del residual: mediana y percentil 90 (pl/m²; % de la campaña)", "Residual a la siembra"],
             "Valor": [fmt_f(rr["siembra"]), rr["residual"]["nivel"],
                       (f"{rr['residual'].get('plm2', float('nan')):.0f} y {rr['residual'].get('plm2_p90', float('nan')):.0f} pl/m²; "
