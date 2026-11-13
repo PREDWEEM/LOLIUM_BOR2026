@@ -1,0 +1,44 @@
+name: Verificar alerta
+
+# Instala requirements.txt (incluido lolium-comun en la versión fijada) y corre la alerta con los parámetros y el
+# clima de esta app. Es la verificación que espera la fusión automática de los PR.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar-alerta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Instalar dependencias
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Correr la alerta con los parámetros del sitio
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          import alerta_lolmu as al
+          import visualizacion_alerta_lolmu as vis
+          import lolium_comun
+          assert al.__name__ == "lolium_comun.alerta_lolmu" and vis.al is al
+          m = al.AlertaLolmu()
+          meteo = pd.read_csv("meteo_daily.csv")
+          anio = pd.to_datetime(meteo["Fecha"]).dt.year.max()
+          for f in pd.date_range(f"{anio}-02-15", f"{anio}-09-15", freq="30D"):
+              for pp in (None, pd.Timestamp(anio, 3, 10)):
+                  r = al.evaluar(meteo, f, primeras_plantulas=pp, modelo=m)
+                  assert 0 <= r["probabilidad"] <= 1
+          for inf in (None, "Baja", "Media", "Alta"):
+              rr = al.riesgo_residual(pd.Timestamp(anio, 6, 1), m, inf) if "infestacion" in al.riesgo_residual.__code__.co_varnames else al.riesgo_residual(pd.Timestamp(anio, 6, 1), m)
+              assert rr is None or rr["residual"]["nivel"] in ("Muy alto", "Alto", "Medio", "Bajo")
+          print(f"lolium-comun {lolium_comun.__version__} · {m.p['residual']['sitio']}: alerta y residual OK")
+          PY
