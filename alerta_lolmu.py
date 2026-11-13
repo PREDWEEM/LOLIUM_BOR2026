@@ -157,11 +157,26 @@ def historia_local(fecha: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> 
     return {"sitio": t.get("sitio", ""), "fecha": pd.Timestamp(fecha), "valores": v, "mediana": float(np.median(list(v.values())))}
 
 
+NIVELES_RESIDUAL = {"muy_alto": 0.05, "alto": 0.02, "medio": 0.005}
+
+
+def nivel_residual(fraccion: float, niveles: dict | None = None) -> str:
+    """Nivel de riesgo de nacimientos después de la siembra para una fracción de la campaña (0–1).
+
+    Cortes por defecto (``NIVELES_RESIDUAL``): «Muy alto» ≥ 5 %, «Alto» ≥ 2 %, «Medio» ≥ 0,5 % y «Bajo» por debajo.
+    """
+    n = {**NIVELES_RESIDUAL, **(niveles or {})}
+    return ("Muy alto" if fraccion >= n["muy_alto"] else "Alto" if fraccion >= n["alto"] else
+            "Medio" if fraccion >= n["medio"] else "Bajo")
+
+
 def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) -> dict | None:
     """Riesgo histórico de emergencia posterior a la siembra (``residual`` en los parámetros), para siembras del 1/05 al 31/07.
 
-    Devuelve la proporción de campañas en las que emergió ≥ 10 % del total después de la siembra, la mediana y el percentil 90
-    de esa fracción, la fracción que emergió más de 45 días después de sembrar y el valor de cada campaña local. Con dos o más
+    Devuelve el nivel de riesgo (``nivel``: «Muy alto», «Alto», «Medio» o «Bajo», según la mediana de la fracción del total que
+    emergió después de la siembra y los cortes de ``residual.niveles``: ≥ 5 %, ≥ 2 %, ≥ 0,5 %), la proporción de campañas que
+    superó cada corte (``frac_ge5``, ``frac_ge2``, ``frac_ge05``; también ``frac_ge10``), la mediana y el percentil 90 de esa
+    fracción, la fracción que emergió más de 45 días después de sembrar y el valor de cada campaña local. Con dos o más
     campañas del sitio se usan solo esas (``fuente`` = "local"); si no, las de toda la región. Es un riesgo histórico, no una
     predicción de la campaña en curso: ni la fecha de primeras plántulas ni el clima anticiparon cuánta emergencia queda
     después de la siembra (AUC 0,4–0,7).
@@ -174,7 +189,10 @@ def riesgo_residual(siembra: pd.Timestamp, modelo: "AlertaLolmu | None" = None) 
         return None
     f = lambda k: float(np.interp(d, t["dia"], t[k]))  # noqa: E731
     locales = {int(a): float(np.interp(d, t["dia"], v)) for a, v in (t.get("campanias_locales") or {}).items()}
-    return {"siembra": pd.Timestamp(siembra), "n": int(t["n"]), "frac_ge10": f("frac_ge10"), "mediana": f("mediana"), "p90": f("p90"),
+    med = f("mediana")
+    fr = {k: f(k) for k in ("frac_ge05", "frac_ge2", "frac_ge5") if k in t}
+    return {"siembra": pd.Timestamp(siembra), "n": int(t["n"]), "nivel": nivel_residual(med, t.get("niveles")), **fr,
+            "frac_ge10": f("frac_ge10"), "mediana": med, "p90": f("p90"),
             "post45_mediana": f("post45_mediana"), "post45_p90": f("post45_p90"), "fuente": t.get("fuente", "regional"),
             "sitio": t.get("sitio", ""), "locales": locales}
 
