@@ -196,8 +196,9 @@ un **riesgo histórico, no una predicción de la campaña**: ni la fecha de prim
 emergencia queda después de la siembra.
 
 En el gráfico, la segunda fila del **semáforo semanal** («Residual (siembra)») muestra, para cada semana del 1/05 al
-31/07, el riesgo para el residual si se siembra esa semana: rojo, alto o muy alto (≥ 20 pl/m²); amarillo, medio
-(5–20 pl/m²); verde, bajo (< 5 pl/m²), con la infestación del lote si se indicó. La fecha de siembra prevista se marca
+31/07, el riesgo para el residual si se siembra el primer día de esa semana: rojo, alto o muy alto (≥ 20 pl/m²); amarillo, medio
+(5–20 pl/m²); verde, bajo (< 5 pl/m²), con la infestación del lote si se indicó. Con fecha de siembra cargada, las semanas empiezan ese día, así la celda
+de la siembra coincide con el recuadro del residual. La fecha de siembra prevista se marca
 con una línea verde y una flecha con cartel.
 
 ## Datos de la campaña 2026
@@ -224,7 +225,7 @@ PREDWEEM es una herramienta de soporte para decisiones y no sustituye el diagnó
 
 La alerta, su visualización y el control de acceso son comunes a las 8 apps de Lolium y están en el paquete
 [PREDWEEM/LOLIUM-COMUN](https://github.com/PREDWEEM/LOLIUM-COMUN), fijado por versión en `requirements.txt`
-(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.3.0`). En esta app, `alerta_lolmu.py`,
+(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.3.1`). En esta app, `alerta_lolmu.py`,
 `visualizacion_alerta_lolmu.py` y `acceso_predweem.py` son archivos puente que cargan ese paquete con los parámetros de este
 sitio (`alerta_lolmu_params.json`), que siguen acá. Los cambios a la alerta se hacen en LOLIUM-COMUN y llegan a la app al
 actualizar la versión en `requirements.txt`.
