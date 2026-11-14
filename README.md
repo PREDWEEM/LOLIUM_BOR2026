@@ -79,7 +79,7 @@ Combina, con la información disponible a la fecha de emisión:
 2. la **respuesta a las lluvias ya registradas** (modelo de pulsos ajustado con las campañas de *Lolium* de Bordenave:
    rezago gamma en tiempo térmico de suelo, mayor respuesta sobre suelo seco y tamaño del pulso según la época del año);
 3. opcionalmente, la **fecha en que se vieron las primeras plántulas** del lote (un solo dato por campaña), que además
-   ancla el reloj térmico de la ventana de control (600–800 °Cd);
+   ancla el reloj térmico de la ventana del graminicida de barbecho (600–800 °Cd);
 4. opcionalmente, los **conteos** del lote: se cargan en la sección de la alerta (tabla o planilla Excel/CSV con una
    columna «Fecha» y una por marco; se pueden elegir los marcos a usar).
 
@@ -94,10 +94,10 @@ y 2024 de las curvas históricas de PREDWEEM; 386 semanas, 97 flushes):
 
 Las probabilidades están calibradas. Con las mismas campañas, el motor PREDWEEM anticipa flushes con AUC ~0,70, pero
 su primer pico erró el inicio de la emergencia en 17–20 días en promedio (31 campañas); por eso el reloj térmico y la
-ventana de control se anclan solo en la fecha de las primeras plántulas observadas. Límites: un sitio, lotes sin labranza; no anticipa flushes sin lluvia registrada.
+ventana del graminicida de barbecho se anclan solo en la fecha de las primeras plántulas observadas. Límites: un sitio, lotes sin labranza; no anticipa flushes sin lluvia registrada.
 
 La barra lateral conserva solo los parámetros que usa la alerta: temperaturas base, óptima y crítica del tiempo
-térmico y los objetivos de la ventana de control (600 y 800 °Cd). Los parámetros del motor PREDWEEM quedan en sus
+térmico y los objetivos de la ventana del graminicida de barbecho (600 y 800 °Cd). Los parámetros del motor PREDWEEM quedan en sus
 valores por defecto.
 
 ## Curva acumulada en tiempo térmico desde las primeras plántulas
@@ -160,6 +160,19 @@ campañas, en mediana, emergió menos de 3 % de la campaña desde esa fecha, el 
 según el modelo; en <sitio> la emergencia suele cortarse antes»: la recalibración de tardíos se ajustó con Bordenave, donde
 la emergencia se extiende hasta el invierno, y en sitios donde se corta antes avisa de más (en Balcarce, en mayo de 2014,
 2025 y 2026, avisó 8 semanas y hubo 2 flujos tardíos). La probabilidad se sigue mostrando.
+
+## Qué hacer esta semana
+
+Arriba de la alerta, un recuadro resume las acciones de la semana según la fecha y los datos cargados: recorrer el lote ante
+un gran flujo probable o hasta ver las primeras plántulas; el momento del **graminicida de barbecho**; si conviene un
+**residual** a la siembra prevista y si hay lluvia para activarlo; y la recorrida de flujos tardíos. El mismo resumen va en el Excel.
+
+- **Graminicida de barbecho:** la ventana de 600–800 °Cd desde las primeras plántulas corresponde al raigrás de **4 a 6
+  macollos**, momento óptimo para intervenir con un graminicida de barbecho.
+- **Activación del residual:** suma la lluvia registrada y pronosticada en los 7 días desde la siembra; con 10 mm o más la
+  activación es probable (el mínimo exacto depende del producto).
+- **Julio:** la alerta no anticipa los flujos tardíos; la emergencia que acompaña a la siembra se controla con el residual,
+  y desde el 1/08 se recomienda recorrer los lotes cada 2 semanas.
 
 ## Residual a la siembra (guía de riesgo)
 
@@ -225,7 +238,7 @@ PREDWEEM es una herramienta de soporte para decisiones y no sustituye el diagnó
 
 La alerta, su visualización y el control de acceso son comunes a las 8 apps de Lolium y están en el paquete
 [PREDWEEM/LOLIUM-COMUN](https://github.com/PREDWEEM/LOLIUM-COMUN), fijado por versión en `requirements.txt`
-(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.3.3`). En esta app, `alerta_lolmu.py`,
+(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.4.0`). En esta app, `alerta_lolmu.py`,
 `visualizacion_alerta_lolmu.py` y `acceso_predweem.py` son archivos puente que cargan ese paquete con los parámetros de este
 sitio (`alerta_lolmu_params.json`), que siguen acá. Los cambios a la alerta se hacen en LOLIUM-COMUN y llegan a la app al
 actualizar la versión en `requirements.txt`.
