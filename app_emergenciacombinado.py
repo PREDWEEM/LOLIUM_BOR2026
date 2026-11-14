@@ -70,15 +70,15 @@ if _ini_lote >= 0 and _fin_lote > _ini_lote:
 _ini_lateral = _core_source.find('st.sidebar.markdown("## ⚙️ 2. Fisiología y Logística")')
 _fin_lateral = _core_source.find("# ---------------------------------------------------------\n# 6. MOTOR DE CÁLCULO", _ini_lateral) if _ini_lateral >= 0 else -1
 if _ini_lateral >= 0 and _fin_lateral > _ini_lateral:
-    _core_source = _core_source[:_ini_lateral] + """st.sidebar.markdown("## ⚙️ Ventana de control")
-st.sidebar.caption("Tiempo térmico sobre la temperatura media del aire y objetivos de la ventana post-emergente.")
+    _core_source = _core_source[:_ini_lateral] + """st.sidebar.markdown("## ⚙️ Graminicida de barbecho")
+st.sidebar.caption("Tiempo térmico sobre la temperatura media del aire y ventana del graminicida de barbecho (600–800 °Cd: raigrás de 4 a 6 macollos).")
 col_t1, col_t2 = st.sidebar.columns(2)
 with col_t1: t_base_val = st.number_input("T Base", value=2.0, step=0.5)
 with col_t2: t_opt_max = st.number_input("T Óptima Max", value=20.0, step=1.0)
 t_critica = st.sidebar.slider("T Crítica (Stop)", 26.0, 42.0, 30.0)
 st.sidebar.markdown("**Objetivos (°Cd)**")
-dga_optimo = st.sidebar.number_input("TT Control Post-emergente (°Cd)", value=600, step=10)
-dga_critico = st.sidebar.number_input("Límite Ventana (°Cd)", value=800, step=10)
+dga_optimo = st.sidebar.number_input("TT inicio de la ventana (4 macollos, °Cd)", value=600, step=10)
+dga_critico = st.sidebar.number_input("TT fin de la ventana (6 macollos, °Cd)", value=800, step=10)
 
 # parámetros del motor PREDWEEM en sus valores por defecto (controles retirados de la página)
 umbral_er = 0.0001
@@ -219,7 +219,7 @@ if isinstance(_resultados_alerta, dict) and _resultados_alerta:
     st.subheader("📥 Descarga de resultados")
     st.caption(
         "Excel con los resultados que muestra la app para la fecha de emisión elegida: resumen (nivel y probabilidad de "
-        "gran flujo, inicio y ventana de control 600–800 °Cd, emergencia acumulada esperada), alerta semanal, emergencia "
+        "gran flujo, inicio y ventana del graminicida de barbecho 600–800 °Cd, emergencia acumulada esperada), alerta semanal, emergencia "
         "acumulada con su rango, tiempo térmico diario desde el inicio, conteos usados, clima, parámetros y validación."
     )
     st.download_button(
