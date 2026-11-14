@@ -130,49 +130,26 @@ Validación con cada campaña de Bordenave predicha con el ajuste sin ella (incl
 con clima, 0,83 con primeras plántulas y 0,87 con conteos. En las ocho localidades de validación, sin reajustar: 0,89,
 0,92 y 0,93 (calendario solo, 0,89).
 
-## Aviso de flujos tardíos
+## Flujos tardíos
 
-Del 1 de mayo al 30 de junio la app muestra además la **probabilidad de flujos tardíos**: que en los próximos 7 días
-emerja al menos 2 % de la campaña. El aviso se da desde 20 %; sin datos del lote, desde 25 % (`tardia.umbral_tramos`).
-En esa época los grandes flujos (≥ 5 %) son raros, pero pocas plantas por semana importan para decidir la fecha de siembra.
-Es la misma alerta recalibrada por nivel de información (`tardia` en `alerta_lolmu_params.json`). Aparece en un recuadro
-debajo de la alerta y en la descarga en Excel.
-
-| Información | AUC Bordenave (17 campañas, 130 semanas de mayo–junio, 42 con ≥ 2 %) | Detectadas con el aviso | Semanas marcadas |
-|---|---|---|---|
-| Solo clima (aviso desde 25 %) | 0,57 | 67 % | 68 % |
-| + primeras plántulas | 0,79 | 90 % | 62 % |
-| + conteos semanales | 0,87 | 86 % | 51 % |
-
-Cada campaña se predijo con el ajuste sin ella. Sin datos del lote el aviso casi no distingue semanas: conviene cargar la
-fecha de primeras plántulas. En otras seis localidades (58 intervalos de mayo–junio, 10 con ≥ 2 % por semana) la AUC fue
-0,85 con primeras plántulas y 0,89 con conteos, con 90 % de detección; allí la probabilidad tiende a ser alta (30 % contra
-17 % observado).
-
-**Del 1 de julio al 1 de octubre no se muestra probabilidad**: en Bordenave (80 semanas, 11 con
-flujo tardío) no distinguió las semanas con emergencia (AUC 0,41–0,50), y bajar el umbral solo marcaba más semanas al
-azar. **Del 1 de agosto al 1 de octubre** (`tardia.recorrida`) la app recomienda **recorrer los lotes cada 2 semanas**
-para definir el uso de graminicida postemergente.
-
-En las apps con dos o más campañas propias (Bordenave, Tres Arroyos, Balcarce, San Pedro y Pergamino), el recuadro de
-flujos tardíos muestra además cuánto emergió **después de la fecha de emisión en cada campaña del sitio**. Si en esas
-campañas, en mediana, emergió menos de 3 % de la campaña desde esa fecha, el aviso se presenta como «Flujo tardío posible
-según el modelo; en <sitio> la emergencia suele cortarse antes»: la recalibración de tardíos se ajustó con Bordenave, donde
-la emergencia se extiende hasta el invierno, y en sitios donde se corta antes avisa de más (en Balcarce, en mayo de 2014,
-2025 y 2026, avisó 8 semanas y hubo 2 flujos tardíos). La probabilidad se sigue mostrando.
+Del **1 de agosto al 1 de octubre** la app recomienda **recorrer los lotes cada 2 semanas** para definir uso de graminicida
+postemergente (`tardia.recorrida`): en esa época la probabilidad de flujo tardío no distinguió las semanas con emergencia
+(AUC 0,41–0,50) y bajar el umbral solo marcaba más semanas al azar. Del 1/05 al 31/07 la emergencia que sigue a la siembra
+se evalúa con el **riesgo para el residual** (ver más abajo), por eso la app ya no muestra la probabilidad de flujos tardíos
+de mayo–junio (`tardia` sigue en los parámetros, sin uso en la pantalla).
 
 ## Qué hacer esta semana
 
 Arriba de la alerta, un recuadro resume las acciones de la semana según la fecha y los datos cargados: recorrer el lote ante
 un gran flujo probable o hasta ver las primeras plántulas; el momento del **graminicida de barbecho**; si conviene un
-**residual** a la siembra prevista y si hay lluvia para activarlo; y la recorrida de flujos tardíos. El mismo resumen va en el Excel.
+**residual** a la siembra prevista y si hay lluvia para activarlo; y la recorrida de flujos tardíos (1/08–1/10). El mismo resumen va en el Excel.
 
 - **Graminicida de barbecho:** la ventana de 600–800 °Cd desde las primeras plántulas corresponde al raigrás de **4 a 6
   macollos**, momento óptimo para intervenir con un graminicida de barbecho.
 - **Activación del residual:** suma la lluvia registrada y pronosticada en los 7 días desde la siembra; con 10 mm o más la
   activación es probable (el mínimo exacto depende del producto).
-- **Julio:** la alerta no anticipa los flujos tardíos; la emergencia que acompaña a la siembra se controla con el residual,
-  y desde el 1/08 se recomienda recorrer los lotes cada 2 semanas.
+- **Flujos tardíos:** solo del 1/08 al 1/10 (recorrida cada 2 semanas); antes, la emergencia posterior a la siembra se
+  evalúa con el riesgo para el residual.
 
 ## Residual a la siembra (guía de riesgo)
 
@@ -238,7 +215,7 @@ PREDWEEM es una herramienta de soporte para decisiones y no sustituye el diagnó
 
 La alerta, su visualización y el control de acceso son comunes a las 8 apps de Lolium y están en el paquete
 [PREDWEEM/LOLIUM-COMUN](https://github.com/PREDWEEM/LOLIUM-COMUN), fijado por versión en `requirements.txt`
-(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.4.0`). En esta app, `alerta_lolmu.py`,
+(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.4.1`). En esta app, `alerta_lolmu.py`,
 `visualizacion_alerta_lolmu.py` y `acceso_predweem.py` son archivos puente que cargan ese paquete con los parámetros de este
 sitio (`alerta_lolmu_params.json`), que siguen acá. Los cambios a la alerta se hacen en LOLIUM-COMUN y llegan a la app al
 actualizar la versión en `requirements.txt`.
