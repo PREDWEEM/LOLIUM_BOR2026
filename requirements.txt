@@ -12,4 +12,4 @@ xlrd>=2.0.1,<3
 openpyxl>=3.1,<4
 Authlib>=1.3.2
 httpx>=0.24.1
-lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@5b194f3069e057101442f9b9c68418648dc0fbf0  # v1.2.0
+lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@6a84d8e9207822bea98adcd0ae74e90b8e2ad1ac  # v1.3.0
