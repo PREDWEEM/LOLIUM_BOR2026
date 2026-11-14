@@ -136,8 +136,7 @@ Del 1 de mayo al 30 de junio la app muestra además la **probabilidad de flujos 
 emerja al menos 2 % de la campaña. El aviso se da desde 20 %; sin datos del lote, desde 25 % (`tardia.umbral_tramos`).
 En esa época los grandes flujos (≥ 5 %) son raros, pero pocas plantas por semana importan para decidir la fecha de siembra.
 Es la misma alerta recalibrada por nivel de información (`tardia` en `alerta_lolmu_params.json`). Aparece en un recuadro
-debajo de la alerta, en el **semáforo semanal** del gráfico (fila «Flujos tardíos»: violeta fuerte = flujo tardío probable;
-la fila «Grandes flujos» repite el nivel de cada semana) y en la descarga en Excel.
+debajo de la alerta y en la descarga en Excel.
 
 | Información | AUC Bordenave (17 campañas, 130 semanas de mayo–junio, 42 con ≥ 2 %) | Detectadas con el aviso | Semanas marcadas |
 |---|---|---|---|
@@ -153,8 +152,7 @@ fecha de primeras plántulas. En otras seis localidades (58 intervalos de mayo�
 **Del 1 de julio al 1 de octubre no se muestra probabilidad** (`tardia.recorrida`): en Bordenave (80 semanas, 11 con
 flujo tardío) no distinguió las semanas con emergencia (AUC 0,41–0,50), y bajar el umbral solo marcaba más semanas al
 azar. En su lugar, la app recomienda **recorrer los lotes cada 2 semanas**, sobre todo donde suele haber emergencia
-invernal (sudoeste bonaerense), antes de definir la fecha de siembra o un control. En el semáforo esas semanas aparecen
-en gris.
+invernal (sudoeste bonaerense), antes de definir la fecha de siembra o un control.
 
 En las apps con dos o más campañas propias (Bordenave, Tres Arroyos, Balcarce, San Pedro y Pergamino), el recuadro de
 flujos tardíos muestra además cuánto emergió **después de la fecha de emisión en cada campaña del sitio**. Si en esas
@@ -197,6 +195,11 @@ Debajo de las tarjetas se indica el valor de cada campaña del sitio y qué prop
 un **riesgo histórico, no una predicción de la campaña**: ni la fecha de primeras plántulas ni el clima anticiparon cuánta
 emergencia queda después de la siembra.
 
+En el gráfico, la segunda fila del **semáforo semanal** («Residual (siembra)») muestra, para cada semana del 1/05 al
+31/07, el riesgo para el residual si se siembra esa semana: rojo, alto o muy alto (≥ 20 pl/m²); amarillo, medio
+(5–20 pl/m²); verde, bajo (< 5 pl/m²), con la infestación del lote si se indicó. La fecha de siembra prevista se marca
+con una línea verde y una flecha con cartel.
+
 ## Datos de la campaña 2026
 
 `data/campania_2026/` guarda una copia fija de la emergencia de *Lolium* (planilla original y CSV por marco, sin y con
@@ -221,7 +224,7 @@ PREDWEEM es una herramienta de soporte para decisiones y no sustituye el diagnó
 
 La alerta, su visualización y el control de acceso son comunes a las 8 apps de Lolium y están en el paquete
 [PREDWEEM/LOLIUM-COMUN](https://github.com/PREDWEEM/LOLIUM-COMUN), fijado por versión en `requirements.txt`
-(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.2.0`). En esta app, `alerta_lolmu.py`,
+(`lolium-comun @ git+https://github.com/PREDWEEM/LOLIUM-COMUN@<commit>  # v1.3.0`). En esta app, `alerta_lolmu.py`,
 `visualizacion_alerta_lolmu.py` y `acceso_predweem.py` son archivos puente que cargan ese paquete con los parámetros de este
 sitio (`alerta_lolmu_params.json`), que siguen acá. Los cambios a la alerta se hacen en LOLIUM-COMUN y llegan a la app al
 actualizar la versión en `requirements.txt`.
