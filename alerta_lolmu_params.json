@@ -2446,7 +2446,7 @@
   ],
   "recorrida": {
    "desde": [
-    7,
+    8,
     1
    ],
    "hasta": [
@@ -2454,7 +2454,7 @@
     1
    ],
    "cada_dias": 14,
-   "texto": "Del 1/07 al 1/10 la alerta no anticipa los flujos tardíos: recorrer los lotes cada 2 semanas, sobre todo donde suele haber emergencia invernal (sudoeste bonaerense), antes de definir la fecha de siembra o un control.",
+   "texto": "Del 1/08 al 1/10 la alerta no anticipa los flujos tardíos: recorrer los lotes cada 2 semanas para definir uso de <b>graminicida postemergente</b>.",
    "evidencia": "Bordenave, 80 semanas del 1/07 al 1/10 con 11 flujos tardíos (≥ 2 %): AUC 0,41–0,50 según el nivel de información; con aviso desde 5–10 % se marcaban 40–78 % de las semanas con 9–15 % de aciertos, igual que el azar."
   }
  },
