@@ -2372,7 +2372,7 @@
    "vis_ate": 0.51
   }
  },
- "fuente": "Calibrado con campañas de Lolium multiflorum sin remoción: 2015, 2017–2022 y 2026 (conteos semanales del ensayo de Bordenave) y 2008–2014, 2023 y 2024 (curvas históricas de PREDWEEM agregadas por semana; lluvia ERA5 en 2023–2024). 386 semanas, 97 flushes (≥ 5 % de la campaña en 7 días). Validación dejando cada campaña afuera. Señal de lluvia con el núcleo de pulsos ajustado a estas campañas de Lolium multiflorum.",
+ "fuente": "Calibrado con campañas de Lolium multiflorum sin remoción: 2015, 2017–2022 y 2026 (conteos semanales de ensayo) y 2008–2014, 2023 y 2024 (curvas históricas de PREDWEEM agregadas por semana; lluvia ERA5 en 2023–2024). 386 semanas, 97 flushes (≥ 5 % de la campaña en 7 días). Validación dejando cada campaña afuera. Señal de lluvia con el núcleo de pulsos ajustado a estas campañas de Lolium multiflorum.",
  "tardia": {
   "descripcion": "Probabilidad de emergencia tardía: que en los próximos 7 días emerja al menos 2 % de la emergencia de la campaña. Se calcula del 1/05 al 30/06 recalibrando la probabilidad de flush: logit(p_tardía) = a + b·logit(p_flush), con a y b por nivel de información (1 solo clima, 2 + primeras plántulas, 3 + conteos). Aviso desde 20 % (25 % sin datos del lote). Del 1/07 al 1/10 la probabilidad no distinguió las semanas con emergencia, por eso se reemplaza por una recomendación fija de recorrida (recorrida).",
   "coef": {
@@ -2419,7 +2419,7 @@
     "marcadas": 0.47
    }
   },
-  "fuente": "Campañas de Bordenave, semanas del 1/05 al 30/06 (130 semanas, 42 con ≥ 2 %), cada campaña predicha con el ajuste sin ella (también el núcleo de lluvia); verificado en Lartigau, Tres Arroyos, Azul, Olavarría, Balcarce y Pergamino (58 intervalos entre conteos, 10 con ≥ 2 % por semana).",
+  "fuente": "Campañas de calibración, semanas del 1/05 al 30/06 (130 semanas, 42 con ≥ 2 %), cada campaña predicha con el ajuste sin ella (también el núcleo de lluvia); verificado en Lartigau, Tres Arroyos, Azul, Olavarría, Balcarce y Pergamino (58 intervalos entre conteos, 10 con ≥ 2 % por semana).",
   "desde": [
    5,
    1
