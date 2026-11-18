@@ -110,6 +110,8 @@ térmico y los objetivos de la ventana del graminicida de barbecho (600 y 800 °
 
 ## Curva acumulada en tiempo térmico desde las primeras plántulas
 
+**Forma Weibull (noviembre de 2026, LOLIUM-COMUN 1.11.0).** La curva en tiempo térmico ya no es la media de las campañas de Bordenave: es una Weibull que arranca en 0 % en las primeras plántulas y llega al 50 % a los 357 °Cd (25/75/90 % a 181/610/903 °Cd; banda 10–90 % con el 50 % a 611 y 192 °Cd). Se ajustó con 38 campañas (Bordenave, apps, UBA y Red DIMA) y, dejando cada una afuera, bajó el error del acumulado de 13,7 a 12,8 puntos (sitios de las apps: 12,7 → 11,0) y la banda pasó a cubrir el 63 % de los conteos (antes 43 %). La tabla de abajo corresponde a la curva anterior.
+
 Cuando se informa la fecha de las primeras plántulas (o hay un primer conteo con plántulas), la curva de emergencia
 acumulada deja de seguir el calendario y sigue el **tiempo térmico acumulado desde esa fecha** (media y rango 10–90 % de
 17 campañas de Bordenave, `curva_tt` en `alerta_lolmu_params.json`); más allá del clima disponible se suman temperaturas
